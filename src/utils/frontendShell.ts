@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import type { RequestHandler } from 'express';
 import type { ResourceTarget } from './oauthConsentResource.js';
 import { logger } from './logger.js';
+import { normalizeBasePath } from './basePath.js';
 
 /**
  * Shared holder for the frontend dist directory.
@@ -73,6 +75,44 @@ function escapeHtmlAttribute(value: string): string {
 }
 
 /**
+ * Put `<base href="<basePath>/">` first in `<head>`. The built `index.html` references its
+ * assets as `./assets/...`, which resolve against the current URL, so any page served from a
+ * nested path (`/services/<name>`, `/market/<name>`, `/oauth/authorize`) would otherwise load
+ * them from the wrong directory and get the shell back instead of the scripts.
+ */
+export function injectBaseHref(html: string, basePath: string): string {
+  const baseTag = `<base href="${escapeHtmlAttribute(`${basePath}/`)}">`;
+  return html.replace(/<head([^>]*)>/i, (headTag) => `${headTag}${baseTag}`);
+}
+
+/**
+ * The SPA shell from `dir`, with the `<base>` for `basePath` injected, or `null` when the
+ * build has no readable `index.html`.
+ */
+export function readSpaShell(dir: string, basePath: string): string | null {
+  try {
+    return injectBaseHref(fs.readFileSync(path.join(dir, 'index.html'), 'utf8'), basePath);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The SPA fallback: every page of the app gets the shell with its `<base>`, so nested routes
+ * load the assets from the app root.
+ */
+export const spaShellHandler =
+  (dir: string, basePath: string): RequestHandler =>
+  (_req, res) => {
+    const shell = readSpaShell(dir, basePath);
+    if (shell === null) {
+      res.sendFile(path.join(dir, 'index.html'));
+      return;
+    }
+    res.type('html').send(shell);
+  };
+
+/**
  * Inject the OAuth consent context into the built SPA shell and return the
  * resulting HTML document, or `null` when no frontend build is available.
  *
@@ -108,23 +148,12 @@ export function injectOAuthConsentShell(context: OAuthConsentContext): string | 
   }
 
   // BASE_PATH mirrors src/config/index.ts (the only source of basePath).
-  const basePath = process.env.BASE_PATH || '';
-  const baseHref = `${basePath}/`;
-  const baseTag = `<base href="${escapeHtmlAttribute(baseHref)}">`;
+  html = injectBaseHref(html, normalizeBasePath(process.env.BASE_PATH));
 
   // Neutralize `</script>` / `<!--` so the serialized context cannot break out
   // of the inline script element.
   const safeJson = JSON.stringify(context).replace(/</g, '\\u003c');
   const contextScript = `<script>window.__OAUTH_CONSENT_CONTEXT__ = ${safeJson};</script>`;
-
-  // `<base>` must precede every relative resource reference, so place it
-  // directly after the opening <head> tag (index.html uses a plain `<head>`).
-  const headRe = /<head([^>]*)>/i;
-  const headMatch = html.match(headRe);
-  if (headMatch) {
-    const headTag = headMatch[0];
-    html = html.replace(headTag, `${headTag}${baseTag}`);
-  }
 
   // Inject the context script at the end of <head>, before the deferred module
   // entry executes, so the SPA always sees it after boot.

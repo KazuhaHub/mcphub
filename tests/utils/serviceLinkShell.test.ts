@@ -45,6 +45,21 @@ describe('serviceLinkShellMiddleware', () => {
     expect((await request(app).get('/services/mcp').set('Accept', html)).status).toBe(404);
   });
 
+  it('injects the <base> so the shell loads ./assets from the app root', async () => {
+    const withHead = fs.mkdtempSync(path.join(os.tmpdir(), 'shell-head-'));
+    try {
+      fs.writeFileSync(path.join(withHead, 'index.html'), '<html><head></head></html>');
+      const response = await request(build('/hub', withHead))
+        .get('/hub/services/mcp')
+        .set('Accept', html)
+        .expect(200);
+      expect(response.text).toBe('<html><head><base href="/hub/"></head></html>');
+      expect(response.headers['content-type']).toMatch(/^text\/html/);
+    } finally {
+      fs.rmSync(withHead, { recursive: true, force: true });
+    }
+  });
+
   it('leaves MCP clients of a user named "services" alone', async () => {
     const app = build();
     await request(app).get('/services/mcp').set('Accept', 'text/event-stream').expect(200, 'mcp');
