@@ -31,7 +31,7 @@ import { initOAuthServer } from './services/oauthServerService.js';
 import { safeStringify } from './utils/serialization.js';
 import { resolveTrustProxySetting } from './utils/proxyTrust.js';
 import { resolveCorsOrigin } from './utils/corsOrigin.js';
-import { setFrontendDistPath } from './utils/frontendShell.js';
+import { setFrontendDistPath, spaShellHandler } from './utils/frontendShell.js';
 import { serviceLinkShellMiddleware } from './utils/serviceLinkShell.js';
 import http from 'http';
 import type { Socket } from 'net';
@@ -265,9 +265,11 @@ export class AppServer {
 
       // Add the wildcard route for SPA with base path
       if (fs.existsSync(path.join(this.frontendPath, 'index.html'))) {
-        this.app.get(`${this.basePath}/*`, spaPageRateLimiter, (_req, res) => {
-          res.sendFile(path.join(this.frontendPath!, 'index.html'));
-        });
+        this.app.get(
+          `${this.basePath}/*`,
+          spaPageRateLimiter,
+          spaShellHandler(this.frontendPath, this.basePath),
+        );
 
         // Also handle root redirect if base path is set
         if (this.basePath) {

@@ -1,6 +1,5 @@
-import fs from 'fs';
-import path from 'path';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import { readSpaShell } from './frontendShell.js';
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -26,16 +25,16 @@ export const serviceLinkShellMiddleware = (
     res.vary('Accept');
     const accept = String(req.headers.accept || '');
     const shellDir = getShellDir();
-    const shell = shellDir ? path.join(shellDir, 'index.html') : null;
-    if (!accept.includes('text/html') || accept.includes('text/event-stream') || !shell) {
+    if (!accept.includes('text/html') || accept.includes('text/event-stream') || !shellDir) {
       next();
       return;
     }
-    if (!fs.existsSync(shell)) {
+    const shell = readSpaShell(shellDir, basePath);
+    if (shell === null) {
       next();
       return;
     }
     // The same budget as any other page of the app shell; MCP clients never reach it.
-    limiter(req, res, () => res.sendFile(shell));
+    limiter(req, res, () => res.type('html').send(shell));
   };
 };
