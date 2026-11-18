@@ -3,6 +3,7 @@ import { AuthState } from '../types';
 import * as authService from '../services/authService';
 import { getPublicConfig } from '../services/configService';
 import { signInWithPasskey, type PasskeySignInResult } from '../services/passkeyService';
+import { clearLoggedOut } from '../utils/loginPresentation';
 
 // Initial auth state
 const initialState: AuthState = {
@@ -33,6 +34,12 @@ const AuthContext = createContext<{
 // Auth provider component
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [auth, setAuth] = useState<AuthState>(initialState);
+
+  // Any successful sign-in (password, passkey, or an SSO session found on load) lifts the logout
+  // mark that holds automatic SSO redirects in every tab
+  useEffect(() => {
+    if (auth.isAuthenticated) clearLoggedOut();
+  }, [auth.isAuthenticated]);
 
   // Load user if token exists
   useEffect(() => {

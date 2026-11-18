@@ -117,7 +117,7 @@ describe('LoginMethods', () => {
       expect(render({ view: 'sso_first', blockedBy })).toContain(note);
     });
 
-    it.each(['local', 'returnUrl', 'cancelled'] as const)('adds no note for %s', (blockedBy) => {
+    it.each(['local', 'noStorage', 'cancelled'] as const)('adds no note for %s', (blockedBy) => {
       expect(render({ view: 'sso_first', blockedBy })).not.toContain('login-redirect-note');
     });
 

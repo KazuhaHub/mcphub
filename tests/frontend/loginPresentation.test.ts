@@ -5,6 +5,9 @@ import {
   markLoggedOut,
   readLoginGuards,
   recordAutoRedirect,
+  AUTO_REDIRECT_AT_KEY,
+  LOGGED_OUT_AT_KEY,
+  LOGOUT_GUARD_MS,
   type LoginPresentationInput,
 } from '../../frontend/src/utils/loginPresentation';
 
@@ -64,8 +67,7 @@ describe('decideLoginPresentation', () => {
     ['?local=1', 'local'],
     ['?local', 'local'],
     ['?error=access_denied', 'error'],
-    ['?returnUrl=%2Foauth%2Fauthorize%3Fclient_id%3Dx', 'returnUrl'],
-    ['?returnUrl=%2Fservices%2Fdemo', 'returnUrl'],
+    ['?returnUrl=%2Foauth%2Fauthorize%3Fclient_id%3Dx&error=access_denied', 'error'],
   ])('does not redirect with %s', (search, blockedBy) => {
     expect(decide({ search })).toMatchObject({
       view: 'sso_first',
@@ -73,6 +75,13 @@ describe('decideLoginPresentation', () => {
       blockedBy,
     });
   });
+
+  it.each(['?returnUrl=%2Foauth%2Fauthorize%3Fclient_id%3Dx', '?returnUrl=%2Fservices%2Fdemo'])(
+    'still redirects with %s, which travels as the callback path',
+    (search) => {
+      expect(decide({ search })).toMatchObject({ view: 'redirecting', autoRedirectTo: 'oidc' });
+    },
+  );
 
   it('expands the password section with ?local in every mode', () => {
     for (const loginMode of ['dual', 'sso_first', 'sso_redirect']) {
@@ -115,17 +124,30 @@ describe('decideLoginPresentation', () => {
   });
 });
 
-describe('login guards in sessionStorage', () => {
-  const store = new Map<string, string>();
-  const sessionStorage = {
-    getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, value: string) => void store.set(key, value),
-    removeItem: (key: string) => void store.delete(key),
+describe('login guards in browser storage', () => {
+  const makeStore = () => {
+    const map = new Map<string, string>();
+    return {
+      map,
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => void map.set(key, value),
+      removeItem: (key: string) => void map.delete(key),
+    };
+  };
+  let session = makeStore();
+  let local = makeStore();
+  const throwing = {
+    getItem: () => null,
+    setItem: () => {
+      throw new Error('QuotaExceededError');
+    },
+    removeItem: () => undefined,
   };
 
   beforeEach(() => {
-    store.clear();
-    (globalThis as { window?: unknown }).window = { sessionStorage };
+    session = makeStore();
+    local = makeStore();
+    (globalThis as { window?: unknown }).window = { sessionStorage: session, localStorage: local };
   });
 
   afterAll(() => {
@@ -133,24 +155,34 @@ describe('login guards in sessionStorage', () => {
   });
 
   it('starts with no guard set', () => {
-    expect(readLoginGuards()).toEqual({
+    expect(readLoginGuards(NOW)).toEqual({
       loggedOut: false,
       lastAutoRedirectAt: null,
       storageAvailable: true,
     });
   });
 
-  it('remembers a logout until it is cleared', () => {
-    markLoggedOut();
-    expect(readLoginGuards().loggedOut).toBe(true);
+  it('keeps the logout mark in localStorage, shared by every tab, until it is cleared', () => {
+    markLoggedOut(NOW);
+    expect(local.map.get(LOGGED_OUT_AT_KEY)).toBe(String(NOW));
+    expect(session.map.size).toBe(0);
+    expect(readLoginGuards(NOW + 1000).loggedOut).toBe(true);
     clearLoggedOut();
-    expect(readLoginGuards().loggedOut).toBe(false);
+    expect(readLoginGuards(NOW + 1000).loggedOut).toBe(false);
   });
 
-  it('records the last automatic redirect, and keeps it when the logout flag is cleared', () => {
-    recordAutoRedirect(NOW);
+  it('lets the logout mark lapse after five minutes, and ignores one from the future', () => {
+    markLoggedOut(NOW);
+    expect(readLoginGuards(NOW + LOGOUT_GUARD_MS - 1).loggedOut).toBe(true);
+    expect(readLoginGuards(NOW + LOGOUT_GUARD_MS).loggedOut).toBe(false);
+    expect(readLoginGuards(NOW - 60_000).loggedOut).toBe(false);
+  });
+
+  it('records the last automatic redirect per tab, and keeps it when the logout mark is cleared', () => {
+    expect(recordAutoRedirect(NOW)).toBe(true);
+    expect(session.map.get(AUTO_REDIRECT_AT_KEY)).toBe(String(NOW));
     clearLoggedOut();
-    expect(readLoginGuards().lastAutoRedirectAt).toBe(NOW);
+    expect(readLoginGuards(NOW).lastAutoRedirectAt).toBe(NOW);
   });
 
   it('reports unavailable storage, without throwing, and refuses to record a redirect', () => {
@@ -158,9 +190,12 @@ describe('login guards in sessionStorage', () => {
       get sessionStorage() {
         throw new Error('SecurityError');
       },
+      get localStorage() {
+        throw new Error('SecurityError');
+      },
     };
-    expect(() => markLoggedOut()).not.toThrow();
-    expect(readLoginGuards()).toEqual({
+    expect(() => markLoggedOut(NOW)).not.toThrow();
+    expect(readLoginGuards(NOW)).toEqual({
       loggedOut: false,
       lastAutoRedirectAt: null,
       storageAvailable: false,
@@ -168,21 +203,17 @@ describe('login guards in sessionStorage', () => {
     expect(recordAutoRedirect(NOW)).toBe(false);
   });
 
-  it('treats storage that throws on write (quota, blocked) as unavailable', () => {
-    (globalThis as { window?: unknown }).window = {
-      sessionStorage: {
-        getItem: () => null,
-        setItem: () => {
-          throw new Error('QuotaExceededError');
-        },
-        removeItem: () => undefined,
-      },
-    };
-    expect(readLoginGuards().storageAvailable).toBe(false);
+  it('treats sessionStorage that throws on write as unavailable', () => {
+    (globalThis as { window?: unknown }).window = { sessionStorage: throwing, localStorage: local };
+    expect(readLoginGuards(NOW).storageAvailable).toBe(false);
     expect(recordAutoRedirect(NOW)).toBe(false);
   });
 
-  it('confirms a recorded redirect', () => {
-    expect(recordAutoRedirect(NOW)).toBe(true);
+  it('treats localStorage that cannot hold the logout mark as unavailable', () => {
+    (globalThis as { window?: unknown }).window = {
+      sessionStorage: session,
+      localStorage: throwing,
+    };
+    expect(readLoginGuards(NOW).storageAvailable).toBe(false);
   });
 });

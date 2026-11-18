@@ -12,10 +12,9 @@ export type LoginView = 'dual' | 'sso_first' | 'redirecting';
 export type AutoRedirectBlock =
   | 'local' // ?local: the emergency way to the password form
   | 'error' // ?error: the previous SSO attempt came back with an error
-  | 'returnUrl' // a return target (OAuth consent, service link) is in progress
-  | 'loggedOut' // the user signed out in this tab
+  | 'loggedOut' // the user signed out, in any tab, within the last five minutes
   | 'recentAttempt' // this tab already auto-redirected a moment ago
-  | 'noStorage' // sessionStorage is unavailable, so the cooldown cannot be recorded
+  | 'noStorage' // browser storage is unavailable, so the guards cannot be recorded
   | 'cancelled'; // the user chose another sign-in method on the redirect screen
 
 export interface LoginPresentation {
@@ -30,7 +29,10 @@ export interface LoginPresentation {
 export interface LoginGuardState {
   loggedOut: boolean;
   lastAutoRedirectAt: number | null;
-  /** sessionStorage can be written. Without it the cooldown cannot hold, so no auto-redirect. */
+  /**
+   * sessionStorage (cooldown) and localStorage (logout mark) can both be written. Without them
+   * the guards cannot hold, so no auto-redirect.
+   */
   storageAvailable: boolean;
 }
 
@@ -46,9 +48,13 @@ export interface LoginPresentationInput {
 
 /** Long enough to cover a bounce back from the identity provider, short enough not to annoy. */
 export const AUTO_REDIRECT_COOLDOWN_MS = 2 * 60 * 1000;
+/** How long a logout keeps every tab from signing straight back in through the provider. */
+export const LOGOUT_GUARD_MS = 5 * 60 * 1000;
 
-const LOGGED_OUT_KEY = 'mcphub.login.loggedOut';
-const AUTO_REDIRECT_AT_KEY = 'mcphub.login.autoRedirectAt';
+// Shared by all tabs (localStorage): a logout in one tab holds the others too
+export const LOGGED_OUT_AT_KEY = 'mcphub.login.loggedOutAt';
+// Per tab (sessionStorage): the redirect loop breaker
+export const AUTO_REDIRECT_AT_KEY = 'mcphub.login.autoRedirectAt';
 
 const normalizeLoginMode = (value: unknown): LoginMode =>
   value === 'sso_first' || value === 'sso_redirect' ? value : 'dual';
@@ -77,7 +83,8 @@ export const decideLoginPresentation = ({
   // sso_redirect: every guard below must pass before leaving the page on the user's behalf
   if (forceLocal) return ssoFirst('local');
   if (params.has('error')) return ssoFirst('error');
-  if (params.has('returnUrl')) return ssoFirst('returnUrl');
+  // A ?returnUrl (OAuth authorization, service link) does not stop the redirect: it travels
+  // through the provider as the callback path. ?error on the way back does stop it.
   if (cancelled) return ssoFirst('cancelled');
   if (guards.loggedOut) return ssoFirst('loggedOut');
   if (!guards.storageAvailable) return ssoFirst('noStorage');
@@ -91,72 +98,78 @@ export const decideLoginPresentation = ({
   return { view: 'redirecting', autoRedirectTo: ssoProviders[0], blockedBy: null, forceLocal };
 };
 
-// sessionStorage is per tab and may be unavailable (blocked storage, some embedded browsers):
-// every access is wrapped. Unavailable storage fails safe: readLoginGuards reports it and the page
-// does not auto-redirect at all, because the cooldown that stops a loop could not be recorded.
-const storage = (): Storage | null => {
+// Browser storage may be unavailable (blocked storage, some embedded browsers): every access is
+// wrapped. Unavailable storage fails safe: readLoginGuards reports it and the page does not
+// auto-redirect at all, because the marks that stop a loop could not be recorded.
+type StorageKind = 'sessionStorage' | 'localStorage';
+
+const storage = (kind: StorageKind): Storage | null => {
   try {
-    return typeof window !== 'undefined' ? window.sessionStorage : null;
+    return typeof window !== 'undefined' ? window[kind] : null;
   } catch {
     return null;
   }
 };
 
-const write = (key: string, value: string | null): void => {
+const write = (kind: StorageKind, key: string, value: string | null): boolean => {
   try {
-    const store = storage();
-    if (!store) return;
+    const store = storage(kind);
+    if (!store) return false;
     if (value === null) store.removeItem(key);
     else store.setItem(key, value);
-  } catch {
-    // ignore
-  }
-};
-
-const PROBE_KEY = 'mcphub.login.probe';
-
-const storageWritable = (store: Storage | null): boolean => {
-  if (!store) return false;
-  try {
-    store.setItem(PROBE_KEY, '1');
-    const ok = store.getItem(PROBE_KEY) === '1';
-    store.removeItem(PROBE_KEY);
-    return ok;
+    return store.getItem(key) === value;
   } catch {
     return false;
   }
 };
 
-export const readLoginGuards = (): LoginGuardState => {
+const read = (kind: StorageKind, key: string): string | null => {
   try {
-    const store = storage();
-    const at = Number(store?.getItem(AUTO_REDIRECT_AT_KEY));
-    return {
-      loggedOut: store?.getItem(LOGGED_OUT_KEY) === '1',
-      lastAutoRedirectAt: Number.isFinite(at) && at > 0 ? at : null,
-      storageAvailable: storageWritable(store),
-    };
+    return storage(kind)?.getItem(key) ?? null;
   } catch {
-    return { loggedOut: false, lastAutoRedirectAt: null, storageAvailable: false };
+    return null;
   }
 };
 
-/** Set on logout, so the login page that follows does not sign the user straight back in. */
-export const markLoggedOut = (): void => write(LOGGED_OUT_KEY, '1');
+const PROBE_KEY = 'mcphub.login.probe';
+const writable = (kind: StorageKind): boolean => {
+  const ok = write(kind, PROBE_KEY, '1');
+  write(kind, PROBE_KEY, null);
+  return ok;
+};
 
-/** Cleared once the user signs in or starts SSO on purpose. */
-export const clearLoggedOut = (): void => write(LOGGED_OUT_KEY, null);
+const timestamp = (value: string | null): number | null => {
+  const at = Number(value);
+  return Number.isFinite(at) && at > 0 ? at : null;
+};
+
+export const readLoginGuards = (now: number = Date.now()): LoginGuardState => {
+  const loggedOutAt = timestamp(read('localStorage', LOGGED_OUT_AT_KEY));
+  return {
+    // A mark from the future (clock change) is ignored rather than holding forever
+    loggedOut: loggedOutAt !== null && now >= loggedOutAt && now - loggedOutAt < LOGOUT_GUARD_MS,
+    lastAutoRedirectAt: timestamp(read('sessionStorage', AUTO_REDIRECT_AT_KEY)),
+    storageAvailable: writable('sessionStorage') && writable('localStorage'),
+  };
+};
+
+/**
+ * Set on logout, in every tab's view, so no login page signs the user straight back in through
+ * the provider for five minutes. MCPHub does not sign out of the provider itself.
+ */
+export const markLoggedOut = (now: number = Date.now()): void => {
+  write('localStorage', LOGGED_OUT_AT_KEY, String(now));
+};
+
+/** Cleared on any successful sign-in, or when the user starts SSO on purpose. */
+export const clearLoggedOut = (): void => {
+  write('localStorage', LOGGED_OUT_AT_KEY, null);
+};
 
 /**
  * Recorded before every automatic redirect. It is deliberately not cleared on sign-in, so a
  * sign-in that succeeds at the provider but bounces back to the login page cannot loop.
  * Returns false when it could not be stored; the caller must then not redirect.
  */
-export const recordAutoRedirect = (now: number): boolean => {
-  write(AUTO_REDIRECT_AT_KEY, String(now));
-  try {
-    return storage()?.getItem(AUTO_REDIRECT_AT_KEY) === String(now);
-  } catch {
-    return false;
-  }
-};
+export const recordAutoRedirect = (now: number): boolean =>
+  write('sessionStorage', AUTO_REDIRECT_AT_KEY, String(now));

@@ -48,16 +48,16 @@ jest.mock('../../frontend/src/services/betterAuthClient', () => ({
   createBetterAuthClient: jest.fn(),
 }));
 
-const LOGGED_OUT_KEY = 'mcphub.login.loggedOut';
+const LOGGED_OUT_AT_KEY = 'mcphub.login.loggedOutAt';
 const AUTO_REDIRECT_AT_KEY = 'mcphub.login.autoRedirectAt';
 
-const publicConfig = (loginMode: string) => ({
+const publicConfig = (loginMode: string, disablePasswordLogin = false) => ({
   skipAuth: false,
   allowRegistration: false,
   betterAuth: {
     enabled: true,
     basePath: '/api/auth/better',
-    disablePasswordLogin: false,
+    disablePasswordLogin,
     loginMode,
     providers: {
       google: { enabled: false },
@@ -92,6 +92,7 @@ beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
   window.sessionStorage.clear();
+  window.localStorage.clear();
   mockGetPublicConfig.mockResolvedValue(publicConfig('sso_redirect'));
   // By default the sign-in request stays in flight, as while the browser leaves the page
   mockStartOidcLogin.mockReturnValue(new Promise(() => undefined));
@@ -200,7 +201,7 @@ describe('LoginPage', () => {
   });
 
   it('does not redirect after logout, and clears the logout mark on a successful sign-in', async () => {
-    window.sessionStorage.setItem(LOGGED_OUT_KEY, '1');
+    window.localStorage.setItem(LOGGED_OUT_AT_KEY, String(Date.now()));
     mockLogin.mockResolvedValue({ success: true });
     await renderPage();
     await advance(5000);
@@ -214,16 +215,115 @@ describe('LoginPage', () => {
       fireEvent.submit(screen.getByLabelText('auth.username').closest('form')!);
     });
     expect(mockLogin).toHaveBeenCalledWith('admin', 'secret');
-    expect(window.sessionStorage.getItem(LOGGED_OUT_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LOGGED_OUT_AT_KEY)).toBeNull();
+  });
+
+  it('lets a logout mark older than five minutes lapse', async () => {
+    window.localStorage.setItem(LOGGED_OUT_AT_KEY, String(Date.now() - 6 * 60 * 1000));
+    await renderPage();
+    await advance(1000);
+    expect(mockStartOidcLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not redirect when localStorage cannot hold the logout mark', async () => {
+    const original = Storage.prototype.setItem;
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (this === window.localStorage) throw new Error('QuotaExceededError');
+      original.call(this, key, value);
+    });
+    await renderPage();
+    await advance(5000);
+    expect(mockStartOidcLogin).not.toHaveBeenCalled();
+    expect(view()).toBe('sso_first');
+  });
+
+  describe('OAuth authorization round trip', () => {
+    const authorize =
+      '/oauth/authorize?client_id=claude&redirect_uri=https%3A%2F%2Fclaude.ai%2Fcb&state=s1';
+    const search = `?returnUrl=${encodeURIComponent(`${authorize}&token=stale`)}`;
+
+    it('redirects straight to the provider and returns to the authorize URL, without the token', async () => {
+      await renderPage(search);
+      expect(view()).toBe('redirecting');
+      await advance(1000);
+      expect(mockStartOidcLogin).toHaveBeenCalledTimes(1);
+      const options = mockStartOidcLogin.mock.calls[0][0] as {
+        callbackURL: string;
+        errorCallbackURL: string;
+      };
+      expect(options.callbackURL).toBe(authorize);
+      // A failure comes back to the login page with the same target, plus ?error from the server
+      expect(options.errorCallbackURL).toBe(
+        `/login?returnUrl=${encodeURIComponent(`${authorize}&token=stale`)}`,
+      );
+    });
+
+    it('stops on an SSO error on the way back, and the button still carries the target', async () => {
+      await renderPage(`${search}&error=access_denied`);
+      await advance(5000);
+      expect(mockStartOidcLogin).not.toHaveBeenCalled();
+      expect(view()).toBe('sso_first');
+      expect(screen.getByText('auth.socialLoginFailed')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('login-sso-oidc'));
+      });
+      expect(mockStartOidcLogin).toHaveBeenCalledWith(
+        expect.objectContaining({ callbackURL: authorize }),
+      );
+    });
+
+    it.each(['https://evil.example/oauth/authorize', '//evil.example/x', 'javascript:alert(1)'])(
+      'never carries a foreign return target (%s)',
+      async (target) => {
+        await renderPage(`?returnUrl=${encodeURIComponent(target)}`);
+        await advance(1000);
+        expect(mockStartOidcLogin).toHaveBeenCalledWith(
+          expect.objectContaining({ callbackURL: '/', errorCallbackURL: '/login' }),
+        );
+      },
+    );
+  });
+
+  describe('the unlinked ?local=1 entry while password login is disabled', () => {
+    beforeEach(() => {
+      mockGetPublicConfig.mockResolvedValue(publicConfig('sso_redirect', true));
+    });
+
+    it('shows no password form or link on the normal page', async () => {
+      window.localStorage.setItem(LOGGED_OUT_AT_KEY, String(Date.now()));
+      await renderPage();
+      expect(screen.queryByLabelText('auth.username')).toBeNull();
+      expect(screen.queryByTestId('login-show-password')).toBeNull();
+    });
+
+    it('shows the password form, does not redirect, and leaves the decision to the server', async () => {
+      mockLogin.mockResolvedValue({ success: false, message: 'Password login is disabled.' });
+      await renderPage('?local=1');
+      await advance(5000);
+      expect(mockStartOidcLogin).not.toHaveBeenCalled();
+      fireEvent.change(screen.getByLabelText('auth.username'), { target: { value: 'mallory' } });
+      fireEvent.change(screen.getByLabelText('auth.password'), { target: { value: 'guess' } });
+      await act(async () => {
+        fireEvent.submit(screen.getByLabelText('auth.username').closest('form')!);
+      });
+      expect(mockLogin).toHaveBeenCalledWith('mallory', 'guess');
+      // The generic failure, whatever the server's reason
+      expect(screen.getByText('auth.loginFailed')).toBeTruthy();
+    });
   });
 
   it('clears the logout mark when the user starts SSO on purpose', async () => {
-    window.sessionStorage.setItem(LOGGED_OUT_KEY, '1');
+    window.localStorage.setItem(LOGGED_OUT_AT_KEY, String(Date.now()));
     await renderPage();
     await act(async () => {
       fireEvent.click(screen.getByTestId('login-sso-oidc'));
     });
     expect(mockStartOidcLogin).toHaveBeenCalledTimes(1);
-    expect(window.sessionStorage.getItem(LOGGED_OUT_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LOGGED_OUT_AT_KEY)).toBeNull();
   });
 });

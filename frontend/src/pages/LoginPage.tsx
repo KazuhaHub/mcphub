@@ -221,6 +221,14 @@ const LoginPage: React.FC = () => {
     }
   };
 
+  // The return target survives the provider round trip as a same-origin path (sanitizeReturnUrl
+  // above; an OAuth authorize URL also loses any leftover token). A failure comes back to the login
+  // page with the same target plus ?error, which stops any automatic redirect.
+  const ssoCallbackURL = returnUrl ? buildOAuthReturnTarget(returnUrl) : '/';
+  const ssoErrorCallbackURL = returnUrl
+    ? `${getBasePath()}/login?returnUrl=${encodeURIComponent(returnUrl)}`
+    : `${getBasePath()}/login`;
+
   const handleSocialLogin = async (provider: SocialProvider, automatic = false) => {
     setSocialError(null);
     setSocialLoading(provider);
@@ -229,8 +237,8 @@ const LoginPage: React.FC = () => {
       if (provider === 'oidc') {
         await startOidcLogin({
           providerId: oidcProviderId,
-          callbackURL: returnUrl || '/',
-          errorCallbackURL: `${getBasePath()}/login`,
+          callbackURL: ssoCallbackURL,
+          errorCallbackURL: ssoErrorCallbackURL,
           basePathOverride: betterAuthBasePath,
         });
         return;
@@ -239,8 +247,8 @@ const LoginPage: React.FC = () => {
       const client = createBetterAuthClient(betterAuthBasePath);
       await client.signIn.social({
         provider,
-        callbackURL: returnUrl || '/',
-        errorCallbackURL: `${getBasePath()}/login`,
+        callbackURL: ssoCallbackURL,
+        errorCallbackURL: ssoErrorCallbackURL,
       });
     } catch (err) {
       console.error('Social login error:', err);
@@ -399,7 +407,9 @@ const LoginPage: React.FC = () => {
             <LoginMethods
               view={presentation.view}
               blockedBy={presentation.blockedBy}
-              passwordAllowed={!passwordLoginDisabled}
+              // ?local=1 is also the unlinked break-glass entry: with password login disabled the
+              // form still shows there, and the server decides (admins only, if allowed at all)
+              passwordAllowed={!passwordLoginDisabled || presentation.forceLocal}
               passwordExpanded={passwordExpanded || presentation.forceLocal || registering}
               passwordForm={
                 <form className="space-y-3" onSubmit={handleSubmit}>
