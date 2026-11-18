@@ -27,7 +27,8 @@ only through `PUT /api/system-config`, which is administrator-only (a non-admin 
 anything is read). `resource` is an absolute https URL (http only for `localhost`, `127.0.0.1`,
 `[::1]`) with no fragment or credentials; entries are validated and unique. `name` is shown on the
 consent screen and in connected clients. `allowedClients` lists OAuth client ids; empty or absent
-means any registered client.
+means any registered client; a URL-shaped Client ID Metadata Document client is never implied and
+must be listed by its URL, since anyone can host such a document.
 
 ### Resource matching
 

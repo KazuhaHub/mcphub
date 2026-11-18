@@ -9,6 +9,7 @@ jest.mock('../../src/models/OAuth.js', () => ({
 }));
 
 jest.mock('../../src/services/cimdClientService.js', () => ({
+  ...jest.requireActual('../../src/services/cimdClientService.js'),
   findOAuthClientIncludingCimd: jest.fn(),
   isCimdClientId: jest.fn((clientId: string) => clientId.startsWith('https://')),
 }));

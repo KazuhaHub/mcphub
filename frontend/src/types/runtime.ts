@@ -23,6 +23,7 @@ export interface ConsentClientInfo {
   logoUri?: string;
   contacts?: string[];
   applicationType?: string;
+  clientHost?: string;
 }
 
 // Consent context injected by the backend into the SPA shell at

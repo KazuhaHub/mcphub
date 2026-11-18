@@ -101,6 +101,9 @@ interface OAuthServerConfig {
     requiresAuthentication: boolean;
     clientTtl: number;
   };
+  clientIdMetadata: {
+    enabled: boolean;
+  };
 }
 
 interface BetterAuthProviderToggle {
@@ -258,6 +261,9 @@ const getDefaultOAuthServerConfig = (): OAuthServerConfig => ({
     allowedGrantTypes: ['authorization_code', 'refresh_token'],
     requiresAuthentication: false,
     clientTtl: 2592000,
+  },
+  clientIdMetadata: {
+    enabled: false,
   },
 });
 
@@ -608,6 +614,9 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
                 defaultDynamic.requiresAuthentication,
               clientTtl:
                 oauth.dynamicRegistration?.clientTtl ?? defaultDynamic.clientTtl,
+            },
+            clientIdMetadata: {
+              enabled: oauth.clientIdMetadata?.enabled === true,
             },
           });
         } else {

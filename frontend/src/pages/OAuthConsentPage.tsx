@@ -312,9 +312,16 @@ const OAuthConsentPage: React.FC = () => {
                   {context.clientName}
                 </span>
               </div>
-              <span className="hub-sect">
-                {t('oauthServer.clientId')}: <span className="hub-mono">{clientIdFingerprint}</span>
-              </span>
+              {client?.clientHost ? (
+                <span className="hub-sect" title={context.clientId}>
+                  {t('oauthServer.clientHost')}: <span className="hub-mono">{client.clientHost}</span>
+                </span>
+              ) : (
+                <span className="hub-sect">
+                  {t('oauthServer.clientId')}:{' '}
+                  <span className="hub-mono">{clientIdFingerprint}</span>
+                </span>
+              )}
               <span
                 style={{
                   fontSize: 11.5,

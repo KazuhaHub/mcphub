@@ -2839,6 +2839,7 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
         typeof oauthServer.externalTokenLifetimeSeconds === 'number' ||
         typeof oauthServer.signingKeyActivationDelaySeconds === 'number' ||
         Array.isArray(oauthServer.allowedScopes) ||
+        typeof oauthServer.clientIdMetadata?.enabled === 'boolean' ||
         (oauthServer.dynamicRegistration &&
           (typeof oauthServer.dynamicRegistration.enabled === 'boolean' ||
             typeof oauthServer.dynamicRegistration.requiresAuthentication === 'boolean' ||
@@ -3424,6 +3425,13 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
           .filter((scope: any): scope is string => typeof scope === 'string')
           .map((scope: string) => scope.trim())
           .filter((scope: string) => scope.length > 0);
+      }
+
+      if (typeof oauthServer.clientIdMetadata?.enabled === 'boolean') {
+        target.clientIdMetadata = {
+          ...target.clientIdMetadata,
+          enabled: oauthServer.clientIdMetadata.enabled,
+        };
       }
 
       if (oauthServer.dynamicRegistration) {
