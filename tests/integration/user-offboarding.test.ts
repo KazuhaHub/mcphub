@@ -88,6 +88,7 @@ jest.mock('../../src/dao/DaoFactory.js', () => ({
 }));
 jest.mock('../../src/services/betterAuthConfig.js', () => ({
   getBetterAuthRuntimeConfig: async () => ({ enabled: false }),
+  getPasswordLoginPolicy: async () => 'all',
 }));
 jest.mock('../../src/services/betterAuthSession.js', () => ({
   resolveBetterAuthUser: async () => null,
