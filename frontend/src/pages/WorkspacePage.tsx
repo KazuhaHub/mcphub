@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
+import ConnectCard from '@/components/connect/ConnectCard';
 import ActivityPanel from '@/components/workspace/ActivityPanel';
 import ConnectedClientsPanel from '@/components/workspace/ConnectedClientsPanel';
 import WorkspaceServicesView from '@/components/workspace/WorkspaceServicesView';
@@ -36,6 +37,8 @@ const WorkspacePage: React.FC = () => {
         <h1 className="hub-h1">{t('workspacePage.title')}</h1>
         <p className="hub-sub">{t('workspacePage.subtitle')}</p>
       </div>
+
+      <ConnectCard />
 
       <div className="hub-tabs" role="tablist" aria-label={t('workspacePage.title')}>
         {tabButton('services', t('workspacePage.services.tab'))}

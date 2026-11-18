@@ -483,6 +483,79 @@
       }
     }
   },
+  "connect": {
+    "title": "Connect your AI",
+    "subtitle": "Pick your AI app and add your MCPHub endpoint. You sign in once; no API key is needed.",
+    "more": "More",
+    "other": "Other",
+    "singleService": "Connect a single service",
+    "rowAction": "Connect to AI",
+    "rowActionFor": "Connect {{name}} to an AI app",
+    "endpoint": "Your endpoint",
+    "dialogTitle": "Connect {{client}}",
+    "pickService": "Choose a service",
+    "pickServiceHint": "Connect one service instead of everything you selected.",
+    "pickClient": "Choose your AI app",
+    "targetAll": "All of your selected services",
+    "targetService": "Service: {{name}}",
+    "back": "Back",
+    "noServices": "No services are available yet. Select some in the Services tab.",
+    "serviceNotReady": "Select this service in your workspace first.",
+    "serviceConflict": "Its name matches a group, so it has no endpoint of its own.",
+    "needsCredentials": "{{name}} needs your own credentials before it will work.",
+    "bindCredentials": "Add credentials",
+    "useKey": "Use an API key instead",
+    "useKeyHint": "Sends an Authorization header with a key you create, instead of signing in with OAuth.",
+    "format": "Configuration format",
+    "urlLabel": "Server URL",
+    "openClaude": "Open Claude connectors",
+    "openChatgpt": "Open ChatGPT plugins",
+    "openSettings": "Open settings",
+    "addToCursor": "Add to Cursor",
+    "addToVsCode": "Add to VS Code",
+    "addToLmStudio": "Add to LM Studio",
+    "steps": {
+      "claude": {
+        "open": "Open Customize, then Connectors, in Claude on the web or the desktop app.",
+        "add": "Click + Add, choose Add custom connector, and paste the URL above.",
+        "connect": "Continue, then sign in to MCPHub when asked.",
+        "addKey": "Click + Add, choose Add custom connector, paste the URL above and continue.",
+        "header": "Under Request headers, add the Authorization header shown below."
+      },
+      "chatgpt": {
+        "open": "Open ChatGPT on the web and go to Plugins.",
+        "add": "Click the plus button, choose Add custom MCP server, and paste the URL above as the Server URL.",
+        "auth": "Set authentication to OAuth, accept the warning, choose Create as a plugin, then install it."
+      },
+      "cli": {
+        "run": "Run this command in a terminal."
+      },
+      "claudeCode": {
+        "signIn": "In Claude Code, run /mcp and sign in to MCPHub in your browser."
+      },
+      "codex": {
+        "login": "Then run the login command and sign in to MCPHub in your browser.",
+        "config": "Add this to your Codex config.toml, then set the token."
+      },
+      "gemini": {
+        "auth": "In Gemini CLI, run the /mcp auth command to sign in to MCPHub."
+      },
+      "link": {
+        "click": "Click the button to open the app.",
+        "review": "Review the server in the app and confirm."
+      },
+      "snippet": {
+        "paste": "Paste this into the client's MCP configuration."
+      }
+    },
+    "notes": {
+      "keyPlaceholder": "Replace <your-access-token> with an access key you created.",
+      "oauthUnverified": "This client's documentation does not confirm OAuth sign-in. If it asks for a key, switch to the API key option.",
+      "keyOnly": "This client's documentation only describes header-based sign-in, so an API key is used.",
+      "fallbackSnippet": "If the button does nothing, paste this configuration instead.",
+      "claudePublic": "Claude connects from Anthropic's servers, so your MCPHub address must be reachable on public HTTPS (port 443)."
+    }
+  },
   "pagination": {
     "rowsPerPage": "Lignes par page",
     "showing": "Affichage de {{from}}-{{to}} sur {{total}}"

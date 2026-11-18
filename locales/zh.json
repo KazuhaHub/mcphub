@@ -484,6 +484,79 @@
       }
     }
   },
+  "connect": {
+    "title": "接入 AI",
+    "subtitle": "选择你的 AI 应用,添加你的 MCPHub 端点。只需登录一次,无需 API 密钥。",
+    "more": "更多",
+    "other": "其他",
+    "singleService": "单独接入某个服务",
+    "rowAction": "接入 AI",
+    "rowActionFor": "将 {{name}} 接入 AI 应用",
+    "endpoint": "你的端点",
+    "dialogTitle": "接入 {{client}}",
+    "pickService": "选择服务",
+    "pickServiceHint": "只接入一个服务,而不是你选择的全部服务。",
+    "pickClient": "选择你的 AI 应用",
+    "targetAll": "你选择的全部服务",
+    "targetService": "服务:{{name}}",
+    "back": "返回",
+    "noServices": "暂无可用服务,请先在“服务”标签页中选择。",
+    "serviceNotReady": "请先在工作区中选择此服务。",
+    "serviceConflict": "它的名称与某个分组重名,因此没有独立端点。",
+    "needsCredentials": "{{name}} 需要你自己的凭据才能使用。",
+    "bindCredentials": "添加凭据",
+    "useKey": "改用 API 密钥",
+    "useKeyHint": "使用你创建的密钥发送 Authorization 请求头,而不是通过 OAuth 登录。",
+    "format": "配置格式",
+    "urlLabel": "服务器 URL",
+    "openClaude": "打开 Claude 连接器",
+    "openChatgpt": "打开 ChatGPT 插件",
+    "openSettings": "打开设置",
+    "addToCursor": "添加到 Cursor",
+    "addToVsCode": "添加到 VS Code",
+    "addToLmStudio": "添加到 LM Studio",
+    "steps": {
+      "claude": {
+        "open": "在 Claude 网页版或桌面应用中,打开“自定义”,再进入“连接器”。",
+        "add": "点击“+ 添加”,选择“添加自定义连接器”,粘贴上面的 URL。",
+        "connect": "继续,并在提示时登录 MCPHub。",
+        "addKey": "点击“+ 添加”,选择“添加自定义连接器”,粘贴上面的 URL 并继续。",
+        "header": "在“请求头”中添加下面显示的 Authorization 请求头。"
+      },
+      "chatgpt": {
+        "open": "在网页版 ChatGPT 中打开“插件”(Plugins)。",
+        "add": "点击加号,选择“添加自定义 MCP 服务器”,把上面的 URL 粘贴为服务器 URL。",
+        "auth": "将认证方式设为 OAuth,接受风险提示,选择“创建为插件”,然后安装它。"
+      },
+      "cli": {
+        "run": "在终端中运行这条命令。"
+      },
+      "claudeCode": {
+        "signIn": "在 Claude Code 中运行 /mcp,并在浏览器中登录 MCPHub。"
+      },
+      "codex": {
+        "login": "再运行登录命令,并在浏览器中登录 MCPHub。",
+        "config": "将下面内容添加到 Codex 的 config.toml,然后设置令牌。"
+      },
+      "gemini": {
+        "auth": "在 Gemini CLI 中运行 /mcp auth 命令,登录 MCPHub。"
+      },
+      "link": {
+        "click": "点击按钮,打开应用。",
+        "review": "在应用中检查该服务器并确认。"
+      },
+      "snippet": {
+        "paste": "把下面内容粘贴到该客户端的 MCP 配置中。"
+      }
+    },
+    "notes": {
+      "keyPlaceholder": "把 <your-access-token> 替换为你创建的访问密钥。",
+      "oauthUnverified": "该客户端的文档没有确认支持 OAuth 登录。如果它要求密钥,请切换到 API 密钥选项。",
+      "keyOnly": "该客户端的文档只描述了基于请求头的认证,因此使用 API 密钥。",
+      "fallbackSnippet": "如果按钮没有反应,请改为粘贴下面的配置。",
+      "claudePublic": "Claude 从 Anthropic 的服务器发起连接,因此你的 MCPHub 地址必须能通过公网 HTTPS(443 端口)访问。"
+    }
+  },
   "pagination": {
     "rowsPerPage": "每页行数",
     "showing": "显示第 {{from}}-{{to}} 条，共 {{total}} 条"

@@ -57,7 +57,7 @@ import {
   buildClientSnippetBlocks,
   type ClientSnippetBlock,
   type ClientSnippetId,
-} from './mcpClientSnippets.js';
+} from './mcpClientSnippets';
 
 export type ConnectClientId =
   | 'claude'
@@ -418,7 +418,7 @@ export const buildConnectPlan = (
         settingsLabelKey: 'connect.openChatgpt',
         copyUrl: target.url,
         blocks: [],
-        noteKeys: [...noteKeys, 'connect.notes.chatgptPublic'],
+        noteKeys,
       };
     case 'claude-code':
       return {

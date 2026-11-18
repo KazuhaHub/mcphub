@@ -28,6 +28,7 @@ import {
   toggleServerSelection,
   type ServiceAction,
 } from '@/utils/workspace';
+import ConnectDialog from '@/components/connect/ConnectDialog';
 import MyEndpointCard from './MyEndpointCard';
 import ToolCountIndicator from './ToolCountIndicator';
 import WorkspaceServiceRow from './WorkspaceServiceRow';
@@ -69,6 +70,7 @@ const WorkspaceServicesView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ detail: string; disabled: boolean } | null>(null);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const [connectService, setConnectService] = useState<string | null>(null);
   const [authLinks, setAuthLinks] = useState<Record<string, string>>({});
   // Selection saves in flight, readable from event handlers without a re-render.
   const pendingRef = useRef(0);
@@ -321,11 +323,22 @@ const WorkspaceServicesView: React.FC = () => {
                 onRiskChange={(name, riskCeiling) => void onRiskChange(name, riskCeiling)}
                 onAction={(action) => onAction(server, action)}
                 onCopyEndpoint={(url) => void onCopyEndpoint(url)}
+                onConnectToAi={(name) => setConnectService(name)}
               />
             ))}
           </ul>
         )}
       </section>
+
+      {connectService && endpoints && (
+        <ConnectDialog
+          aggregateUrl={endpoints.aggregate}
+          servers={servers}
+          endpoints={endpoints}
+          initial={{ service: connectService }}
+          onClose={() => setConnectService(null)}
+        />
+      )}
     </div>
   );
 };
