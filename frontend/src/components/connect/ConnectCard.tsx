@@ -16,9 +16,13 @@ import { buildSmartEndpoint } from '@/utils/workspace';
 import ConnectDialog, { type ConnectDialogInitial } from './ConnectDialog';
 import ConnectTile from './ConnectTile';
 
-// Tile width floor and gap in px. 76 lets a 375px phone show three clients beside More.
+// Tile width floors and gap in px. Wide containers keep roomy tiles; a phone's row (about 250px
+// once the sidebar rail and padding are out of the way) drops to the narrow floor so that three
+// clients still fit beside More instead of two.
 const MIN_TILE_WIDTH = 76;
-const TILE_GAP = 8;
+const NARROW_MIN_TILE_WIDTH = 58;
+const NARROW_ROW_WIDTH = 320;
+const TILE_GAP = 6;
 
 interface ConnectTilesProps {
   layout: TileLayout;
@@ -105,7 +109,13 @@ const ConnectCard: React.FC = () => {
   }, [endpoints]);
 
   const layout = useMemo(
-    () => computeTileLayout(width, CONNECT_CLIENTS.length, MIN_TILE_WIDTH, TILE_GAP),
+    () =>
+      computeTileLayout(
+        width,
+        CONNECT_CLIENTS.length,
+        width < NARROW_ROW_WIDTH ? NARROW_MIN_TILE_WIDTH : MIN_TILE_WIDTH,
+        TILE_GAP,
+      ),
     [width],
   );
 

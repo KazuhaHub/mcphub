@@ -97,7 +97,7 @@ export interface ConnectClient {
 /** Tile order is fixed: the six headline clients, then the rest. Every tile is equal. */
 export const CONNECT_CLIENTS: readonly ConnectClient[] = [
   { id: 'claude', name: 'Claude', icon: 'claude', letter: 'C', supportsKey: true, oauth: 'documented' },
-  { id: 'chatgpt', name: 'ChatGPT', letter: 'G', supportsKey: false, oauth: 'documented' },
+  { id: 'chatgpt', name: 'ChatGPT', letter: 'GPT', supportsKey: false, oauth: 'documented' },
   {
     id: 'claude-code',
     name: 'Claude Code',
@@ -128,7 +128,7 @@ export const CONNECT_CLIENTS: readonly ConnectClient[] = [
   {
     id: 'codex',
     name: 'Codex',
-    letter: 'X',
+    letter: 'Cx',
     snippetId: 'codex',
     supportsKey: true,
     oauth: 'documented',
@@ -170,7 +170,7 @@ export const CONNECT_CLIENTS: readonly ConnectClient[] = [
   {
     id: 'cherry-studio',
     name: 'Cherry Studio',
-    letter: 'C',
+    letter: 'CS',
     snippetId: 'cherry-studio',
     supportsKey: true,
     oauth: 'unverified',

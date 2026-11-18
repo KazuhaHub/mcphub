@@ -21,7 +21,7 @@ const ConnectTile: React.FC<ConnectTileProps> = ({ client, label, onSelect, more
       type="button"
       onClick={onSelect}
       aria-haspopup={ariaHaspopup ? 'dialog' : undefined}
-      className="flex min-w-0 flex-col items-center gap-2 rounded-md px-1 py-3 transition-colors hover:bg-[var(--hub-surface-hover)]"
+      className="flex min-w-0 flex-col items-center gap-2 rounded-md px-0.5 py-3 transition-colors hover:bg-[var(--hub-surface-hover)]"
       style={{ border: '1px solid var(--hub-line)', background: 'var(--hub-surface)' }}
       data-testid={more ? 'connect-tile-more' : `connect-tile-${client?.id ?? 'other'}`}
     >

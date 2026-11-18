@@ -61,9 +61,11 @@ export const ClientIcon: React.FC<ClientIconProps> = ({ icon, letter, size = 40 
         borderRadius: 'var(--hub-radius-lg)',
         background: '#ffffff',
         border: '1px solid var(--hub-line)',
-        color: '#1f2328',
-        fontWeight: 600,
-        fontSize: Math.round(size * 0.42),
+        // Monogram for clients without an approved brand asset: a muted, bold neutral on the same plate.
+        color: '#57606a',
+        fontWeight: 700,
+        letterSpacing: letter.length > 1 ? '-0.02em' : undefined,
+        fontSize: Math.round(size * (letter.length > 2 ? 0.3 : letter.length > 1 ? 0.36 : 0.42)),
       }}
     >
       {path ? (
