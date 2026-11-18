@@ -140,6 +140,47 @@ describe('oauthServerController postAuthorize redirect_uri validation', () => {
     );
   });
 
+  it('uses one issuer spelling in iss on success, denial and error redirects behind a base path', async () => {
+    (getSystemConfigDao as jest.Mock).mockReturnValue({
+      get: async () => ({ install: { baseUrl: 'https://hub.example.com/hub/' } }),
+    });
+    const expectedIss = 'iss=https%3A%2F%2Fhub.example.com%2Fhub';
+    const body = {
+      client_id: 'trusted-client',
+      redirect_uri: 'https://trusted.example.com/callback',
+      state: 'state-123',
+    };
+
+    (getOAuthServer as jest.Mock).mockReturnValue({
+      authorize: jest.fn().mockResolvedValue({ authorizationCode: 'code-abc' }),
+    });
+    let res = createResponse();
+    await postAuthorize(
+      createRequest({ user: { username: 'alice' }, body: { ...body, allow: 'true' } }) as any,
+      res as any,
+    );
+    expect(res.redirect.mock.calls[0][0]).toContain(expectedIss);
+
+    res = createResponse();
+    await postAuthorize(createRequest({ body: { ...body, allow: 'false' } }) as any, res as any);
+    expect(res.redirect.mock.calls[0][0]).toContain(`error=access_denied&${expectedIss}`);
+
+    const failure = Object.assign(new Error('Scope is invalid'), {
+      code: 400,
+      name: 'invalid_scope',
+    });
+    (getOAuthServer as jest.Mock).mockReturnValue({
+      authorize: jest.fn().mockRejectedValue(failure),
+    });
+    res = createResponse();
+    await postAuthorize(
+      createRequest({ user: { username: 'alice' }, body: { ...body, allow: 'true' } }) as any,
+      res as any,
+    );
+    expect(res.redirect.mock.calls[0][0]).toContain('error=invalid_scope');
+    expect(res.redirect.mock.calls[0][0]).toContain(expectedIss);
+  });
+
   it('ignores forwarded authority in authorization callbacks without a configured URL', async () => {
     const originalBaseUrl = process.env.INSTALL_BASE_URL;
     delete process.env.INSTALL_BASE_URL;

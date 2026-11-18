@@ -142,3 +142,57 @@ it.each(['/hub/api/settings', '/evil/mcp', '/hub/messages/extra', '/hub/alice/me
     await request(app).get(`/.well-known/oauth-protected-resource${path}`).expect(404);
   },
 );
+
+describe('authorization server discovery paths', () => {
+  const mountMetadata = () => {
+    const app = express();
+    app.get(
+      [
+        '/.well-known/oauth-authorization-server',
+        '/.well-known/oauth-authorization-server/:issuerPath(*)',
+      ],
+      mcpConnectionRateLimiter,
+      getMetadata,
+    );
+    return app;
+  };
+
+  it('serves RFC 8414 path-inserted metadata whose issuer is the identifier the URL was built from', async () => {
+    getSystemConfigMock.mockResolvedValue({
+      install: { baseUrl: 'https://public.example/hub/' },
+      oauthServer: { enabled: true },
+    });
+    const response = await request(mountMetadata())
+      .get('/.well-known/oauth-authorization-server/hub')
+      .expect(200)
+      .expect('Content-Type', /application\/json/);
+    expect(response.body.issuer).toBe('https://public.example/hub');
+    expect(response.body.authorization_response_iss_parameter_supported).toBe(true);
+    expect(response.body.token_endpoint).toBe('https://public.example/hub/oauth/token');
+  });
+
+  it.each([
+    '/.well-known/oauth-authorization-server/other',
+    '/.well-known/oauth-authorization-server/hub/x',
+  ])('answers JSON 404 for the path-inserted URL of a different issuer: %s', async (path) => {
+    getSystemConfigMock.mockResolvedValue({
+      install: { baseUrl: 'https://public.example/hub' },
+      oauthServer: { enabled: true },
+    });
+    await request(mountMetadata())
+      .get(path)
+      .expect(404)
+      .expect('Content-Type', /application\/json/);
+  });
+
+  it('answers JSON 404 for a path-inserted URL when the issuer has no path', async () => {
+    getSystemConfigMock.mockResolvedValue({
+      install: { baseUrl: 'https://public.example' },
+      oauthServer: { enabled: true },
+    });
+    await request(mountMetadata())
+      .get('/.well-known/oauth-authorization-server/hub')
+      .expect(404)
+      .expect('Content-Type', /application\/json/);
+  });
+});

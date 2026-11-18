@@ -1028,9 +1028,14 @@ export const getUserInfo = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
+const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
+
 /**
- * GET /.well-known/oauth-authorization-server
- * OAuth 2.0 Authorization Server Metadata (RFC 8414)
+ * GET /.well-known/oauth-authorization-server[/<issuer-path>]
+ * OAuth 2.0 Authorization Server Metadata (RFC 8414). When the issuer has a path
+ * (a public base URL with a prefix), RFC 8414 section 3.1 inserts the well-known
+ * segment between host and path, so the document is also served there, and only
+ * there for that issuer: any other suffix is a different issuer and answers 404.
  */
 export const getMetadata = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1045,10 +1050,22 @@ export const getMetadata = async (req: Request, res: Response): Promise<void> =>
     }
 
     const baseUrl = normalizeIssuer(getPublicInstallBaseUrl(req, systemConfig));
+
+    if (req.params?.issuerPath !== undefined) {
+      const issuerPath = baseUrl ? new URL(baseUrl).pathname.replace(/\/+$/, '') : '';
+      const requestedPath = req.path.slice(AS_METADATA_PATH.length).replace(/\/+$/, '');
+      if (!issuerPath || requestedPath !== issuerPath) {
+        res.status(404).json({ error: 'not_found' });
+        return;
+      }
+    }
+
     const allowedScopes = oauthConfig.allowedScopes || ['read', 'write'];
 
     const metadata: any = {
       issuer: baseUrl,
+      // RFC 9207: every authorization response, errors included, carries `iss`.
+      authorization_response_iss_parameter_supported: true,
       authorization_endpoint: `${baseUrl}/oauth/authorize`,
       token_endpoint: `${baseUrl}/oauth/token`,
       userinfo_endpoint: `${baseUrl}/oauth/userinfo`,

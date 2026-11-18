@@ -222,6 +222,15 @@ Setup has two parts, both administrator-only:
 
 Nothing else is needed. Because the URL is a configured external resource, MCPHub registers its own public client (`mcphub-personal-oauth`, PKCE S256, redirect URI `<base URL>/oauth/callback` only; a server's own `redirectUri` is ignored and the dashboard cannot edit the client), and sends the RFC 8707 `resource` parameter at authorize, token and refresh. The metadata and token calls to its own authorization server are made in-process, never through the public URL, so they work behind a proxy. The service's protected-resource metadata must name this MCPHub as its authorization server; any other value is refused. If you restrict `allowedClients` on the entry, include `mcphub-personal-oauth` (otherwise connecting fails with a message saying so). List the scopes the service needs in the entry's `scopes`; only those are granted. Disconnecting in the workspace revokes the grant at once, but a JWT already issued stays valid for up to `externalTokenLifetimeSeconds`. A server that sets `oauth.clientId`, `authorizationServerMetadata` or explicit endpoints keeps that explicit configuration instead. See ADR 0015.
 
+## Discovery endpoints MCPHub serves
+
+When MCPHub is the authorization server, clients discover it through RFC 9728 protected-resource metadata and then fetch RFC 8414 metadata.
+
+- `/.well-known/oauth-authorization-server` serves the metadata. If the public base URL has a path (for example `https://mcp.example.com/hub`), the RFC 8414 path-inserted form `/.well-known/oauth-authorization-server/hub` serves the same document; any other suffix answers a JSON 404.
+- The metadata `issuer`, the `iss` parameter on every authorization response (including error redirects) and the `iss` claim of issued JWTs use one spelling: the public base URL without a trailing slash. The metadata declares `authorization_response_iss_parameter_supported: true` (RFC 9207).
+- MCPHub is not an OpenID Provider (it issues no `id_token`), so `/.well-known/openid-configuration` and its path-inserted or path-appended variants are not served. Clients that try OpenID Connect discovery first receive a JSON 404 and fall back to RFC 8414.
+- Any other `/.well-known/*` path that MCPHub does not serve answers a JSON 404, never the dashboard page.
+
 ## Private broker authorization relay
 
 Administrators can also enable this in the server form: select a personal OAuth identity, expand **OAuth Configuration → Advanced settings**, enable **Relay authorization through MCPHub**, and enter the allowed HTTPS origins and broker metadata JSON. Disabling the switch removes the relay configuration; changing to shared identity also disables it.
