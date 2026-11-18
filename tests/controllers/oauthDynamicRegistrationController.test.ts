@@ -103,6 +103,47 @@ describe('oauthDynamicRegistrationController - registerClient', () => {
   });
 });
 
+describe('registerClient follows the advertised metadata for partial oauthServer blocks', () => {
+  const run = async (oauthServer: unknown) => {
+    getSystemConfigMock.mockResolvedValue({ oauthServer });
+    createOAuthClientMock.mockImplementation(async (client) => client);
+    const status = jest.fn().mockReturnThis();
+    const json = jest.fn();
+    await registerClient(
+      {
+        protocol: 'https',
+        get: jest.fn().mockReturnValue('localhost:3000'),
+        body: {
+          redirect_uris: ['https://client.example.com/callback'],
+          client_name: 'Partial Config Client',
+        },
+      } as unknown as Request,
+      { status, json } as unknown as Response,
+    );
+    return { status, json };
+  };
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('registers when only some oauthServer fields are stored (defaults enable registration)', async () => {
+    const { status } = await run({ enabled: true, accessTokenLifetime: 10 });
+    expect(status).toHaveBeenCalledWith(201);
+    expect(createOAuthClientMock).toHaveBeenCalled();
+  });
+
+  it('still refuses when registration is explicitly disabled', async () => {
+    const { status } = await run({ enabled: true, dynamicRegistration: { enabled: false } });
+    expect(status).toHaveBeenCalledWith(403);
+    expect(createOAuthClientMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the OAuth server itself is disabled', async () => {
+    const { status } = await run({ enabled: false });
+    expect(status).toHaveBeenCalledWith(403);
+    expect(createOAuthClientMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('registerClient requiresAuthentication gate', () => {
   let mockJson: jest.Mock;
   let mockStatus: jest.Mock;
