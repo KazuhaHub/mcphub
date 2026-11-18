@@ -1326,7 +1326,7 @@ describe('sseService', () => {
       const excludeKey = (overrides: Record<string, unknown> = {}) => ({
         id: 'exclude-key',
         name: 'all-except-key',
-        token: 'exclude-token',
+        ...describeBearerToken('exclude-token'),
         enabled: true,
         kind: 'system',
         accessType: 'exclude',

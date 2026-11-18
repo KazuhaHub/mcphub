@@ -1,7 +1,6 @@
 import { BearerKeyDao } from './BearerKeyDao.js';
 import { BearerKey as BearerKeyModel } from '../types/index.js';
 import { BearerKeyRepository } from '../db/repositories/BearerKeyRepository.js';
-import { SystemConfigRepository } from '../db/repositories/SystemConfigRepository.js';
 import { bearerHashMatches, describeBearerToken, hashBearerToken } from '../utils/bearerKeyHash.js';
 import { logger } from '../utils/logger.js';
 
@@ -132,12 +131,6 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
     }
     if (migrated > 0) logger.log(`Hashed ${migrated} bearer key(s) stored in plaintext`);
     legacyMigrationComplete = (await this.repository.findWithPlaintextToken()).length === 0;
-    // Instances migrated by an older version still carry the raw legacy key in routing config.
-    const systemConfigRepo = new SystemConfigRepository();
-    const routing = ((await systemConfigRepo.get()) as any)?.routing || {};
-    if (routing.bearerAuthKey) {
-      await systemConfigRepo.updateSection('routing', { ...routing, bearerAuthKey: '' });
-    }
     return migrated;
   }
 

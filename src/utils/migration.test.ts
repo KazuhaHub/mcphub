@@ -196,7 +196,7 @@ describe('initializeDatabaseMode legacy bearer auth migration', () => {
     const arg = bearerKeyCreateMock.mock.calls[0][0] as any;
     expect(arg.tokenHash).toBe('a'.repeat(64));
     expect(arg.tokenPrefix).toBe('mcphub_a');
-    expect(arg).not.toHaveProperty('token');
+    expect(arg.token).toBeNull(); // the plaintext column is never written
   });
 
   describe('source file scrubbing after a successful migration', () => {

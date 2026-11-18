@@ -10,7 +10,28 @@ import request from 'supertest';
 const clients = new Map<string, Record<string, unknown>>();
 const tokens: Record<string, any>[] = [];
 
+let mockApprovals: Record<string, any>[] = [];
 jest.mock('../../src/dao/index.js', () => ({
+  // Explicit consent is recorded as an approval (remember-consent); keep it in memory.
+  getOAuthApprovalDao: () => ({
+    findById: async (id: string) => mockApprovals.find((row) => row.id === id) ?? null,
+    findByUsername: async (username: string) =>
+      mockApprovals.filter((row) => row.username === username),
+    save: async (row: Record<string, any>) => {
+      mockApprovals = mockApprovals.filter((existing) => existing.id !== row.id).concat(row);
+    },
+    deleteByUserAndClient: async (username: string, clientId: string) => {
+      mockApprovals = mockApprovals.filter(
+        (row) => row.username !== username || row.clientId !== clientId,
+      );
+    },
+    deleteByUsername: async (username: string) => {
+      mockApprovals = mockApprovals.filter((row) => row.username !== username);
+    },
+    deleteByClientId: async (clientId: string) => {
+      mockApprovals = mockApprovals.filter((row) => row.clientId !== clientId);
+    },
+  }),
   getSystemConfigDao: () => ({
     get: async () => ({ oauthServer: { enabled: true, requireClientSecret: true } }),
   }),

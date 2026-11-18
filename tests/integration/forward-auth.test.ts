@@ -39,6 +39,12 @@ jest.mock('../../src/utils/oauthBearer.js', () => {
     resolveOAuthUserFromToken: jest.fn(async (presented?: string) =>
       presented === token ? user : actual.resolveOAuthUserFromToken(presented),
     ),
+    // MCP routes resolve the grant (user plus OAuth client), not just the user.
+    resolveOAuthGrantFromToken: jest.fn(async (presented?: string) =>
+      presented === token
+        ? { user, clientId: 'test-client' }
+        : actual.resolveOAuthGrantFromToken(presented),
+    ),
     resolveOAuthUserFromHeaders: jest.fn(
       async (headers: Record<string, unknown>, config: unknown) =>
         headers.authorization === `Bearer ${token}`
