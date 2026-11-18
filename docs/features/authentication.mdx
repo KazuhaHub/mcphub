@@ -252,7 +252,7 @@ To allow sign-in only through the SSO providers, turn on **Disable password logi
 - The login page has no link to it. Open `/login?local=1`: while password login is disabled that page always shows the password form, and the server decides. The public config never carries the setting.
 - Each successful sign-in this way writes a warning to the server log with the username and IP address. (The activity log records tool calls only.)
 - The login rate limit (`AUTH_RATE_LIMIT_MAX` per `AUTH_RATE_LIMIT_WINDOW_MS`) counts every refused attempt.
-- Passkeys stay refused; the OAuth authorization server's password helper follows the same admin-only rule.
+- Passkeys stay refused. `POST /api/auth/login` (also used by the CLI) is the only password sign-in endpoint; Better Auth's own email/password sign-in is off.
 - `BETTER_AUTH_DISABLE_PASSWORD_LOGIN=false` still re-opens password login for every account, and `true` disables it with the break-glass setting still applying.
 
 ### Login page layout
