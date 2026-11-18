@@ -46,14 +46,14 @@ const UsersPage: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-end justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="hub-h1">{t('pages.users.title')}</h1>
           <p className="hub-sub">
             <span className="hub-num">{users.length}</span> {t('nav.users').toLowerCase()}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             className="hub-btn"
             onClick={() => triggerRefresh()}
@@ -121,7 +121,7 @@ const UsersPage: React.FC = () => {
       ) : (
         <div className="hub-card overflow-hidden">
           <div
-            className="hub-row head hub-mono"
+            className="hub-row stack head hub-mono"
             style={{ gridTemplateColumns: '1.6fr 1.2fr 100px 100px' }}
           >
             <div>{t('users.username')}</div>
@@ -134,10 +134,10 @@ const UsersPage: React.FC = () => {
             return (
               <div
                 key={user.username}
-                className="hub-row hover"
+                className="hub-row stack hover"
                 style={{ gridTemplateColumns: '1.6fr 1.2fr 100px 100px' }}
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 max-md:order-1 max-md:flex-1">
                   <div
                     className="grid place-items-center flex-shrink-0 hub-mono"
                     style={{
@@ -165,7 +165,7 @@ const UsersPage: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center min-w-0">
+                <div className="flex items-center min-w-0 max-md:order-4 max-md:flex-1">
                   <span
                     className="truncate"
                     style={{
@@ -176,13 +176,14 @@ const UsersPage: React.FC = () => {
                     {user.email || '—'}
                   </span>
                 </div>
-                <div>
+                <div className="hub-row-break max-md:order-3" />
+                <div className="max-md:order-5">
                   <StatusDot
                     kind={user.isAdmin ? 'ok' : 'muted'}
                     label={user.isAdmin ? t('users.admin') : t('users.user')}
                   />
                 </div>
-                <div className="flex justify-end gap-1">
+                <div className="flex justify-end gap-1 max-md:order-2">
                   <Link
                     to={`/credentials?user=${encodeURIComponent(user.username)}`}
                     className="hub-icon-btn sm"
