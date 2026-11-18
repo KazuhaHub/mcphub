@@ -38,24 +38,6 @@
     "viewProfile": "Voir le profil",
     "userCenter": "Centre utilisateur"
   },
-  "sponsor": {
-    "label": "Sponsor",
-    "title": "Soutenir le projet",
-    "rewardAlt": "QR Code de récompense",
-    "supportMessage": "Soutenez le développement de MCPHub en m'offrant un café !",
-    "supportButton": "Soutenir sur Ko-fi"
-  },
-  "wechat": {
-    "label": "WeChat",
-    "title": "Se connecter via WeChat",
-    "qrCodeAlt": "QR Code WeChat",
-    "scanMessage": "Scannez ce QR code pour nous contacter sur WeChat"
-  },
-  "discord": {
-    "label": "Discord",
-    "title": "Rejoignez notre serveur Discord",
-    "community": "Rejoignez notre communauté grandissante sur Discord pour du support, des discussions et des mises à jour !"
-  },
   "theme": {
     "title": "Thème",
     "light": "Clair",
@@ -413,8 +395,6 @@
     "false": "Faux",
     "dismiss": "Rejeter",
     "github": "GitHub",
-    "wechat": "WeChat",
-    "discord": "Discord",
     "itemsPerPage": "Éléments par page",
     "showing": "Affichage de {{start}}-{{end}} sur {{total}}",
     "previous": "Précédent",

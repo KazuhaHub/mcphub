@@ -13,6 +13,7 @@ import ThemeSwitch from '@/components/ui/ThemeSwitch';
 import LanguageSwitch from '@/components/ui/LanguageSwitch';
 import GitHubIcon from '@/components/icons/GitHubIcon';
 import DefaultPasswordWarningModal from '@/components/ui/DefaultPasswordWarningModal';
+import { PROJECT_DOCS_URL, PROJECT_REPO_URL } from '@/constants/links';
 
 type SocialProvider = 'google' | 'github' | 'oidc';
 type AlternativeSignIn = SocialProvider | 'passkey';
@@ -234,7 +235,7 @@ const LoginPage: React.FC = () => {
       {/* Top-right controls */}
       <div className="absolute top-3 right-4 z-20 flex items-center gap-1">
         <a
-          href="https://github.com/samanhappy/mcphub"
+          href={PROJECT_REPO_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="hub-icon-btn"
@@ -243,7 +244,7 @@ const LoginPage: React.FC = () => {
           <GitHubIcon className="h-4 w-4" />
         </a>
         <a
-          href="https://docs.mcphub.app"
+          href={PROJECT_DOCS_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="hub-icon-btn"

@@ -7,6 +7,7 @@ import ThemeSwitch from '@/components/ui/ThemeSwitch';
 import LanguageSwitch from '@/components/ui/LanguageSwitch';
 import GitHubIcon from '@/components/icons/GitHubIcon';
 import { useEmbeddingSync } from '@/contexts/EmbeddingSyncContext';
+import { PROJECT_DOCS_URL, PROJECT_REPO_URL } from '@/constants/links';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -113,7 +114,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 
       <div className="ml-auto flex items-center gap-1 shrink-0">
         <a
-          href="https://github.com/samanhappy/mcphub"
+          href={PROJECT_REPO_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="hub-icon-btn max-sm:hidden!"
@@ -122,7 +123,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
           <GitHubIcon className="h-4 w-4" />
         </a>
         <a
-          href="https://docs.mcphub.app"
+          href={PROJECT_DOCS_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="hub-icon-btn max-sm:hidden!"

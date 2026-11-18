@@ -310,11 +310,11 @@ export async function generateOpenAPISpec(
       version: options.version || '1.0.0',
       contact: {
         name: 'MCPHub',
-        url: 'https://github.com/samanhappy/mcphub',
+        url: 'https://github.com/KazuhaHub/mcphub',
       },
       license: {
-        name: 'ISC',
-        url: 'https://github.com/samanhappy/mcphub/blob/main/LICENSE',
+        name: 'Apache-2.0',
+        url: 'https://github.com/KazuhaHub/mcphub/blob/main/LICENSE',
       },
     },
     servers: [

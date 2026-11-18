@@ -143,7 +143,7 @@ export interface ChangelogUpdateInfo {
   totalUpdateCount: number;
   changelogUrl: string;
   allChangelogUrl: string;
-  source: 'mcphub-web' | 'npm-fallback' | 'disabled';
+  source: 'mcphub-web' | 'github-release' | 'disabled';
 }
 
 // Cloud Market Server types (for MCPRouter API)

@@ -7,6 +7,7 @@ import {
   fetchChangelogUpdateInfo,
   isUpdateDismissed,
 } from '@/services/changelogService';
+import { PROJECT_RELEASES_URL } from '@/constants/links';
 
 interface AboutDialogProps {
   isOpen: boolean;
@@ -158,7 +159,7 @@ const AboutDialog: React.FC<AboutDialogProps> = ({
                   <p className="mt-3 text-[13px] leading-relaxed" style={{ color: 'var(--hub-ink-2)' }}>
                     {latestEntry.summary}
                   </p>
-                ) : updateInfo?.source === 'npm-fallback' ? (
+                ) : updateInfo?.source !== 'mcphub-web' ? (
                   <p className="mt-3 text-[13px]" style={{ color: 'var(--hub-ink-2)' }}>
                     {t('about.releaseNotesUnavailable')}
                   </p>
@@ -228,7 +229,7 @@ const AboutDialog: React.FC<AboutDialogProps> = ({
                 {isChecking ? t('about.checking') : t('about.checkForUpdates')}
               </button>
               <a
-                href={updateInfo?.changelogUrl || 'https://www.mcphub.app/changelog'}
+                href={updateInfo?.changelogUrl || PROJECT_RELEASES_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hub-btn primary"
@@ -236,7 +237,7 @@ const AboutDialog: React.FC<AboutDialogProps> = ({
                 {hasNewVersion ? t('about.viewReleaseNotes') : t('about.viewChangelog')}
                 <ArrowUpRight className="h-3.5 w-3.5" />
               </a>
-              {latestEntry?.url && (
+              {latestEntry?.url && latestEntry.url !== updateInfo?.changelogUrl && (
                 <a
                   href={latestEntry.url}
                   target="_blank"

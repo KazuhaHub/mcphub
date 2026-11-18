@@ -2,13 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Settings, LogOut, Info, KeyRound } from 'lucide-react';
+import { User, Settings, LogOut, Info, KeyRound, ShieldCheck } from 'lucide-react';
 import AboutDialog from './AboutDialog';
-import SponsorDialog from './SponsorDialog';
-import WeChatDialog from './WeChatDialog';
-import WeChatIcon from '@/components/icons/WeChatIcon';
-import DiscordIcon from '@/components/icons/DiscordIcon';
-import SponsorIcon from '@/components/icons/SponsorIcon';
 import { ChangelogUpdateInfo } from '@/types';
 import {
   fetchChangelogUpdateInfo,
@@ -27,8 +22,6 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version })
   const [isOpen, setIsOpen] = useState(false);
   const [showNewVersionInfo, setShowNewVersionInfo] = useState(false);
   const [showAboutDialog, setShowAboutDialog] = useState(false);
-  const [sponsorDialogOpen, setSponsorDialogOpen] = useState(false);
-  const [wechatDialogOpen, setWechatDialogOpen] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<ChangelogUpdateInfo | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -79,16 +72,6 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version })
     setIsOpen(false);
   };
 
-  const handleSponsorClick = () => {
-    setSponsorDialogOpen(true);
-    setIsOpen(false);
-  };
-
-  const handleWeChatClick = () => {
-    setWechatDialogOpen(true);
-    setIsOpen(false);
-  };
-
   return (
     <div ref={menuRef} className="relative">
       <button
@@ -116,41 +99,13 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version })
       {isOpen && (
         <div className="hub-menu absolute bottom-full left-0 z-50 mb-1 w-full min-w-max">
           <button
-            onClick={handleSponsorClick}
-            className="hub-menu-item"
-          >
-            <SponsorIcon className="h-4 w-4" />
-            {t('sponsor.label')}
-          </button>
-
-          {i18n.resolvedLanguage === 'zh' ? (
-            <button
-              onClick={handleWeChatClick}
-              className="hub-menu-item"
-            >
-              <WeChatIcon className="h-4 w-4" />
-              {t('wechat.label')}
-            </button>
-          ) : (
-            <a
-              href="https://discord.gg/2BJehJZVH5"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hub-menu-item"
-            >
-              <DiscordIcon className="h-4 w-4" />
-              {t('discord.label')}
-            </a>
-          )}
-
-          <button
             onClick={() => {
               navigate('/oauth-applications');
               setIsOpen(false);
             }}
-            className="flex items-center w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="hub-menu-item"
           >
-            <Settings className="h-4 w-4 mr-2" />
+            <ShieldCheck className="h-4 w-4" />
             {t('oauthApprovals.title')}
           </button>
           <button
@@ -158,9 +113,9 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version })
               navigate('/passkeys');
               setIsOpen(false);
             }}
-            className="flex items-center w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="hub-menu-item"
           >
-            <KeyRound className="h-4 w-4 mr-2" />
+            <KeyRound className="h-4 w-4" />
             {t('passkeys.title')}
           </button>
           <button
@@ -207,12 +162,6 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version })
           setShowNewVersionInfo(false);
         }}
       />
-
-      {/* Sponsor dialog */}
-      <SponsorDialog open={sponsorDialogOpen} onOpenChange={setSponsorDialogOpen} />
-
-      {/* WeChat dialog */}
-      <WeChatDialog open={wechatDialogOpen} onOpenChange={setWechatDialogOpen} />
     </div>
   );
 };

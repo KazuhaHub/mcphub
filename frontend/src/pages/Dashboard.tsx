@@ -11,6 +11,7 @@ import { formatTokens } from '@/utils/contextCost';
 import { Server } from '@/types';
 import { EndpointCopy } from '@/components/ui/EndpointCopy';
 import { ServerStatusDot } from '@/components/ui/StatusDot';
+import { PROJECT_DOCS_URL } from '@/constants/links';
 
 const Stat: React.FC<{ label: string; value: React.ReactNode; tone?: 'ok' | 'warn' | 'err' | 'muted' | 'default' }> = ({
   label,
@@ -265,7 +266,7 @@ const DashboardPage: React.FC = () => {
           </div>
           <a
             className="hub-btn ghost"
-            href="https://docs.mcphub.app"
+            href={PROJECT_DOCS_URL}
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: 'var(--hub-ink-3)' }}

@@ -38,24 +38,6 @@
     "viewProfile": "查看个人中心",
     "userCenter": "个人中心"
   },
-  "sponsor": {
-    "label": "赞助",
-    "title": "支持项目",
-    "rewardAlt": "赞赏码",
-    "supportMessage": "通过捐赠支持 MCPHub 的开发！",
-    "supportButton": "在 Ko-fi 上支持"
-  },
-  "wechat": {
-    "label": "微信",
-    "title": "微信联系",
-    "qrCodeAlt": "微信二维码",
-    "scanMessage": "扫描二维码添加微信"
-  },
-  "discord": {
-    "label": "Discord",
-    "title": "加入我们的 Discord 服务器",
-    "community": "加入我们不断壮大的 Discord 社区，获取支持、参与讨论并了解最新动态！"
-  },
   "theme": {
     "title": "主题",
     "light": "浅色",
@@ -414,12 +396,10 @@
     "false": "否",
     "dismiss": "忽略",
     "github": "GitHub",
-    "wechat": "微信",
     "itemsPerPage": "每页显示",
     "showing": "显示第 {{start}}-{{end}} 条，共 {{total}} 条",
     "previous": "上一页",
     "next": "下一页",
-    "discord": "Discord",
     "required": "必填",
     "secret": "敏感",
     "default": "默认值",
