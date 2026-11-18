@@ -539,9 +539,9 @@ const ActivityPage: React.FC = () => {
 
     return (
       <div className="hub-card overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="hub-scroll-x overflow-x-auto">
           <table className="min-w-full">
-            <thead style={{ background: 'var(--hub-bg-2)' }}>
+            <thead style={{ background: 'var(--hub-bg-2)', ['--hub-scroll-first-bg' as string]: 'var(--hub-bg-2)' }}>
               <tr>
                 {[
                   t('activity.timestamp'),

@@ -198,6 +198,22 @@
   .hub-row.stack > .hub-row-break { display: block; flex: 0 0 100%; height: 0; margin: -6px 0 0; }
 }
 
+/* Wide tables scroll inside their own wrapper on phones; the first column stays pinned.
+   The wrapper is positioned so absolutely placed cell content (sr-only labels) is clipped
+   with it instead of stretching the page. */
+.hub-scroll-x { position: relative; }
+@media (max-width: 767px) {
+  .hub-scroll-x { overflow-x: auto; overscroll-behavior-x: contain; }
+  .hub-scroll-x th:first-child,
+  .hub-scroll-x td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--hub-scroll-first-bg, var(--hub-surface));
+    box-shadow: 1px 0 0 var(--hub-line);
+  }
+}
+
 /* Buttons (only used in redesigned screens) */
 .hub-btn {
   display: inline-flex;

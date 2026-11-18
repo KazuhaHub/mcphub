@@ -130,7 +130,7 @@ const ConnectedClientsPanel: React.FC = () => {
           {t('workspacePage.clients.empty')}
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="hub-scroll-x overflow-x-auto">
           <table className="w-full text-left text-[13px]">
             <thead>
               <tr style={{ color: 'var(--hub-ink-3)', borderTop: '1px solid var(--hub-line)' }}>
