@@ -484,7 +484,7 @@ export interface IOAuthToken {
 export interface ExternalResource {
   resource: string; // Absolute https URL (http only on loopback); matched exactly against the `resource` parameter
   name: string; // Display name, shown on the consent screen and in connected clients
-  allowedClients?: string[]; // OAuth client ids allowed to request it; empty or absent = any registered client
+  allowedClients?: string[]; // OAuth client ids allowed to request it; empty or absent = any registered client (a URL-shaped CIMD client id is never implied: list it by URL)
   scopes?: string[]; // Scopes the service needs; only these are granted for it (absent = none), copied into the JWT `scope` claim
 }
 

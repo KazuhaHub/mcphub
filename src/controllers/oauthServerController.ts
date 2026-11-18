@@ -275,6 +275,8 @@ const generateAuthorizeHtml = (
   message: string,
   options: {
     clientName: string;
+    // Host of a CIMD client_id URL, shown on its own line: client_name is self-asserted.
+    clientHost?: string;
     scopes: { name: string; description: string }[];
     approveLabel: string;
     denyLabel: string;
@@ -308,6 +310,7 @@ const generateAuthorizeHtml = (
           .client-box { margin: 16px 0 20px; padding: 14px 16px; background: #eef2ff; border-radius: 10px; border: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 4px; }
           .client-box-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; }
           .client-box-name { font-weight: 600; color: #111827; }
+          .client-box-host { font-family: ui-monospace, monospace; font-size: 13px; color: #111827; }
           .scopes { margin: 22px 0 16px; }
           .scopes-title { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 8px; }
           .scope-item { padding: 8px 0; border-bottom: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 2px; }
@@ -332,6 +335,7 @@ const generateAuthorizeHtml = (
           <div class="client-box">
             <span class="client-box-label">${escapeHtml(options.clientName ? 'Application' : 'Client')}</span>
             <span class="client-box-name">${escapeHtml(options.clientName || '')}</span>
+            ${options.clientHost ? `<span class="client-box-label">Requested by</span><span class="client-box-host">${escapeHtml(options.clientHost)}</span>` : ''}
           </div>
           ${
             options.resourceNotice
@@ -810,9 +814,8 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
         t('oauthServer.authorizeSubtitle') ||
           'Allow this application to access your MCPHub account.',
         {
-          clientName: isCimdClientId(client_id)
-            ? `${client.name} (${getCimdClientHost(client_id) ?? ''})`
-            : client.name,
+          clientName: client.name,
+          clientHost: getCimdClientHost(client_id),
           scopes,
           resourceNotice: externalResource
             ? `${externalResource.name} (${externalResource.resource})`

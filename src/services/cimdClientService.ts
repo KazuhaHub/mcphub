@@ -126,7 +126,26 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+// Bounded so that unique attacker-chosen client_ids cannot grow memory for the cache lifetime.
+// Map iteration order is insertion order, so the first key is the oldest entry.
+const MAX_CACHE_ENTRIES = 1000;
 const cache = new Map<string, CacheEntry>();
+
+const cacheClient = (clientId: string, entry: CacheEntry): void => {
+  const now = Date.now();
+  cache.delete(clientId);
+  if (cache.size >= MAX_CACHE_ENTRIES) {
+    for (const [key, value] of cache) {
+      if (value.expiresAt <= now) cache.delete(key);
+    }
+    while (cache.size >= MAX_CACHE_ENTRIES) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
+  cache.set(clientId, entry);
+};
 const inflight = new Map<string, Promise<IOAuthClient | undefined>>();
 
 let fetchImpl: typeof fetch = (...args) => fetch(...args);
@@ -143,6 +162,9 @@ export const setCimdFetchImplForTesting = (impl: typeof fetch): void => {
 export const setCimdDnsLookupForTesting = (lookup?: SsrfLookup): void => {
   ssrfLookupOverride = lookup;
 };
+
+/** Test seam: number of cached documents. */
+export const getCimdCacheSizeForTesting = (): number => cache.size;
 
 export const clearCimdCacheForTesting = (): void => {
   cache.clear();
@@ -182,7 +204,9 @@ const isValidRedirectUri = (uri: string): boolean => {
 };
 
 const asStringArray = (value: unknown): string[] | undefined =>
-  Array.isArray(value) && value.every((v) => typeof v === 'string') ? (value as string[]) : undefined;
+  Array.isArray(value) && value.every((v) => typeof v === 'string')
+    ? (value as string[])
+    : undefined;
 
 /**
  * Validate a fetched metadata document and map it onto an IOAuthClient.
@@ -270,11 +294,21 @@ export const mapCimdDocument = (
     metadata: {
       application_type: applicationType,
       ...(contacts ? { contacts } : {}),
-      ...(optionalUriField(document.logo_uri) ? { logo_uri: optionalUriField(document.logo_uri) } : {}),
-      ...(optionalUriField(document.client_uri) ? { client_uri: optionalUriField(document.client_uri) } : {}),
-      ...(optionalUriField(document.policy_uri) ? { policy_uri: optionalUriField(document.policy_uri) } : {}),
-      ...(optionalUriField(document.tos_uri) ? { tos_uri: optionalUriField(document.tos_uri) } : {}),
-      ...(optionalUriField(document.jwks_uri) ? { jwks_uri: optionalUriField(document.jwks_uri) } : {}),
+      ...(optionalUriField(document.logo_uri)
+        ? { logo_uri: optionalUriField(document.logo_uri) }
+        : {}),
+      ...(optionalUriField(document.client_uri)
+        ? { client_uri: optionalUriField(document.client_uri) }
+        : {}),
+      ...(optionalUriField(document.policy_uri)
+        ? { policy_uri: optionalUriField(document.policy_uri) }
+        : {}),
+      ...(optionalUriField(document.tos_uri)
+        ? { tos_uri: optionalUriField(document.tos_uri) }
+        : {}),
+      ...(optionalUriField(document.jwks_uri)
+        ? { jwks_uri: optionalUriField(document.jwks_uri) }
+        : {}),
     },
   };
 };
@@ -423,6 +457,9 @@ export const resolveCimdClient = async (
   if (cached && cached.expiresAt > now) {
     return cached.client;
   }
+  if (cached) {
+    cache.delete(clientId);
+  }
 
   const existingFetch = inflight.get(clientId);
   if (existingFetch) {
@@ -433,7 +470,10 @@ export const resolveCimdClient = async (
     .then((fetched) => {
       if (!fetched) return undefined;
       if (fetched.ttlMs > 0) {
-        cache.set(clientId, { client: fetched.client, expiresAt: Date.now() + fetched.ttlMs });
+        cacheClient(clientId, {
+          client: fetched.client,
+          expiresAt: Date.now() + fetched.ttlMs,
+        });
       } else {
         cache.delete(clientId);
       }

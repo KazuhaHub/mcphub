@@ -4,6 +4,15 @@ jest.mock('../../src/services/oauthServerService.js', () => ({
   handleAuthenticateRequest: jest.fn(),
 }));
 
+const cimd = { resolve: jest.fn() };
+jest.mock('../../src/services/cimdClientService.js', () => ({
+  ...jest.requireActual('../../src/services/cimdClientService.js'),
+  findOAuthClientIncludingCimd: (id: string) =>
+    id.startsWith('https://')
+      ? cimd.resolve(id)
+      : jest.requireMock('../../src/models/OAuth.js').findOAuthClientById(id),
+}));
+
 jest.mock('../../src/models/OAuth.js', () => ({
   findOAuthClientById: jest.fn(),
 }));
@@ -178,9 +187,7 @@ describe('oauthServerController getAuthorize consent shell', () => {
 
     await getAuthorize(req as any, res as any);
 
-    expect(res.redirect).toHaveBeenCalledWith(
-      expect.stringContaining('/login?returnUrl='),
-    );
+    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/login?returnUrl='));
     expect(res.send).not.toHaveBeenCalled();
   });
 
@@ -322,5 +329,34 @@ describe('oauthServerController getAuthorize consent shell', () => {
       policyUri: 'https://example.com/privacy',
       tosUri: 'https://example.com/terms',
     });
+  });
+
+  it('renders the CIMD client host on its own labelled line in the fallback page', async () => {
+    (injectOAuthConsentShell as jest.Mock).mockReturnValue(null);
+    (findOAuthClientById as jest.Mock).mockResolvedValue(undefined);
+    const cimdId = 'https://client.example.com/client.json';
+    const redirect = 'https://client.example.com/cb';
+    cimd.resolve.mockResolvedValue({
+      clientId: cimdId,
+      name: 'Totally Trusted Bank',
+      redirectUris: [redirect],
+    });
+    const req = createRequest({
+      query: {
+        client_id: cimdId,
+        redirect_uri: redirect,
+        response_type: 'code',
+        scope: 'read',
+        code_challenge: 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG',
+        code_challenge_method: 'S256',
+      },
+    });
+    const res = createResponse();
+    await getAuthorize(req as any, res as any);
+    const html = res.send.mock.calls[0][0] as string;
+    expect(html).toContain('<span class="client-box-name">Totally Trusted Bank</span>');
+    expect(html).toContain('Requested by');
+    expect(html).toContain('<span class="client-box-host">client.example.com</span>');
+    expect(html).not.toContain('Totally Trusted Bank (');
   });
 });

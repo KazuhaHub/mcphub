@@ -1,5 +1,6 @@
 import {
   classifyResource,
+  isClientAllowedForResource,
   isValidExternalResourceUrl,
   normalizeExternalResources,
 } from '../../src/utils/externalResources.js';
@@ -81,5 +82,31 @@ describe('classifyResource', () => {
     expect(classifyResource('https://evil.example/mcp', config, own).kind).toBe('invalid');
     expect(classifyResource('not a url', config, own).kind).toBe('invalid');
     expect(classifyResource(['https://ubc.example/mcp'], config, own).kind).toBe('invalid');
+  });
+});
+
+describe('implicit allowedClients default and CIMD clients', () => {
+  const CIMD = 'https://client.example.com/client.json';
+  const open = { resource: 'https://open.example/mcp', name: 'Open' };
+
+  it('still allows any registered client when allowedClients is absent or empty', () => {
+    expect(isClientAllowedForResource(open, 'registered-client')).toBe(true);
+    expect(isClientAllowedForResource({ ...open, allowedClients: [] }, 'registered-client')).toBe(
+      true,
+    );
+  });
+
+  it('never implies a URL-shaped CIMD client id', () => {
+    expect(isClientAllowedForResource(open, CIMD)).toBe(false);
+    expect(isClientAllowedForResource({ ...open, allowedClients: [] }, CIMD)).toBe(false);
+  });
+
+  it('allows a CIMD client that is listed explicitly by URL', () => {
+    expect(isClientAllowedForResource({ ...open, allowedClients: [CIMD] }, CIMD)).toBe(true);
+    expect(isClientAllowedForResource({ ...open, allowedClients: ['other'] }, CIMD)).toBe(false);
+  });
+
+  it('refuses a CIMD client at classification for an open resource', () => {
+    expect(classifyResource('https://open.example/mcp', config, own, CIMD).kind).toBe('invalid');
   });
 });

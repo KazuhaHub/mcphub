@@ -121,10 +121,14 @@ export const findExternalResource = (
 ): ExternalResource | undefined =>
   getExternalResources(systemConfig).find((entry) => entry.resource === resource);
 
-/** Empty or absent `allowedClients` means any registered client. */
+/**
+ * Empty or absent `allowedClients` means any registered client. A URL-shaped client id
+ * (Client ID Metadata Document client, never registered) is not covered by that default:
+ * anyone can host such a document, so it must be listed explicitly by its URL.
+ */
 export const isClientAllowedForResource = (entry: ExternalResource, clientId: string): boolean =>
   !entry.allowedClients || entry.allowedClients.length === 0
-    ? true
+    ? !clientId.startsWith('https://')
     : entry.allowedClients.includes(clientId);
 
 export type ResourceClassification =

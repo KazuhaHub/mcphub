@@ -3,6 +3,7 @@ import {
   clearCimdCacheForTesting,
   computeCimdCacheTtlMs,
   findCimdClientStub,
+  getCimdCacheSizeForTesting,
   getCimdClientHost,
   validateCimdClientIdUrl,
   getCimdSettings,
@@ -153,11 +154,17 @@ describe('cimdClientService', () => {
       ['non-string redirect_uris entries', { redirect_uris: [1] }],
       ['javascript: redirect', { redirect_uris: ['javascript:alert(1)'] }],
       ['redirect with fragment', { redirect_uris: ['https://a.example.com/cb#x'] }],
-      ['only shared-secret methods', { token_endpoint_auth_methods_supported: ['client_secret_post'] }],
-      ['singular not in plural list', {
-        token_endpoint_auth_method: 'none',
-        token_endpoint_auth_methods_supported: ['private_key_jwt'],
-      }],
+      [
+        'only shared-secret methods',
+        { token_endpoint_auth_methods_supported: ['client_secret_post'] },
+      ],
+      [
+        'singular not in plural list',
+        {
+          token_endpoint_auth_method: 'none',
+          token_endpoint_auth_methods_supported: ['private_key_jwt'],
+        },
+      ],
       ['no supported grant type', { grant_types: ['client_credentials'] }],
       ['no supported response type', { response_types: ['token'] }],
     ])('rejects %s', (_name, extra) => {
@@ -228,9 +235,11 @@ describe('cimdClientService', () => {
 
     it('does not cache a response with Cache-Control: no-store', async () => {
       configureCimd(true);
-      const fetchMock = jest.fn().mockImplementation(async () =>
-        jsonResponse(validDoc(url), { headers: { 'cache-control': 'no-store' } }),
-      );
+      const fetchMock = jest
+        .fn()
+        .mockImplementation(async () =>
+          jsonResponse(validDoc(url), { headers: { 'cache-control': 'no-store' } }),
+        );
       setCimdFetchImplForTesting(fetchMock as unknown as typeof fetch);
       expect((await resolveCimdClient(url))?.name).toBe('Test Client');
       await resolveCimdClient(url);
@@ -239,9 +248,11 @@ describe('cimdClientService', () => {
 
     it('honours a short Cache-Control max-age below the configured TTL', async () => {
       configureCimd(true, 3_600_000);
-      const fetchMock = jest.fn().mockImplementation(async () =>
-        jsonResponse(validDoc(url), { headers: { 'cache-control': 'max-age=40' } }),
-      );
+      const fetchMock = jest
+        .fn()
+        .mockImplementation(async () =>
+          jsonResponse(validDoc(url), { headers: { 'cache-control': 'max-age=40' } }),
+        );
       setCimdFetchImplForTesting(fetchMock as unknown as typeof fetch);
       const realNow = Date.now();
       const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(realNow);
@@ -271,9 +282,11 @@ describe('cimdClientService', () => {
 
     it('treats redirects as failures and never follows them', async () => {
       configureCimd(true);
-      const fetchMock = jest.fn().mockResolvedValue(
-        new Response(null, { status: 302, headers: { location: 'https://evil.example.com/x' } }),
-      );
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 302, headers: { location: 'https://evil.example.com/x' } }),
+        );
       setCimdFetchImplForTesting(fetchMock as unknown as typeof fetch);
       expect(await resolveCimdClient(url)).toBeUndefined();
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -294,6 +307,21 @@ describe('cimdClientService', () => {
           ) as never,
       );
       expect(await resolveCimdClient(url)).toBeUndefined();
+    });
+
+    it('bounds the cache and drops expired entries', async () => {
+      configureCimd(true);
+      setCimdFetchImplForTesting(((u: string) =>
+        Promise.resolve(jsonResponse(validDoc(u)))) as unknown as typeof fetch);
+      for (let i = 0; i < 1100; i += 1) {
+        await resolveCimdClient(`https://c${i}.example.com/client.json`);
+      }
+      expect(getCimdCacheSizeForTesting()).toBeLessThanOrEqual(1000);
+      // The oldest entries were evicted, the newest are still cached.
+      const fetchMock = jest.fn().mockImplementation(async () => jsonResponse(validDoc(url)));
+      setCimdFetchImplForTesting(fetchMock as unknown as typeof fetch);
+      await resolveCimdClient('https://c1099.example.com/client.json');
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('does not fetch malformed URL-shaped client_ids', async () => {
@@ -325,10 +353,10 @@ describe('cimdClientService', () => {
       const fetchMock = jest.fn();
       setCimdFetchImplForTesting(fetchMock as unknown as typeof fetch);
 
+      await expect(resolveCimdClient('https://127.0.0.1/metadata.json')).resolves.toBeUndefined();
       await expect(
-        resolveCimdClient('https://127.0.0.1/metadata.json'),
+        resolveCimdClient('http://169.254.169.254/latest/meta-data'),
       ).resolves.toBeUndefined();
-      await expect(resolveCimdClient('http://169.254.169.254/latest/meta-data')).resolves.toBeUndefined();
       await expect(resolveCimdClient('https://10.0.0.5/metadata.json')).resolves.toBeUndefined();
       expect(fetchMock).not.toHaveBeenCalled();
     });
