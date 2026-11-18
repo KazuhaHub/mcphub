@@ -40,7 +40,7 @@ description: '哪些 MCP 客户端已经针对 MCPHub 测试过、如何测试�
 - 登录与授权确认是自动化的：测试工具以测试用户身份登录，并调用授权确认页本身使用的那两个接口，服务端的认证并没有被放宽。
 - 访问令牌有效期设为 6 秒，以便快速验证第 5 步；默认值为一小时。
 - 上游只有一个进程内的 `echo` 工具。
-- 结果来自一个合并了这些 OAuth 改动（现已进入 `main`）的构建（提交 `c3d2fbe6`），并未在最终的 `main` 上重新运行。测试工具当时显式启用了 CIMD；此后 CIMD 改为默认开启，这不改变被测试到的代码路径。
+- 被测构建是 MCPHub `v2.4.1` 加上 `main` 上此后的四个提交（`3f36f05c`），其上只有文档和测试工具的改动。CIMD 保持默认值（开启），测试工具不会显式启用它。
 
 ### 自己运行
 
@@ -53,7 +53,7 @@ Python 运行器的环境准备、各项选项以及如何阅读结果矩阵，�
 
 ## 已测试的客户端
 
-测试日期 2026-11-18，访问令牌有效期 6 秒。“通过”表示五个步骤全部通过。
+测试日期 2026-11-18，被测构建为 MCPHub `v2.4.1` 加 `main` 上此后的四个提交（`3f36f05c`），访问令牌有效期 6 秒，CIMD 为默认值。“通过”表示五个步骤全部通过。
 
 | 客户端实现 | 版本 | DCR | CIMD（由客户端判断） | CIMD（强制） | MCP 协议 |
 | --- | --- | --- | --- | --- | --- |
@@ -62,16 +62,16 @@ Python 运行器的环境准备、各项选项以及如何阅读结果矩阵，�
 | MCP Inspector CLI 模式（`@modelcontextprotocol/inspector`） | 2.16.0 | 通过 | 通过 | 通过 | `2025-11-25` |
 | MCP Python SDK（`mcp`）1.x | 1.30.0 | 通过 | 通过 | 通过 | `2025-11-25` |
 | MCP Python SDK（`mcp`）2.x | 2.3.0 | 通过 | 通过 | 通过 | `2026-07-28` |
-| OpenAI Agents SDK（`openai-agents`），基于 `mcp` 1.x | 0.25.0，`mcp` 1.30.0 | 通过 | 未测试 | 未测试 | `2025-11-25` |
-| OpenAI Agents SDK（`openai-agents`），基于 `mcp` 2.x | 0.25.0，`mcp` 2.3.0 | 通过 | 未测试 | 未测试 | `2026-07-28` |
-| `langchain-mcp-adapters`（要求 `mcp` 低于 2） | 0.3.2，`mcp` 1.30.0 | 通过 | 未测试 | 未测试 | `2025-11-25` |
+| OpenAI Agents SDK（`openai-agents`），基于 `mcp` 1.x | 0.25.0，`mcp` 1.30.0 | 通过 | 通过 | 通过 | `2025-11-25` |
+| OpenAI Agents SDK（`openai-agents`），基于 `mcp` 2.x | 0.25.0，`mcp` 2.3.0 | 通过 | 通过 | 通过 | `2026-07-28` |
+| `langchain-mcp-adapters`（要求 `mcp` 低于 2） | 0.3.2，`mcp` 1.30.0 | 通过 | 通过 | 通过 | `2025-11-25` |
 
 说明：
 
 - OpenAI Agents SDK 与 `langchain-mcp-adapters` 只测了列出和调用工具，没有调用模型。它们使用的是 Python SDK 的 OAuth provider。
 - 网页版 MCP Inspector 和 Claude Code 不在测试工具的驱动范围内，不属于这张矩阵。
 - TypeScript SDK 只有在开启版本协商时才会使用 `2026-07-28`，默认选项下使用 `2025-11-25` 握手。`mcp` 1.x、Inspector 和 `langchain-mcp-adapters` 同样使用 `2025-11-25`。
-- 与客户端无关的探测共 18 项检查，通过 17 项。唯一未通过的是 OpenID Connect 发现（`/.well-known/openid-configuration`），这是 MCPHub 有意不提供的，见下一节。
+- 与客户端无关的探测共 18 项检查，全部通过。其中的 OpenID Connect 检查接受 `/.well-known/openid-configuration` 返回 JSON `404`，因为 MCPHub 有意不提供该文档，见下一节。
 
 ## MCPHub 实现了什么
 
