@@ -1,0 +1,6 @@
+# Primary Python environment: the mcp 1.x SDK line, which langchain-mcp-adapters requires (mcp<2).
+#   python3 -m venv <dir> && <dir>/bin/pip install -r scripts/compat/runners/requirements.txt
+mcp==1.30.0
+openai-agents==0.25.0
+langchain-mcp-adapters==0.3.2
+httpx==0.28.1

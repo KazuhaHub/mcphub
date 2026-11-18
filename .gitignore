@@ -52,3 +52,6 @@ temp-test-config/
 
 # Local design drafts and review scratch space
 .scratch/
+
+# compat harness: pinned third-party clients installed with npm install --prefix scripts/compat
+scripts/compat/node_modules/

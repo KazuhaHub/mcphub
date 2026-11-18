@@ -1,0 +1,11 @@
+{
+  "name": "mcphub-compat-runners",
+  "private": true,
+  "type": "module",
+  "description": "Pinned third-party MCP clients used by the compatibility harness. Not part of the MCPHub package; install with: npm install --prefix scripts/compat",
+  "dependencies": {
+    "@ai-sdk/mcp": "2.0.101",
+    "@modelcontextprotocol/inspector": "2.16.0",
+    "ai": "7.0.176"
+  }
+}
