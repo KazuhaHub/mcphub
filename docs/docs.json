@@ -32,6 +32,7 @@
               "features/file-staging",
               "features/mcp-apps",
               "features/oauth",
+      "features/client-compatibility",
               "features/authentication",
               "features/monitoring",
               "features/cli"
@@ -82,6 +83,7 @@
               "zh/features/file-staging",
               "zh/features/mcp-apps",
               "zh/features/oauth",
+      "zh/features/client-compatibility",
               "zh/features/authentication",
               "zh/features/monitoring",
               "zh/features/cli"
