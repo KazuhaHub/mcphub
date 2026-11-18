@@ -46,6 +46,18 @@ describe('SystemConfigDaoImpl smart-routing migration', () => {
     expect(await new SystemConfigDaoImpl().get()).toMatchObject({ dashboardName: '', nameSeparator: '::' });
   });
 
+  it('round-trips dashboard branding across fresh DAO instances and clears slots', async () => {
+    writeSettings(settingsPath, { mcpServers: {}, systemConfig: { nameSeparator: '::' } });
+    const icon = 'data:image/png;base64,iVBORw0KGgo=';
+    await new SystemConfigDaoImpl().update({ dashboardBranding: { icon, logoLight: icon } });
+    expect((await new SystemConfigDaoImpl().get()).dashboardBranding).toEqual({ icon, logoLight: icon });
+    await new SystemConfigDaoImpl().update({ dashboardBranding: { logoLight: icon } });
+    expect(await new SystemConfigDaoImpl().get()).toMatchObject({
+      dashboardBranding: { logoLight: icon },
+      nameSeparator: '::',
+    });
+  });
+
   it('persists and clears CIDR ranges without losing other settings', async () => {
     writeSettings(settingsPath, { mcpServers: {}, systemConfig: { nameSeparator: '::' } });
     const dao = new SystemConfigDaoImpl();

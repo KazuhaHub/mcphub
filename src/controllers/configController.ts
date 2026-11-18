@@ -16,6 +16,7 @@ import {
 } from '../dao/DaoFactory.js';
 import { getBetterAuthRuntimeConfig } from '../services/betterAuthConfig.js';
 import { logger } from '../utils/logger.js';
+import { publicBranding } from '../utils/brandingImage.js';
 
 const dataService: DataService = getDataService();
 
@@ -88,6 +89,7 @@ export const getPublicConfig = async (req: Request, res: Response): Promise<void
       success: true,
       data: {
         dashboardName: systemConfig?.dashboardName || '',
+        dashboardBranding: publicBranding(systemConfig?.dashboardBranding),
         skipAuth,
         allowTokenInQuery: systemConfig?.routing?.allowTokenInQuery !== false,
         allowRegistration:

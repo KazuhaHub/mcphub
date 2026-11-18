@@ -1144,6 +1144,82 @@ describe('serverController - updateSystemConfig', () => {
     expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
   });
 
+  describe('dashboard branding images', () => {
+    const png = `data:image/png;base64,${Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('x'),
+    ]).toString('base64')}`;
+    const jpeg = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xe0]).toString('base64')}`;
+    const webp = `data:image/webp;base64,${Buffer.concat([
+      Buffer.from('RIFF'),
+      Buffer.from([1, 0, 0, 0]),
+      Buffer.from('WEBP'),
+    ]).toString('base64')}`;
+    const svg = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')}`;
+
+    it.each([
+      ['png', png],
+      ['jpeg', jpeg],
+      ['webp', webp],
+      ['svg', svg],
+    ])('accepts a %s icon and logos', async (_label, image) => {
+      mockRequest.body = { dashboardBranding: { icon: image, logoLight: image, logoDark: image } };
+      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(mockSystemConfigDao.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dashboardBranding: { icon: image, logoLight: image, logoDark: image },
+        }),
+      );
+    });
+
+    it('updates one slot, keeps the others and clears a slot with an empty string', async () => {
+      mockSystemConfigDao.get.mockResolvedValue({
+        routing: {},
+        dashboardBranding: { icon: png, logoLight: svg },
+      });
+      mockRequest.body = { dashboardBranding: { logoDark: jpeg, logoLight: '' } };
+      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+      expect(mockSystemConfigDao.update).toHaveBeenCalledWith(
+        expect.objectContaining({ dashboardBranding: { icon: png, logoDark: jpeg } }),
+      );
+    });
+
+    it.each([
+      ['a gif', 'data:image/gif;base64,R0lGODlhAQABAAAAACw='],
+      ['a remote URL', 'https://example.com/logo.png'],
+      ['a non-data URL', '/logo.png'],
+      ['bad base64', 'data:image/png;base64,@@@@'],
+      ['an oversized image', `data:image/png;base64,${Buffer.alloc(256 * 1024 + 1, 1).toString('base64')}`],
+      ['a number', 42],
+    ])('rejects %s with 400 and does not save', async (_label, value) => {
+      mockRequest.body = { dashboardBranding: { icon: value } };
+      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+      expect(mockStatus).toHaveBeenCalledWith(400);
+      expect(mockJson).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, message: expect.stringContaining('dashboardBranding.icon') }),
+      );
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects unknown slots and non-objects', async () => {
+      for (const dashboardBranding of [{ favicon: png }, 'x', null]) {
+        mockRequest.body = { dashboardBranding };
+        await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+        expect(mockStatus).toHaveBeenLastCalledWith(400);
+      }
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+    });
+
+    it('does not let non-admin users change branding', async () => {
+      mockRequest.user = { username: 'user', isAdmin: false } as never;
+      mockRequest.body = { dashboardBranding: { icon: png } };
+      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+      expect(mockStatus).toHaveBeenCalledWith(403);
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+    });
+  });
+
   it.each([true, false])('saves tool-name compatibility=%s', async (normalizeToolNames) => {
     mockRequest.body = { normalizeToolNames };
     await updateSystemConfig(mockRequest as Request, mockResponse as Response);

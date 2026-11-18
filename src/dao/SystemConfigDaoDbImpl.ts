@@ -24,6 +24,7 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
 
     return {
       dashboardName: config.dashboardName,
+      dashboardBranding: config.dashboardBranding,
       toolPolicies: config.toolPolicies ?? [],
       network: config.network,
       routing: config.routing as any,
@@ -49,6 +50,7 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
     const updated = await this.repository.update(config as any);
     return {
       dashboardName: updated.dashboardName,
+      dashboardBranding: updated.dashboardBranding,
       toolPolicies: updated.toolPolicies ?? [],
       network: updated.network,
       routing: updated.routing as any,
@@ -73,6 +75,7 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
     const config = await this.repository.reset();
     return {
       dashboardName: config.dashboardName,
+      dashboardBranding: config.dashboardBranding,
       toolPolicies: config.toolPolicies ?? [],
       network: config.network,
       routing: config.routing as any,

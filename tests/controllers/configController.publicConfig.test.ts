@@ -70,6 +70,20 @@ describe('ConfigController - getPublicConfig', () => {
     },
   );
 
+  it('publishes valid branding images and drops anything that is not an allowed data URL', async () => {
+    const icon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    getSystemConfigMock.mockResolvedValue({
+      dashboardBranding: { icon, logoLight: 'https://example.com/logo.png' },
+    });
+    getBetterAuthRuntimeConfigMock.mockResolvedValue({});
+    await getPublicConfig(mockRequest as Request, mockResponse as Response);
+    expect(mockJson.mock.calls[0][0].data.dashboardBranding).toEqual({
+      icon,
+      logoLight: '',
+      logoDark: '',
+    });
+  });
+
   it('uses DAO-backed routing and Better Auth configuration for public config', async () => {
     const systemConfig = {
       routing: {
@@ -117,6 +131,7 @@ describe('ConfigController - getPublicConfig', () => {
       success: true,
       data: {
         dashboardName: '',
+        dashboardBranding: { icon: '', logoLight: '', logoDark: '' },
         skipAuth: true,
         allowTokenInQuery: true,
         allowRegistration: false,
