@@ -131,7 +131,6 @@ describe.each(entryPoints)('%s', (_label, method, route, resourcePath) => {
       error: 'invalid_token',
       error_description: 'Invalid bearer token',
       resource_metadata: `${METADATA_PREFIX}${resourcePath}`,
-      scope: 'read write',
     });
   });
 });
@@ -142,7 +141,6 @@ it('keeps the JSON body shape of the unauthenticated 401 backwards compatible', 
     error: 'invalid_token',
     error_description: 'No authorization provided',
     resource_metadata: `${METADATA_PREFIX}/mcp`,
-    scope: 'read write',
   });
 });
 

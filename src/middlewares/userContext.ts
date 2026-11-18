@@ -84,13 +84,13 @@ export const userContextMiddleware = async (
   }
 };
 
-const setBearerChallenge = async (
+const setBearerChallenge = (
   req: Request,
   res: Response,
+  systemConfig: SystemConfig | null | undefined,
   error?: 'invalid_token',
   errorDescription?: string,
-): Promise<void> => {
-  const systemConfig = await getSystemConfigDao().get();
+): void => {
   const { resourceMetadata, scopes } = getChallengeContext(req, systemConfig);
   res.setHeader(
     'WWW-Authenticate',
@@ -110,15 +110,19 @@ export const sseUserContextMiddleware = async (
   try {
     const userContextService = UserContextService.getInstance();
     const username = req.params.user;
-    const rejectedQueryParam = rejectsQueryCredential(
-      req.query,
-      getCachedSystemConfig() ?? (await getSystemConfigDao().get()),
-    );
+    const routingConfig = getCachedSystemConfig() ?? (await getSystemConfigDao().get());
+    const rejectedQueryParam = rejectsQueryCredential(req.query, routingConfig);
     if (rejectedQueryParam) {
       logger.warn(
         `Rejected an MCP/SSE request carrying a credential in the URL query (${rejectedQueryParam})`,
       );
-      await setBearerChallenge(req, res, 'invalid_token', QUERY_CREDENTIAL_REJECTED_MESSAGE);
+      setBearerChallenge(
+        req,
+        res,
+        routingConfig,
+        'invalid_token',
+        QUERY_CREDENTIAL_REJECTED_MESSAGE,
+      );
       res.status(401).json({ success: false, message: QUERY_CREDENTIAL_REJECTED_MESSAGE });
       return;
     }
@@ -137,7 +141,7 @@ export const sseUserContextMiddleware = async (
           }
 
           // No credentials at all: a challenge without an error code (RFC 6750 3.1).
-          await setBearerChallenge(req, res);
+          setBearerChallenge(req, res, systemConfig);
           res.status(401).json({
             success: false,
             message: 'Authentication is required for user-scoped SSE routes',

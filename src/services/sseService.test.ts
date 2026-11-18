@@ -239,7 +239,9 @@ const expectBearerUnauthorized = (
   });
   expect(res.setHeader).toHaveBeenCalledWith(
     'WWW-Authenticate',
-    `Bearer error="invalid_token", error_description="${description}", resource_metadata="${EXPECTED_METADATA_URL}"`,
+    description === 'No authorization provided'
+      ? `Bearer resource_metadata="${EXPECTED_METADATA_URL}", scope="read write"`
+      : `Bearer error="invalid_token", error_description="${description}", resource_metadata="${EXPECTED_METADATA_URL}", scope="read write"`,
   );
 };
 
@@ -1054,9 +1056,13 @@ describe('sseService', () => {
       const previous = process.env.MCPHUB_REPLICA_MODE;
       process.env.MCPHUB_REPLICA_MODE = 'true';
       try {
-        setMockSystemConfig({ routing: { enableGlobalRoute: true, enableBearerAuth: false }, enableSessionRebuild: true });
+        setMockSystemConfig({
+          routing: { enableGlobalRoute: true, enableBearerAuth: false },
+          enableSessionRebuild: true,
+        });
         const req = createMockRequest({
-          params: { group: 'test-group' }, headers: { 'mcp-session-id': 'other-node-session' },
+          params: { group: 'test-group' },
+          headers: { 'mcp-session-id': 'other-node-session' },
           body: { method: 'tools/list' },
         });
         const res = createMockResponse();
@@ -1337,7 +1343,9 @@ describe('sseService', () => {
         ...overrides,
       });
 
-      const groupDaoFor = (groups: Record<string, { id: string; name: string; servers: string[] }>) => ({
+      const groupDaoFor = (
+        groups: Record<string, { id: string; name: string; servers: string[] }>,
+      ) => ({
         findByName: jest.fn((name: string) => Promise.resolve(groups[name] ?? null)),
         findById: jest.fn((id: string) =>
           Promise.resolve(Object.values(groups).find((group) => group.id === id) ?? null),

@@ -816,7 +816,6 @@ const sendBearerAuthError = async (
     error: string;
     error_description: string;
     resource_metadata?: string;
-    scope?: string;
   } = {
     error: 'invalid_token',
     error_description: errorDescription,
@@ -824,9 +823,6 @@ const sendBearerAuthError = async (
 
   if (resourceMetadataUrl) {
     responseBody.resource_metadata = resourceMetadataUrl;
-  }
-  if (scopes.length > 0) {
-    responseBody.scope = scopes.join(' ');
   }
 
   res.status(401).json(responseBody);
