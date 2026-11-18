@@ -243,6 +243,16 @@ Dashboard 返回连接器专属的 MCPHub `/oauth/relay/<name>?state=…` 地址
 Mock 集成测试覆盖不同用户、回调恢复、code 兑换、刷新及带认证的 MCP 请求。真实 Microsoft 兼容性尚未验证，上线前应验证应用注册、broker 模式、scope 及刷新生命周期。
 
 
+## 客户端 ID 元数据文档（CIMD）
+
+MCPHub 自身的授权服务器可以接受 HTTPS URL 作为 OAuth `client_id`，并从该 URL 获取客户端元数据，而无需事先注册（这是 MCP 推荐的客户端注册方式；2026-07-28 规范已弃用动态客户端注册）。该功能默认关闭。可在 **设置 → OAuth 服务器 → 启用客户端 ID 元数据文档** 中开启，或通过 `PUT /api/system-config` 提交 `{"oauthServer":{"clientIdMetadata":{"enabled":true}}}`。启用后，`/.well-known/oauth-authorization-server` 会包含 `client_id_metadata_document_supported: true`。
+
+- **标识符**：必须使用 `https`，路径不能只是 `/`，且不得包含片段、用户信息或 `.`/`..` 路径段。格式错误的标识符在 `/oauth/authorize` 返回 `invalid_request`，在令牌端点返回 `invalid_client`，且不会发起任何请求。
+- **获取**：仅允许公网地址（与上游连接共用 SSRF 防护），不跟随重定向，仅接受 HTTP 200，正文上限 16 KB，不携带 Cookie。
+- **文档**：必须是 JSON，包含 `client_id`（与 URL 一致）、`client_name` 和 `redirect_uris`。含共享密钥（`client_secret`、`client_secret_*` 方法）或同时包含 `jwks` 与 `jwks_uri` 的文档会被拒绝，`grant_types`/`response_types` 必须包含 `authorization_code`/`code`。此类客户端均为公开客户端，必须使用 S256 PKCE。授权请求的 `redirect_uri` 必须与 `redirect_uris` 中的某一项完全一致。
+- **缓存**：文档缓存时长取 `Cache-Control: max-age`、配置的 `clientIdMetadata.cacheTtlMs`（默认一小时）与 24 小时三者中的最小值，最短 30 秒。`no-store` 响应、失败和无效文档不会被缓存。
+- **授权确认页**：同时显示文档中的 `client_name` 和 `client_id` URL 的主机名，因为 `client_name` 由客户端自行声明。不显示文档中的 `logo_uri`。
+
 ## 记忆下游应用的授权确认
 
 MCPHub 自身的 OAuth 授权服务器默认在每次授权时显示确认页。管理员可在 **设置 → OAuth 服务器** 中开启 **记住用户授权** 并调整 **授权记忆有效期（秒）**，也可通过 `systemConfig.oauthServer` 启用授权记忆（`PUT /api/system-config` 同样支持这些字段）：

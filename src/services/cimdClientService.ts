@@ -22,10 +22,83 @@ import { logger } from '../utils/logger.js';
 
 const METADATA_FETCH_TIMEOUT_MS = 5_000;
 const DEFAULT_CACHE_TTL_MS = 3_600_000;
-const MAX_DOCUMENT_BYTES = 256 * 1024;
+// The draft recommends a 5 KB cap; 16 KB leaves room for an inline jwks.
+const MAX_DOCUMENT_BYTES = 16 * 1024;
+const MAX_CLIENT_ID_LENGTH = 2048;
+// Effective cache lifetime bounds (draft section 6.2: enforce a minimum and a maximum).
+const MIN_CACHE_TTL_MS = 30_000;
+const MAX_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export const isCimdClientId = (clientId: string): boolean => {
   return typeof clientId === 'string' && clientId.startsWith('https://');
+};
+
+/**
+ * Check a URL-shaped client_id against draft-ietf-oauth-client-id-metadata-document
+ * section 3: https scheme, a path other than "/", no "." or ".." segments, no
+ * fragment, no userinfo. The raw string is inspected because URL parsing would
+ * silently normalise dot segments away (and an authorization server must not
+ * normalise the identifier). A query component is discouraged but allowed.
+ * Returns a human-readable reason when invalid, undefined when acceptable.
+ */
+export const validateCimdClientIdUrl = (clientId: string): string | undefined => {
+  if (typeof clientId !== 'string' || clientId.length > MAX_CLIENT_ID_LENGTH) {
+    return 'client_id URL is too long';
+  }
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0020\u007f\\]/.test(clientId)) {
+    return 'client_id URL contains forbidden characters';
+  }
+  if (!clientId.startsWith('https://')) {
+    return 'client_id URL must use the https scheme';
+  }
+  if (clientId.includes('#')) {
+    return 'client_id URL must not contain a fragment';
+  }
+  const rest = clientId.slice('https://'.length);
+  const pathStart = rest.search(/[/?]/);
+  const authority = pathStart === -1 ? rest : rest.slice(0, pathStart);
+  if (authority.includes('@')) {
+    return 'client_id URL must not contain userinfo';
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(clientId);
+  } catch {
+    return 'client_id is not a valid URL';
+  }
+  if (parsed.protocol !== 'https:' || !parsed.hostname) {
+    return 'client_id URL must use the https scheme';
+  }
+  const afterAuthority = pathStart === -1 ? '' : rest.slice(pathStart);
+  const rawPath = afterAuthority.split('?')[0];
+  if (rawPath === '' || rawPath === '/') {
+    return 'client_id URL must have a path component';
+  }
+  const segments = rawPath.split('/');
+  const hasDotSegment = segments.some((segment) => {
+    let decoded = segment;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      // keep the raw segment
+    }
+    return decoded === '.' || decoded === '..';
+  });
+  if (hasDotSegment) {
+    return 'client_id URL must not contain dot segments';
+  }
+  return undefined;
+};
+
+/** Host (with port, if any) of a CIMD client_id, for display to the user. */
+export const getCimdClientHost = (clientId: string): string | undefined => {
+  if (!isCimdClientId(clientId)) return undefined;
+  try {
+    return new URL(clientId).host;
+  } catch {
+    return undefined;
+  }
 };
 
 interface CimdDocument {
@@ -40,6 +113,12 @@ interface CimdDocument {
   policy_uri?: unknown;
   tos_uri?: unknown;
   jwks_uri?: unknown;
+  jwks?: unknown;
+  client_secret?: unknown;
+  client_secret_expires_at?: unknown;
+  token_endpoint_auth_methods_supported?: unknown;
+  grant_types?: unknown;
+  response_types?: unknown;
 }
 
 interface CacheEntry {
@@ -90,6 +169,18 @@ export const getCimdSettings = async (): Promise<CimdSettings> => {
   }
 };
 
+const SUPPORTED_GRANT_TYPES = ['authorization_code', 'refresh_token'];
+
+const isValidRedirectUri = (uri: string): boolean => {
+  if (!uri || uri.includes('#')) return false;
+  try {
+    const parsed = new URL(uri);
+    return !['javascript:', 'data:', 'vbscript:', 'file:'].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
+};
+
 const asStringArray = (value: unknown): string[] | undefined =>
   Array.isArray(value) && value.every((v) => typeof v === 'string') ? (value as string[]) : undefined;
 
@@ -111,19 +202,58 @@ export const mapCimdDocument = (
     return undefined;
   }
 
-  const redirectUris = asStringArray(document.redirect_uris);
-  if (!redirectUris || redirectUris.length === 0 || !redirectUris.every((uri) => uri)) {
+  // MCP client-registration: client_id, client_name and redirect_uris are required.
+  if (typeof document.client_name !== 'string' || document.client_name.trim().length === 0) {
     return undefined;
   }
 
-  // Only public clients can be expressed via CIMD on this server; a document
-  // claiming a secret-based auth method cannot be honored safely.
-  const authMethod =
-    typeof document.token_endpoint_auth_method === 'string'
-      ? document.token_endpoint_auth_method
-      : 'none';
-  if (authMethod !== 'none') {
+  const redirectUris = asStringArray(document.redirect_uris);
+  if (!redirectUris || redirectUris.length === 0 || !redirectUris.every(isValidRedirectUri)) {
     return undefined;
+  }
+
+  // Draft section 4.1: no shared secrets, and jwks / jwks_uri are mutually exclusive.
+  if (document.client_secret !== undefined || document.client_secret_expires_at !== undefined) {
+    return undefined;
+  }
+  if (document.jwks !== undefined && document.jwks_uri !== undefined) {
+    return undefined;
+  }
+
+  // Only public clients can be expressed via CIMD on this server (no private_key_jwt),
+  // so "none" must be the declared (or implied) authentication method.
+  if (
+    document.token_endpoint_auth_method !== undefined &&
+    document.token_endpoint_auth_method !== 'none'
+  ) {
+    return undefined;
+  }
+  if (document.token_endpoint_auth_methods_supported !== undefined) {
+    const methods = asStringArray(document.token_endpoint_auth_methods_supported);
+    if (!methods || !methods.includes('none')) {
+      return undefined;
+    }
+    if (
+      typeof document.token_endpoint_auth_method === 'string' &&
+      !methods.includes(document.token_endpoint_auth_method)
+    ) {
+      return undefined;
+    }
+  }
+
+  // Draft section 6: intersect grant_types / response_types with what this server
+  // supports; an empty intersection is rejected (invalid_client).
+  if (document.grant_types !== undefined) {
+    const grantTypes = asStringArray(document.grant_types);
+    if (!grantTypes || !grantTypes.some((g) => SUPPORTED_GRANT_TYPES.includes(g))) {
+      return undefined;
+    }
+  }
+  if (document.response_types !== undefined) {
+    const responseTypes = asStringArray(document.response_types);
+    if (!responseTypes || !responseTypes.includes('code')) {
+      return undefined;
+    }
   }
 
   const applicationType =
@@ -134,10 +264,7 @@ export const mapCimdDocument = (
 
   return {
     clientId: clientIdUrl,
-    name:
-      typeof document.client_name === 'string' && document.client_name.length > 0
-        ? document.client_name
-        : clientIdUrl,
+    name: document.client_name.trim(),
     redirectUris,
     grants: ['authorization_code', 'refresh_token'],
     metadata: {
@@ -152,15 +279,80 @@ export const mapCimdDocument = (
   };
 };
 
-const fetchCimdDocument = async (clientIdUrl: string): Promise<IOAuthClient | undefined> => {
+/**
+ * Effective cache lifetime from the response's Cache-Control (RFC 9111), bounded
+ * below by MIN_CACHE_TTL_MS and above by the configured TTL (itself capped at
+ * MAX_CACHE_TTL_MS). Returns 0 when the response must not be stored (no-store).
+ */
+export const computeCimdCacheTtlMs = (headers: Headers, configuredTtlMs: number): number => {
+  const ceiling = Math.min(Math.max(configuredTtlMs, MIN_CACHE_TTL_MS), MAX_CACHE_TTL_MS);
+  const cacheControl = (headers.get('cache-control') || '').toLowerCase();
+  const directives = cacheControl.split(',').map((d) => d.trim());
+  if (directives.includes('no-store')) {
+    return 0;
+  }
+  const maxAge = directives.find((d) => d.startsWith('max-age='));
+  if (maxAge) {
+    const seconds = Number(maxAge.slice('max-age='.length).replace(/"/g, ''));
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      const ageSeconds = Number(headers.get('age'));
+      const remaining = seconds - (Number.isFinite(ageSeconds) && ageSeconds > 0 ? ageSeconds : 0);
+      return Math.min(Math.max(remaining * 1000, MIN_CACHE_TTL_MS), ceiling);
+    }
+  }
+  // no-cache (must revalidate) and absent directives get the minimum / configured TTL.
+  return directives.includes('no-cache') ? Math.min(MIN_CACHE_TTL_MS, ceiling) : ceiling;
+};
+
+interface FetchedCimdClient {
+  client: IOAuthClient;
+  ttlMs: number;
+}
+
+/** Read at most MAX_DOCUMENT_BYTES of the body; undefined when it is larger. */
+const readBoundedText = async (response: Response): Promise<string | undefined> => {
+  if (!response.body) {
+    const text = await response.text();
+    return Buffer.byteLength(text) > MAX_DOCUMENT_BYTES ? undefined : text;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_DOCUMENT_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+};
+
+const fetchCimdDocument = async (
+  clientIdUrl: string,
+  configuredTtlMs: number,
+): Promise<FetchedCimdClient | undefined> => {
   await assertSafeUrl(clientIdUrl, {
     allowInternal: false,
     allowedCidrs: [],
     ...(ssrfLookupOverride ? { lookup: ssrfLookupOverride } : {}),
   });
 
+  // The draft forbids following redirects. The SSRF-validating wrapper would follow
+  // them, so a 3xx is intercepted before it can and treated as a failure.
+  let redirected = false;
   const validatingFetch = createRedirectValidatingFetch(
-    (url, init) => fetchImpl(url, init),
+    async (url, init) => {
+      const res = await fetchImpl(url, init);
+      if (res.status >= 300 && res.status < 400) {
+        redirected = true;
+        return new Response(null, { status: 502 });
+      }
+      return res;
+    },
     false,
     ssrfLookupOverride,
     [],
@@ -168,14 +360,16 @@ const fetchCimdDocument = async (clientIdUrl: string): Promise<IOAuthClient | un
   const response = await validatingFetch(clientIdUrl, {
     method: 'GET',
     headers: { Accept: 'application/json' },
+    credentials: 'omit',
     signal: AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS),
     redirect: 'manual',
   });
 
-  if (!response.ok) {
+  if (redirected || response.status !== 200) {
     logger.warn('CIMD metadata document fetch failed', {
       clientIdUrl,
       status: response.status,
+      redirected,
     });
     return undefined;
   }
@@ -188,8 +382,8 @@ const fetchCimdDocument = async (clientIdUrl: string): Promise<IOAuthClient | un
 
   let document: CimdDocument;
   try {
-    const text = await response.text();
-    if (text.length > MAX_DOCUMENT_BYTES) {
+    const text = await readBoundedText(response);
+    if (text === undefined) {
       logger.warn('CIMD metadata document exceeds size limit', { clientIdUrl });
       return undefined;
     }
@@ -202,14 +396,15 @@ const fetchCimdDocument = async (clientIdUrl: string): Promise<IOAuthClient | un
   const mapped = mapCimdDocument(clientIdUrl, document);
   if (!mapped) {
     logger.warn('CIMD metadata document failed validation', { clientIdUrl });
+    return undefined;
   }
-  return mapped;
+  return { client: mapped, ttlMs: computeCimdCacheTtlMs(response.headers, configuredTtlMs) };
 };
 
 /**
  * Resolve a URL-shaped client_id to a client by fetching (or caching) its
  * metadata document. Returns undefined for anything that is not a valid,
- * enabled CIMD identifier.
+ * enabled CIMD identifier. Failures and invalid documents are never cached.
  */
 export const resolveCimdClient = async (
   clientId: string,
@@ -217,6 +412,9 @@ export const resolveCimdClient = async (
 ): Promise<IOAuthClient | undefined> => {
   const resolvedSettings = settings ?? (await getCimdSettings());
   if (!resolvedSettings.enabled || !isCimdClientId(clientId)) {
+    return undefined;
+  }
+  if (validateCimdClientIdUrl(clientId)) {
     return undefined;
   }
 
@@ -231,12 +429,15 @@ export const resolveCimdClient = async (
     return existingFetch;
   }
 
-  const fetchPromise = fetchCimdDocument(clientId)
-    .then((client) => {
-      if (client) {
-        cache.set(clientId, { client, expiresAt: Date.now() + resolvedSettings.cacheTtlMs });
+  const fetchPromise = fetchCimdDocument(clientId, resolvedSettings.cacheTtlMs)
+    .then((fetched) => {
+      if (!fetched) return undefined;
+      if (fetched.ttlMs > 0) {
+        cache.set(clientId, { client: fetched.client, expiresAt: Date.now() + fetched.ttlMs });
+      } else {
+        cache.delete(clientId);
       }
-      return client;
+      return fetched.client;
     })
     .catch((error) => {
       logger.warn('Failed to resolve CIMD client', { clientId, error });

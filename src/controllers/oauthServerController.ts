@@ -19,7 +19,12 @@ import {
   type ResourceClassification,
 } from '../utils/externalResources.js';
 import type { ExternalResource, SystemConfig } from '../types/index.js';
-import { findOAuthClientIncludingCimd, isCimdClientId } from '../services/cimdClientService.js';
+import {
+  findOAuthClientIncludingCimd,
+  getCimdClientHost,
+  isCimdClientId,
+  validateCimdClientIdUrl,
+} from '../services/cimdClientService.js';
 import { getSystemConfigDao, getGroupDao, getServerDao } from '../dao/index.js';
 import {
   isQueryTokenAllowed,
@@ -137,6 +142,17 @@ function validateQueryParam(value: any, name: string, pattern?: RegExp): string 
   return value;
 }
 
+/**
+ * A malformed URL-shaped client_id (draft-ietf-oauth-client-id-metadata-document
+ * section 3) is refused up front with invalid_request, before any fetch.
+ */
+function rejectInvalidCimdClientId(res: Response, clientId: string): boolean {
+  const problem = isCimdClientId(clientId) ? validateCimdClientIdUrl(clientId) : undefined;
+  if (!problem) return false;
+  res.status(400).json({ error: 'invalid_request', error_description: problem });
+  return true;
+}
+
 async function validateClientRedirectUri(
   res: Response,
   clientId: unknown,
@@ -155,6 +171,10 @@ async function validateClientRedirectUri(
       error: 'invalid_request',
       error_description: 'Missing redirect_uri',
     });
+    return null;
+  }
+
+  if (rejectInvalidCimdClientId(res, clientId)) {
     return null;
   }
 
@@ -521,6 +541,10 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
+    if (rejectInvalidCimdClientId(res, client_id as string)) {
+      return;
+    }
+
     // Verify client
     const client = await findOAuthClientIncludingCimd(client_id as string);
     if (!client) {
@@ -716,6 +740,11 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
       // once the visitor is signed in.
       contacts: needsSession ? undefined : client.metadata?.contacts,
       applicationType: client.metadata?.application_type,
+      // A CIMD client is identified by its client_id URL: show who is asking (its host), since
+      // client_name is self-asserted. The logo is not shown: it would be fetched from the
+      // client's server by the user's browser, and the draft requires it be prefetched first.
+      clientHost: getCimdClientHost(client_id),
+      ...(isCimdClientId(client_id) ? { logoUri: undefined } : {}),
     };
     const consentContext: OAuthConsentContext = {
       clientName: client.name || '',
@@ -772,7 +801,9 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
         t('oauthServer.authorizeSubtitle') ||
           'Allow this application to access your MCPHub account.',
         {
-          clientName: client.name,
+          clientName: isCimdClientId(client_id)
+            ? `${client.name} (${getCimdClientHost(client_id) ?? ''})`
+            : client.name,
           scopes,
           resourceNotice: externalResource
             ? `${externalResource.name} (${externalResource.resource})`
@@ -1064,6 +1095,12 @@ export const getMetadata = async (req: Request, res: Response): Promise<void> =>
       // Only S256 is supported; the library rejects plain (GHSA-3m7m).
       code_challenge_methods_supported: ['S256'],
     };
+
+    // Client ID Metadata Documents (draft-ietf-oauth-client-id-metadata-document, section 8):
+    // advertised exactly when URL-shaped client_ids are resolved.
+    if (oauthConfig.clientIdMetadata?.enabled === true) {
+      metadata.client_id_metadata_document_supported = true;
+    }
 
     // Add dynamic registration endpoint if enabled
     if (oauthConfig.dynamicRegistration?.enabled) {

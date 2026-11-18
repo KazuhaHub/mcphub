@@ -261,6 +261,16 @@ This is an opt-in authorization-entry relay, separate from the legacy global OAu
 Mocked tests cover independent users, callback recovery, code exchange, refresh and authenticated MCP requests. Live Microsoft compatibility remains unverified; test your application registration, broker mode, scopes and refresh lifecycle before production use.
 
 
+## Client ID Metadata Documents (CIMD)
+
+MCPHub's own authorization server can accept an HTTPS URL as the OAuth `client_id`, fetching the client's metadata from that URL instead of requiring registration (MCP's recommended client registration method; Dynamic Client Registration is deprecated in the 2026-07-28 spec). It is off by default. Enable it with **Settings → OAuth Server → Enable Client ID Metadata Documents**, or `{"oauthServer":{"clientIdMetadata":{"enabled":true}}}` through `PUT /api/system-config`. While enabled, `/.well-known/oauth-authorization-server` contains `client_id_metadata_document_supported: true`.
+
+- **Identifier**: must use `https`, have a path other than `/`, and contain no fragment, userinfo, or `.`/`..` segments. A malformed identifier is rejected with `invalid_request` at `/oauth/authorize` and `invalid_client` at the token endpoint, without any fetch.
+- **Fetch**: public addresses only (the same SSRF guard as upstream connections), no redirects, HTTP 200 only, body limited to 16 KB, no cookies.
+- **Document**: must be JSON containing `client_id` (equal to the URL), `client_name` and `redirect_uris`. Shared secrets (`client_secret`, `client_secret_*` methods) and both `jwks` and `jwks_uri` are rejected, and `grant_types`/`response_types` must include `authorization_code`/`code`. Clients are public: PKCE with S256 is required. The `redirect_uri` of an authorization request must exactly match an entry in `redirect_uris`.
+- **Caching**: documents are cached for the shortest of `Cache-Control: max-age`, the configured `clientIdMetadata.cacheTtlMs` (default one hour) and 24 hours, with a 30 second floor. `no-store` responses, failures and invalid documents are never cached.
+- **Consent screen**: shows the document's `client_name` together with the host of the `client_id` URL, because `client_name` is self-asserted. The document's `logo_uri` is not displayed.
+
 ## Remembering Downstream Application Consent
 
 MCPHub's own OAuth authorization server displays a consent screen on every authorization by default. Operators can enable **Remember user consent** and edit **Consent lifetime (seconds)** under **Settings → OAuth Server**. The same settings are available in `systemConfig.oauthServer` (also accepted as an `oauthServer` object by `PUT /api/system-config`):

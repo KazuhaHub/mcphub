@@ -3690,6 +3690,26 @@ const SettingsPage: React.FC = () => {
                 </div>
               </div>
 
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="font-medium text-gray-700">
+                      {t('settings.enableClientIdMetadata')}
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      {t('settings.clientIdMetadataDescription')}
+                    </p>
+                  </div>
+                  <Switch
+                    disabled={loading || !oauthServerConfig.enabled}
+                    checked={oauthServerConfig.clientIdMetadata?.enabled === true}
+                    onCheckedChange={(checked) =>
+                      updateOAuthServerConfig('clientIdMetadata', { enabled: checked })
+                    }
+                  />
+                </div>
+              </div>
+
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md space-y-4">
                 <div className="flex justify-between items-center">
                   <div>

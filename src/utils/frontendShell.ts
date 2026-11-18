@@ -31,6 +31,8 @@ export type ConsentClientInfo = {
   logoUri?: string;
   contacts?: string[];
   applicationType?: string;
+  // Host of a CIMD client_id URL (set only for CIMD clients).
+  clientHost?: string;
 };
 
 /**
