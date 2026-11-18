@@ -239,8 +239,8 @@ const GroupCard = ({ group, servers, onEdit, onDelete, cost }: GroupCardProps) =
 
       {/* Routing diagram */}
       <div
-        className="grid flex-1 items-center gap-3 px-4 py-3"
-        style={{ gridTemplateColumns: '1fr 80px 1fr', minHeight: 180 }}
+        className="grid flex-1 grid-cols-1 items-center gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_80px_minmax(0,1fr)]"
+        style={{ minHeight: 180 }}
       >
         {/* Servers */}
         <div className="flex flex-col gap-1.5">
@@ -288,7 +288,7 @@ const GroupCard = ({ group, servers, onEdit, onDelete, cost }: GroupCardProps) =
         </div>
 
         {/* Flow */}
-        <svg width="80" height="80" viewBox="0 0 80 80" className="self-center">
+        <svg width="80" height="80" viewBox="0 0 80 80" className="self-center max-md:hidden">
           {groupServers.length === 0 ? (
             <path
               d="M0,40 C30,40 50,40 80,40"
