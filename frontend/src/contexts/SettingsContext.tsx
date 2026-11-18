@@ -129,6 +129,7 @@ interface BetterAuthConfig {
   basePath: string;
   trustedOrigins: string[];
   disablePasswordLogin: boolean;
+  adminPasswordLogin: boolean;
   loginMode: LoginMode;
   /** Read-only, from GET /settings: the layout in use and any BETTER_AUTH_LOGIN_MODE override. */
   loginModeStatus?: { effective: LoginMode; envOverride: LoginMode | null };
@@ -282,6 +283,7 @@ const getDefaultBetterAuthConfig = (): BetterAuthConfig => ({
   basePath: '/api/auth/better',
   trustedOrigins: [],
   disablePasswordLogin: false,
+  adminPasswordLogin: false,
   loginMode: 'dual',
   providers: {
     google: {
@@ -322,6 +324,7 @@ const normalizeBetterAuthConfig = (config?: Partial<BetterAuthConfig>): BetterAu
     basePath: config?.basePath?.trim() || defaults.basePath,
     trustedOrigins: normalizeStringArray(config?.trustedOrigins, defaults.trustedOrigins),
     disablePasswordLogin: config?.disablePasswordLogin ?? defaults.disablePasswordLogin,
+    adminPasswordLogin: config?.adminPasswordLogin === true,
     loginModeStatus: config?.loginModeStatus,
     loginMode: LOGIN_MODES.includes(config?.loginMode as LoginMode)
       ? (config?.loginMode as LoginMode)

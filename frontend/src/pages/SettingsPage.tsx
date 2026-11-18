@@ -3975,6 +3975,30 @@ const SettingsPage: React.FC = () => {
                 />
               </div>
 
+              <div
+                className="flex items-center justify-between gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-md"
+                data-testid="admin-password-login-setting"
+              >
+                <div style={{ overflowWrap: 'anywhere' }}>
+                  <h3 className="font-medium text-gray-700">{t('settings.adminPasswordLogin')}</h3>
+                  <p className="text-sm text-gray-500">
+                    {t('settings.adminPasswordLoginDescription')}
+                  </p>
+                  {betterAuthConfig.adminPasswordLogin && !betterAuthConfig.disablePasswordLogin && (
+                    <p className="mt-1 text-sm text-gray-500">
+                      {t('settings.adminPasswordLoginInactive')}
+                    </p>
+                  )}
+                </div>
+                <Switch
+                  disabled={loading}
+                  checked={betterAuthConfig.adminPasswordLogin}
+                  onCheckedChange={(checked) =>
+                    handleBetterAuthToggle({ adminPasswordLogin: checked })
+                  }
+                />
+              </div>
+
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
                 <div className="mb-2">
                   <label htmlFor="better-auth-login-mode" className="font-medium text-gray-700">
