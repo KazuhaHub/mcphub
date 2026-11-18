@@ -1,7 +1,13 @@
 import { loadSettings } from '../config/index.js';
 import { getSystemConfigDao } from '../dao/DaoFactory.js';
-import { BetterAuthConfig, BetterAuthOidcProviderConfig, SystemConfig } from '../types/index.js';
+import {
+  BetterAuthConfig,
+  BetterAuthOidcProviderConfig,
+  LoginMode,
+  SystemConfig,
+} from '../types/index.js';
 import { resolveInstallBaseUrl } from '../utils/installBaseUrl.js';
+import { DEFAULT_LOGIN_MODE, isLoginMode, OIDC_DISPLAY_NAME_MAX_LENGTH } from '../utils/loginMode.js';
 import {
   normalizeOptionalString,
   normalizeStringArray,
@@ -46,6 +52,11 @@ export interface BetterAuthRuntimeConfig {
    * deployment without any way to log in.
    */
   disablePasswordLogin: boolean;
+  /**
+   * Effective login page presentation. `dual` whenever no SSO sign-in is available, and
+   * `sso_first` instead of `sso_redirect` when there is more than one provider to choose from.
+   */
+  loginMode: LoginMode;
   providers: {
     google: {
       enabled: boolean;
@@ -56,6 +67,7 @@ export interface BetterAuthRuntimeConfig {
     oidc: {
       enabled: boolean;
       providerId: string;
+      displayName?: string;
       discoveryUrl?: string;
       scopes: string[];
       pkce: boolean;
@@ -110,6 +122,17 @@ const resolvePromptSetting = (
   }
 
   return normalizePrompt(settingsValue);
+};
+
+const resolveLoginModeSetting = (envValue: string | undefined, settingsValue: unknown): LoginMode => {
+  const envOverride = normalizeOptionalString(envValue);
+  if (isLoginMode(envOverride)) return envOverride;
+  return isLoginMode(settingsValue) ? settingsValue : DEFAULT_LOGIN_MODE;
+};
+
+const normalizeDisplayName = (value: unknown): string | undefined => {
+  const normalized = normalizeOptionalString(value);
+  return normalized && normalized.length <= OIDC_DISPLAY_NAME_MAX_LENGTH ? normalized : undefined;
 };
 
 export const resolveBetterAuthRuntimeConfig = (
@@ -211,10 +234,12 @@ export const resolveBetterAuthRuntimeConfig = (
 
   // Counts only a provider that is enabled now and was mounted at startup: one
   // enabled in Settings since then shows a sign-in button with no route behind it
-  const ssoSignInAvailable =
-    (googleEnabled && mountedSsoProviders.has('google')) ||
-    (githubEnabled && mountedSsoProviders.has('github')) ||
-    (oidcEnabled && mountedSsoProviders.has('oidc'));
+  const ssoSignInCount = [
+    googleEnabled && mountedSsoProviders.has('google'),
+    githubEnabled && mountedSsoProviders.has('github'),
+    oidcEnabled && mountedSsoProviders.has('oidc'),
+  ].filter(Boolean).length;
+  const ssoSignInAvailable = ssoSignInCount > 0;
 
   // The env var wins in both directions, so it is also the recovery switch when
   // the identity provider is unavailable
@@ -226,12 +251,25 @@ export const resolveBetterAuthRuntimeConfig = (
       false,
     );
 
+  // Presentation follows the same availability rule, so an SSO-first or redirecting page is never
+  // shown without a working provider behind it. Auto-redirect needs exactly one target.
+  const configuredLoginMode = resolveLoginModeSetting(
+    process.env.BETTER_AUTH_LOGIN_MODE,
+    betterAuthSettings.loginMode,
+  );
+  const loginMode: LoginMode = !ssoSignInAvailable
+    ? 'dual'
+    : configuredLoginMode === 'sso_redirect' && ssoSignInCount > 1
+      ? 'sso_first'
+      : configuredLoginMode;
+
   return {
     enabled: anyProviderEnabled,
     basePath,
     trustedOrigins,
     disableAutoCreate,
     disablePasswordLogin,
+    loginMode,
     providers: {
       google: {
         enabled: googleEnabled,
@@ -242,6 +280,7 @@ export const resolveBetterAuthRuntimeConfig = (
       oidc: {
         enabled: oidcEnabled,
         providerId: oidcProviderId,
+        displayName: normalizeDisplayName(oidcSettings.displayName),
         discoveryUrl: oidcDiscoveryUrl,
         scopes: oidcScopes,
         pkce: oidcPkce,

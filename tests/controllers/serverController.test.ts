@@ -2031,6 +2031,63 @@ describe('serverController - updateSystemConfig', () => {
       }),
     );
   });
+
+  describe('login presentation', () => {
+    const update = async (betterAuth: Record<string, unknown>, stored: Record<string, unknown> = {}) => {
+      mockRequest.body = { auth: { betterAuth } };
+      mockSystemConfigDao.get.mockResolvedValue({ auth: { betterAuth: { enabled: true, ...stored } } });
+      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+    };
+    const storedBetterAuth = () => mockSystemConfigDao.update.mock.calls[0][0].auth.betterAuth;
+
+    it.each(['dual', 'sso_first', 'sso_redirect'])('persists loginMode %s on its own', async (loginMode) => {
+      await update({ loginMode }, { disablePasswordLogin: true });
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth()).toEqual(
+        expect.objectContaining({ enabled: true, disablePasswordLogin: true, loginMode }),
+      );
+    });
+
+    it('clears loginMode with null', async () => {
+      await update({ loginMode: null }, { loginMode: 'sso_redirect' });
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth()).not.toHaveProperty('loginMode');
+    });
+
+    it.each(['popup', '', 1, true, ['dual']])('rejects loginMode %p', async (loginMode) => {
+      await update({ loginMode });
+      expect(mockStatus).toHaveBeenCalledWith(400);
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+    });
+
+    it('persists a trimmed OIDC display name and keeps the other OIDC fields', async () => {
+      await update(
+        { providers: { oidc: { displayName: '  Microsoft Entra ID ' } } },
+        { providers: { oidc: { enabled: true, providerId: 'entra' } } },
+      );
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth().providers.oidc).toEqual({
+        enabled: true,
+        providerId: 'entra',
+        displayName: 'Microsoft Entra ID',
+      });
+    });
+
+    it.each([null, '   '])('clears the OIDC display name with %p', async (displayName) => {
+      await update(
+        { providers: { oidc: { displayName } } },
+        { providers: { oidc: { enabled: true, displayName: 'Old' } } },
+      );
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth().providers.oidc).toEqual({ enabled: true });
+    });
+
+    it.each(['x'.repeat(61), 'Entra\nID', 42])('rejects OIDC display name %p', async (displayName) => {
+      await update({ providers: { oidc: { displayName } } });
+      expect(mockStatus).toHaveBeenCalledWith(400);
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('serverController - resetToolDescription', () => {

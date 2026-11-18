@@ -130,6 +130,7 @@ import { previewOpenApiToolStats } from '../services/openApiToolStatsService.js'
 import { isValidEnabledAt } from '../services/connectedClientService.js';
 import { logger } from '../utils/logger.js';
 import { mergeBranding, validateBrandingUpdate, withBrandingUrls } from '../utils/brandingImage.js';
+import { validateLoginPresentationUpdate } from '../utils/loginMode.js';
 import { maskedBearerToken } from '../utils/bearerKeyHash.js';
 import { findToolConfigKey, resolveRuntimeToolName } from '../utils/toolConfig.js';
 
@@ -2643,6 +2644,11 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
         });
       return;
     }
+    const loginPresentationError = validateLoginPresentationUpdate(auth?.betterAuth);
+    if (loginPresentationError) {
+      res.status(400).json({ success: false, message: loginPresentationError });
+      return;
+    }
     if (dashboardBranding !== undefined) {
       const brandingError = validateBrandingUpdate(dashboardBranding);
       if (brandingError) {
@@ -2862,12 +2868,14 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
         typeof auth.betterAuth.basePath === 'string' ||
         Array.isArray(auth.betterAuth.trustedOrigins) ||
         typeof auth.betterAuth.disablePasswordLogin === 'boolean' ||
+        auth.betterAuth.loginMode !== undefined ||
         (auth.betterAuth.providers &&
           (typeof auth.betterAuth.providers.google?.enabled === 'boolean' ||
             typeof auth.betterAuth.providers.github?.enabled === 'boolean' ||
             (auth.betterAuth.providers.oidc &&
               (typeof auth.betterAuth.providers.oidc.enabled === 'boolean' ||
                 typeof auth.betterAuth.providers.oidc.providerId === 'string' ||
+                auth.betterAuth.providers.oidc.displayName !== undefined ||
                 typeof auth.betterAuth.providers.oidc.discoveryUrl === 'string' ||
                 Array.isArray(auth.betterAuth.providers.oidc.scopes) ||
                 typeof auth.betterAuth.providers.oidc.pkce === 'boolean' ||
@@ -3503,6 +3511,13 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
         target.disablePasswordLogin = auth.betterAuth.disablePasswordLogin;
       }
 
+      // Validated above; null clears it back to the default layout
+      if (auth.betterAuth.loginMode === null) {
+        delete target.loginMode;
+      } else if (auth.betterAuth.loginMode !== undefined) {
+        target.loginMode = auth.betterAuth.loginMode;
+      }
+
       if (Array.isArray(auth.betterAuth.trustedOrigins)) {
         target.trustedOrigins = auth.betterAuth.trustedOrigins
           .filter((origin: any): origin is string => typeof origin === 'string')
@@ -3536,6 +3551,13 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
 
           if (typeof auth.betterAuth.providers.oidc.providerId === 'string') {
             oidcTarget.providerId = auth.betterAuth.providers.oidc.providerId.trim();
+          }
+
+          const displayName = auth.betterAuth.providers.oidc.displayName;
+          if (displayName === null || (typeof displayName === 'string' && !displayName.trim())) {
+            delete oidcTarget.displayName;
+          } else if (typeof displayName === 'string') {
+            oidcTarget.displayName = displayName.trim();
           }
 
           if (typeof auth.betterAuth.providers.oidc.discoveryUrl === 'string') {
