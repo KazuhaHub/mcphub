@@ -239,6 +239,11 @@
 .hub-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .hub-icon-btn:disabled:hover { background: transparent; border-color: transparent; color: var(--hub-ink-2); }
 .hub-icon-btn.sm { width: 28px; height: 28px; }
+/* Phones: the top bar's icon buttons grow to a comfortable touch target. */
+@media (max-width: 767px) {
+  .hub-topbar { gap: 6px; padding: 0 8px; }
+  .hub-topbar .hub-icon-btn { width: 40px; height: 40px; }
+}
 
 /* Inputs */
 .hub-input {

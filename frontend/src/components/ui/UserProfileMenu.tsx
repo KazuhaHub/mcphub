@@ -77,7 +77,7 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version })
       <button
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
-        className={`flex h-9 w-full items-center rounded-md px-2 text-[var(--hub-ink-2)] transition-colors duration-100 hover:bg-[var(--hub-surface-hover)] hover:text-[var(--hub-ink)] ${collapsed ? 'justify-center' : ''} ${isOpen ? 'bg-[var(--hub-surface-hover)] text-[var(--hub-ink)]' : ''}`}
+        className={`flex h-9 max-md:h-11 w-full items-center rounded-md px-2 text-[var(--hub-ink-2)] transition-colors duration-100 hover:bg-[var(--hub-surface-hover)] hover:text-[var(--hub-ink)] ${collapsed ? 'justify-center' : ''} ${isOpen ? 'bg-[var(--hub-surface-hover)] text-[var(--hub-ink)]' : ''}`}
       >
         <div className="flex-shrink-0 relative">
           <div className="w-6 h-6 flex items-center justify-center rounded-full border border-[var(--hub-line)] bg-[var(--hub-surface)]">

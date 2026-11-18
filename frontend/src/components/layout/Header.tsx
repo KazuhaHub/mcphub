@@ -11,6 +11,7 @@ import { PROJECT_DOCS_URL, PROJECT_REPO_URL } from '@/constants/links';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
+  menuExpanded?: boolean;
 }
 
 const useCrumbs = (): string[] => {
@@ -50,7 +51,7 @@ const useCrumbs = (): string[] => {
   }, [location.pathname, location.search, params, t, dashboardTitle]);
 };
 
-const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
+const Header: React.FC<HeaderProps> = ({ onToggleSidebar, menuExpanded }) => {
   const { t } = useTranslation();
   const { activeSyncs } = useEmbeddingSync();
   const crumbs = useCrumbs();
@@ -61,20 +62,30 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
         onClick={onToggleSidebar}
         className="hub-icon-btn"
         aria-label={t('app.toggleSidebar')}
+        aria-controls="app-sidebar"
+        aria-expanded={menuExpanded}
       >
         <Menu size={16} />
       </button>
 
+      {/* Phones only have room for the current page; the full trail shows from md up. */}
       <div className="hub-crumb flex items-center min-w-0">
-        {crumbs.map((c, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <span className="sep">/</span>}
-            {i === crumbs.length - 1 ? <b className="truncate">{c}</b> : <span className="truncate">{c}</span>}
-          </React.Fragment>
-        ))}
+        {crumbs.map((c, i) => {
+          const last = i === crumbs.length - 1;
+          return (
+            <React.Fragment key={i}>
+              {i > 0 && <span className="sep max-md:hidden">/</span>}
+              {last ? (
+                <b className="truncate">{c}</b>
+              ) : (
+                <span className="truncate max-md:hidden">{c}</span>
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
 
-      <div className="flex-1 flex justify-center px-2 min-w-0">
+      <div className="flex-1 flex justify-center px-2 min-w-0 max-md:hidden">
         {activeSyncs.length > 0 && (
           <div className="flex max-w-full flex-wrap justify-center gap-2">
             {activeSyncs.map((activeSync) => (
