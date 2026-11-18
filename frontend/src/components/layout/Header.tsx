@@ -24,6 +24,14 @@ const useCrumbs = (): string[] => {
     const path = location.pathname;
     const root = dashboardTitle;
     if (path === '/') return [root, t('nav.dashboard')];
+    if (path.startsWith('/services/')) {
+      const raw = path.slice('/services/'.length).split('/')[0];
+      try {
+        return [root, decodeURIComponent(raw)];
+      } catch {
+        return [root, raw];
+      }
+    }
     if (path.startsWith('/workspace')) {
       const clientsTab = new URLSearchParams(location.search).get('tab') === 'clients';
       return clientsTab
