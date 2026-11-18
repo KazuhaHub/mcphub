@@ -111,18 +111,18 @@ in flight; `[C]` client limitation; `[H]` harness limitation.
 
 ## Last observed results
 
-2026-11-18, access token lifetime 6 s, against a build combining the OAuth discovery, 401 challenge, CIMD and DCR
-changes (`c3d2fbe6`, since merged to `main`) with CIMD enabled explicitly in the harness. Versions as pinned in
-`package.json` and the requirements files (`@modelcontextprotocol/client` 2.1.0, `@ai-sdk/mcp` 2.0.101, `ai` 7.0.176,
-`@modelcontextprotocol/inspector` 2.16.0, `mcp` 1.30.0 and 2.3.0, `openai-agents` 0.25.0, `langchain-mcp-adapters` 0.3.2).
+2026-11-18, access token lifetime 6 s, against MCPHub `v2.4.1` plus four later commits on `main` (`3f36f05c`; the run's
+checkout also carried the documentation and harness edits in this change). CIMD was left at its default: the harness
+does not set `clientIdMetadata.enabled`. Versions as pinned in `package.json` and the requirements files
+(`@modelcontextprotocol/client` 2.1.0, `@ai-sdk/mcp` 2.0.101, `ai` 7.0.176, `@modelcontextprotocol/inspector` 2.16.0,
+`mcp` 1.30.0 and 2.3.0, `openai-agents` 0.25.0, `langchain-mcp-adapters` 0.3.2).
 
-- Every client passes all five steps with every registration method it supports (DCR, CIMD advertised, CIMD forced),
-  including the automatic refresh after expiry. The `2026-07-28` protocol is negotiated by `ts-sdk` with version
-  negotiation on, `ai-sdk`, `py-sdk` on mcp 2.x and `openai-agents` on mcp 2.x; the mcp 1.x line, `inspector-cli`,
-  `langchain-mcp-adapters` and `ts-sdk` with default options use the `2025-11-25` handshake.
-- The raw probe passes 17 of 18 checks. The failing one is the OIDC discovery document
-  (`/.well-known/openid-configuration`), which MCPHub does not serve on purpose (it is not an OpenID Provider); RFC 8414
-  clients do not need it. The triage table still labels it `[G]`; treat it as expected.
+- All 25 client rows pass all five steps: every client with every registration method it supports (DCR, CIMD advertised,
+  CIMD forced), including the automatic refresh after expiry. The `2026-07-28` protocol is negotiated by `ts-sdk` with
+  version negotiation on, `ai-sdk`, `py-sdk` on mcp 2.x and `openai-agents` on mcp 2.x; the mcp 1.x line,
+  `inspector-cli`, `langchain-mcp-adapters` and `ts-sdk` with default options use the `2025-11-25` handshake.
+- The raw probe passes 18 of 18 checks. MCPHub does not serve OIDC discovery on purpose (it is not an OpenID Provider);
+  the probe accepts a JSON `404` there.
 - The matrix is summarized for users in `docs/features/client-compatibility.mdx`.
 
 ## Settings the harness needs, and one sharp edge
