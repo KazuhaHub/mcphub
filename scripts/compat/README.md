@@ -57,7 +57,7 @@ per-run secret.
 
 - the real MCPHub (`tsx src/index.ts`) on a free port, a temp settings directory, one admin user
   whose password (like the JWT secret) is generated fresh for each run, the hub listening on `127.0.0.1` only, OAuth server enabled with `accessTokenLifetime` 6 s,
-  DCR enabled, CIMD enabled;
+  DCR enabled, CIMD at its default (on);
 - an in-process upstream MCP server with one `echo` tool (no `npx`, no network);
 - a recording proxy between clients and the hub, so the matrix is checked against what was on the wire:
   a `refresh` pass needs a successful `refresh_token` grant, a DCR pass needs a `POST /oauth/register`,
@@ -117,7 +117,7 @@ does not set `clientIdMetadata.enabled`. Versions as pinned in `package.json` an
 (`@modelcontextprotocol/client` 2.1.0, `@ai-sdk/mcp` 2.0.101, `ai` 7.0.176, `@modelcontextprotocol/inspector` 2.16.0,
 `mcp` 1.30.0 and 2.3.0, `openai-agents` 0.25.0, `langchain-mcp-adapters` 0.3.2).
 
-- All 25 client rows pass all five steps: every client with every registration method it supports (DCR, CIMD advertised,
+- All 24 client rows pass all five steps: every client with every registration method it supports (DCR, CIMD advertised,
   CIMD forced), including the automatic refresh after expiry. The `2026-07-28` protocol is negotiated by `ts-sdk` with
   version negotiation on, `ai-sdk`, `py-sdk` on mcp 2.x and `openai-agents` on mcp 2.x; the mcp 1.x line,
   `inspector-cli`, `langchain-mcp-adapters` and `ts-sdk` with default options use the `2025-11-25` handshake.
