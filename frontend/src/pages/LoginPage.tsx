@@ -10,6 +10,8 @@ import { createBetterAuthClient, startOidcLogin } from '../services/betterAuthCl
 import { passkeysSupported } from '../services/passkeyService';
 import { getBasePath } from '../utils/runtime';
 import { buildOAuthReturnTarget } from '../utils/oauthReturn';
+import { isSafeRelativeUrl, sanitizeReturnUrl } from '../utils/safeReturnUrl';
+import { hardNavigate } from '../utils/hardNavigate';
 import ThemeSwitch from '@/components/ui/ThemeSwitch';
 import LanguageSwitch from '@/components/ui/LanguageSwitch';
 import GitHubIcon from '@/components/icons/GitHubIcon';
@@ -28,20 +30,6 @@ import {
 type SocialProvider = SsoProvider;
 
 const AUTO_REDIRECT_DELAY_MS = 800;
-
-const sanitizeReturnUrl = (value: string | null): string | null => {
-  if (!value) return null;
-  try {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
-    const url = new URL(value, origin);
-    if (url.origin !== origin) return null;
-    const relativePath = `${url.pathname}${url.search}${url.hash}`;
-    return relativePath || '/';
-  } catch {
-    if (value.startsWith('/') && !value.startsWith('//')) return value;
-    return null;
-  }
-};
 
 const LoginPage: React.FC = () => {
   const { t } = useTranslation();
@@ -81,7 +69,8 @@ const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const returnUrl = useMemo(() => {
     const params = new URLSearchParams(location.search);
-    return sanitizeReturnUrl(params.get('returnUrl'));
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+    return sanitizeReturnUrl(params.get('returnUrl'), origin);
   }, [location.search]);
 
   const isServerUnavailableError = useCallback((message?: string) => {
@@ -101,14 +90,21 @@ const LoginPage: React.FC = () => {
     );
   }, []);
 
+  // The final target after the OAuth rewrite, checked again; null means the dashboard
+  const returnTarget = useMemo(() => {
+    if (!returnUrl) return null;
+    const target = buildOAuthReturnTarget(returnUrl);
+    return isSafeRelativeUrl(target) ? target : null;
+  }, [returnUrl]);
+
   const redirectAfterLogin = useCallback(() => {
     clearLoggedOut();
-    if (returnUrl) {
-      window.location.assign(buildOAuthReturnTarget(returnUrl));
+    if (returnTarget) {
+      hardNavigate(returnTarget);
     } else {
       navigate('/');
     }
-  }, [navigate, returnUrl]);
+  }, [navigate, returnTarget]);
 
   useEffect(() => {
     if (!auth.loading && auth.isAuthenticated) redirectAfterLogin();
@@ -221,12 +217,13 @@ const LoginPage: React.FC = () => {
     }
   };
 
-  // The return target survives the provider round trip as a same-origin path (sanitizeReturnUrl
-  // above; an OAuth authorize URL also loses any leftover token). A failure comes back to the login
-  // page with the same target plus ?error, which stops any automatic redirect.
-  const ssoCallbackURL = returnUrl ? buildOAuthReturnTarget(returnUrl) : '/';
-  const ssoErrorCallbackURL = returnUrl
-    ? `${getBasePath()}/login?returnUrl=${encodeURIComponent(returnUrl)}`
+  // The return target survives the provider round trip only as a safe same-origin path
+  // (sanitizeReturnUrl, then re-checked after the OAuth rewrite as returnTarget); an OAuth
+  // authorize URL also loses any leftover token. A failure comes back to the login page with the
+  // same target plus ?error, which stops any automatic redirect.
+  const ssoCallbackURL = returnTarget ?? '/';
+  const ssoErrorCallbackURL = returnTarget
+    ? `${getBasePath()}/login?returnUrl=${encodeURIComponent(returnTarget)}`
     : `${getBasePath()}/login`;
 
   const handleSocialLogin = async (provider: SocialProvider, automatic = false) => {

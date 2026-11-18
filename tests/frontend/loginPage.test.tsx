@@ -42,6 +42,11 @@ jest.mock('../../frontend/src/services/configService', () => ({
   getPublicConfig: () => mockGetPublicConfig(),
 }));
 
+const mockHardNavigate = jest.fn();
+jest.mock('../../frontend/src/utils/hardNavigate', () => ({
+  hardNavigate: (url: string) => mockHardNavigate(url),
+}));
+
 const mockStartOidcLogin = jest.fn();
 jest.mock('../../frontend/src/services/betterAuthClient', () => ({
   startOidcLogin: (options: unknown) => mockStartOidcLogin(options),
@@ -241,6 +246,30 @@ describe('LoginPage', () => {
     expect(view()).toBe('sso_first');
   });
 
+  it.each(['/.//evil.example', 'http://localhost//evil.example', '/..//evil.example'])(
+    'sends a signed-in visitor to the dashboard, not off-site, for %s',
+    async (target) => {
+      mockAuth.isAuthenticated = true;
+      try {
+        await renderPage(`?returnUrl=${encodeURIComponent(target)}`);
+        expect(mockHardNavigate).not.toHaveBeenCalled();
+        expect(mockNavigate).toHaveBeenCalledWith('/');
+      } finally {
+        mockAuth.isAuthenticated = false;
+      }
+    },
+  );
+
+  it('returns a signed-in visitor to a safe target', async () => {
+    mockAuth.isAuthenticated = true;
+    try {
+      await renderPage(`?returnUrl=${encodeURIComponent('/servers?tab=tools#x')}`);
+      expect(mockHardNavigate).toHaveBeenCalledWith('/servers?tab=tools#x');
+    } finally {
+      mockAuth.isAuthenticated = false;
+    }
+  });
+
   describe('OAuth authorization round trip', () => {
     const authorize =
       '/oauth/authorize?client_id=claude&redirect_uri=https%3A%2F%2Fclaude.ai%2Fcb&state=s1';
@@ -257,9 +286,7 @@ describe('LoginPage', () => {
       };
       expect(options.callbackURL).toBe(authorize);
       // A failure comes back to the login page with the same target, plus ?error from the server
-      expect(options.errorCallbackURL).toBe(
-        `/login?returnUrl=${encodeURIComponent(`${authorize}&token=stale`)}`,
-      );
+      expect(options.errorCallbackURL).toBe(`/login?returnUrl=${encodeURIComponent(authorize)}`);
     });
 
     it('stops on an SSO error on the way back, and the button still carries the target', async () => {
@@ -277,16 +304,21 @@ describe('LoginPage', () => {
       );
     });
 
-    it.each(['https://evil.example/oauth/authorize', '//evil.example/x', 'javascript:alert(1)'])(
-      'never carries a foreign return target (%s)',
-      async (target) => {
-        await renderPage(`?returnUrl=${encodeURIComponent(target)}`);
-        await advance(1000);
-        expect(mockStartOidcLogin).toHaveBeenCalledWith(
-          expect.objectContaining({ callbackURL: '/', errorCallbackURL: '/login' }),
-        );
-      },
-    );
+    it.each([
+      'https://evil.example/oauth/authorize',
+      '//evil.example/x',
+      'javascript:alert(1)',
+      '/.//evil.example',
+      '/..//evil.example',
+      'http://localhost//evil.example',
+      '/%5Cevil.example',
+    ])('never carries a foreign return target (%s)', async (target) => {
+      await renderPage(`?returnUrl=${encodeURIComponent(target)}`);
+      await advance(1000);
+      expect(mockStartOidcLogin).toHaveBeenCalledWith(
+        expect.objectContaining({ callbackURL: '/', errorCallbackURL: '/login' }),
+      );
+    });
   });
 
   describe('the unlinked ?local=1 entry while password login is disabled', () => {

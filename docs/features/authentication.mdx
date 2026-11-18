@@ -290,7 +290,7 @@ Recovery, from least to most drastic:
 
 `providers.oidc.displayName` (Settings → Better Auth → **OIDC button name**, at most 60 characters, without control, zero-width or bidirectional-override characters) labels the OIDC button **Continue with &lt;name&gt;**, for example `Microsoft Entra ID`, instead of the generic **Continue with OIDC**.
 
-The redirect target always comes from the configured provider, and the post-login return path is reduced to a same-origin path before it is handed to Better Auth, which checks it against the trusted origins as well.
+The redirect target always comes from the configured provider, and the post-login return path is reduced to a same-origin path before it is handed to Better Auth, which checks it against the trusted origins as well. A target that is not a plain root-relative path (a backslash, a control character, an encoded `/` or `\` in the path, or anything that normalises to `//host`) is dropped, and the dashboard opens instead.
 
 ## Forward auth (JWKS-verified gateway identity)
 
