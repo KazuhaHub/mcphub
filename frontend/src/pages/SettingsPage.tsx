@@ -3980,7 +3980,9 @@ const SettingsPage: React.FC = () => {
                   <label htmlFor="better-auth-login-mode" className="font-medium text-gray-700">
                     {t('settings.loginMode')}
                   </label>
-                  <p className="text-sm text-gray-500">{t('settings.loginModeDescription')}</p>
+                  <p className="text-sm text-gray-500" style={{ overflowWrap: 'anywhere' }}>
+                    {t('settings.loginModeDescription')}
+                  </p>
                 </div>
                 <select
                   id="better-auth-login-mode"
@@ -3998,7 +4000,7 @@ const SettingsPage: React.FC = () => {
                 {betterAuthConfig.loginModeStatus?.envOverride && (
                   <p
                     className="mt-2 text-sm"
-                    style={{ color: 'var(--hub-accent)' }}
+                    style={{ color: 'var(--hub-accent)', overflowWrap: 'anywhere' }}
                     data-testid="login-mode-env-override"
                   >
                     {t('settings.loginModeEnvOverride', {
@@ -4008,7 +4010,9 @@ const SettingsPage: React.FC = () => {
                   </p>
                 )}
                 {betterAuthConfig.loginMode === 'sso_redirect' && (
-                  <p className="mt-2 text-sm text-gray-500">{t('settings.loginModeRedirectNote')}</p>
+                  <p className="mt-2 text-sm text-gray-500" style={{ overflowWrap: 'anywhere' }}>
+                    {t('settings.loginModeRedirectNote')}
+                  </p>
                 )}
               </div>
 
