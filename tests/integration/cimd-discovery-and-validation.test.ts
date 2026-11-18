@@ -50,13 +50,25 @@ describe('CIMD: authorization server metadata', () => {
   const app = express();
   app.get('/.well-known/oauth-authorization-server', getMetadata);
 
-  it('advertises client_id_metadata_document_supported when CIMD is enabled', async () => {
-    configure(true);
+  it.each([true, undefined])(
+    'advertises client_id_metadata_document_supported when CIMD is %s (on by default)',
+    async (enabled) => {
+      configure(enabled);
+      const res = await request(app).get('/.well-known/oauth-authorization-server').expect(200);
+      expect(res.body.client_id_metadata_document_supported).toBe(true);
+    },
+  );
+
+  it('advertises it when clientIdMetadata only sets cacheTtlMs', async () => {
+    getSystemConfigMock.mockResolvedValue({
+      install: { baseUrl: 'https://hub.example.com' },
+      oauthServer: { enabled: true, clientIdMetadata: { cacheTtlMs: 60_000 } },
+    });
     const res = await request(app).get('/.well-known/oauth-authorization-server').expect(200);
     expect(res.body.client_id_metadata_document_supported).toBe(true);
   });
 
-  it.each([false, undefined])('omits the flag when CIMD is %s', async (enabled) => {
+  it.each([false])('omits the flag when CIMD is explicitly %s', async (enabled) => {
     configure(enabled);
     const res = await request(app).get('/.well-known/oauth-authorization-server').expect(200);
     expect(res.body).not.toHaveProperty('client_id_metadata_document_supported');

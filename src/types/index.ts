@@ -511,7 +511,8 @@ export interface OAuthServerConfig {
   clientIdMetadata?: {
     // Client ID Metadata Documents (CIMD, draft-ietf-oauth-client-id-metadata-document):
     // accept HTTPS-URL-shaped client_ids whose metadata is fetched from the URL itself.
-    // Opt-in (default false) because it makes the authorize endpoint fetch attacker-chosen URLs.
+    // On by default (MCP 2026-07-28 recommends it over dynamic registration). Fetches are
+    // SSRF-guarded, size- and time-limited, never follow redirects, and are cached.
     enabled?: boolean;
     cacheTtlMs?: number; // Metadata document cache TTL in milliseconds (default: 3600000)
   };

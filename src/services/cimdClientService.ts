@@ -10,11 +10,11 @@
  *
  * Documents are fetched with SSRF protection (private-IP blocklist +
  * redirect validation, shared with upstream MCP connections) and cached with
- * a TTL. Resolution is opt-in via systemConfig.oauthServer.clientIdMetadata.enabled.
+ * a TTL. Resolution is on by default; systemConfig.oauthServer.clientIdMetadata.enabled = false turns it off.
  */
 
 import { getSystemConfigDao } from '../dao/index.js';
-import { cloneDefaultOAuthServerConfig } from '../constants/oauthServerDefaults.js';
+import { cloneDefaultOAuthServerConfig, isCimdEnabled } from '../constants/oauthServerDefaults.js';
 import { findOAuthClientById } from '../models/OAuth.js';
 import { assertSafeUrl, createRedirectValidatingFetch, type SsrfLookup } from '../utils/ssrf.js';
 import type { IOAuthClient } from '../types/index.js';
@@ -185,7 +185,7 @@ export const getCimdSettings = async (): Promise<CimdSettings> => {
       merged.clientIdMetadata.cacheTtlMs > 0
         ? merged.clientIdMetadata.cacheTtlMs
         : DEFAULT_CACHE_TTL_MS;
-    return { enabled: merged.clientIdMetadata?.enabled === true, cacheTtlMs: ttl };
+    return { enabled: isCimdEnabled(systemConfig?.oauthServer), cacheTtlMs: ttl };
   } catch {
     return { enabled: false, cacheTtlMs: DEFAULT_CACHE_TTL_MS };
   }

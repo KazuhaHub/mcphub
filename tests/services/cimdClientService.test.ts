@@ -64,7 +64,21 @@ describe('cimdClientService', () => {
   });
 
   describe('getCimdSettings', () => {
-    it('is disabled by default', async () => {
+    it('is enabled by default when nothing is stored', async () => {
+      mockedGetSystemConfigDao.mockReturnValue({
+        get: jest.fn().mockResolvedValue({ oauthServer: { enabled: true } }),
+      } as never);
+      expect(await getCimdSettings()).toEqual({ enabled: true, cacheTtlMs: 3_600_000 });
+    });
+
+    it('stays enabled when clientIdMetadata only sets cacheTtlMs', async () => {
+      mockedGetSystemConfigDao.mockReturnValue({
+        get: jest.fn().mockResolvedValue({ oauthServer: { clientIdMetadata: { cacheTtlMs: 60_000 } } }),
+      } as never);
+      expect(await getCimdSettings()).toEqual({ enabled: true, cacheTtlMs: 60_000 });
+    });
+
+    it('is disabled by an explicit false', async () => {
       configureCimd(false);
       expect(await getCimdSettings()).toEqual({ enabled: false, cacheTtlMs: 3_600_000 });
     });

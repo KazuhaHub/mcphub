@@ -35,7 +35,7 @@ import {
 } from '../utils/queryCredentials.js';
 import OAuth2Server from '@node-oauth/oauth2-server';
 import { resolveBetterAuthUser } from '../services/betterAuthSession.js';
-import { cloneDefaultOAuthServerConfig } from '../constants/oauthServerDefaults.js';
+import { cloneDefaultOAuthServerConfig, isCimdEnabled } from '../constants/oauthServerDefaults.js';
 import {
   getPublicInstallBaseUrl,
   getProtectedResourceUrlFromMetadataRequest,
@@ -1128,7 +1128,7 @@ export const getMetadata = async (req: Request, res: Response): Promise<void> =>
 
     // Client ID Metadata Documents (draft-ietf-oauth-client-id-metadata-document, section 8):
     // advertised exactly when URL-shaped client_ids are resolved.
-    if (oauthConfig.clientIdMetadata?.enabled === true) {
+    if (isCimdEnabled(oauthConfig)) {
       metadata.client_id_metadata_document_supported = true;
     }
 
