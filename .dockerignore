@@ -27,3 +27,6 @@ yarn-error.log*
 *.credentials.key.*.tmp
 *.selections.json
 *.selections.json.*.tmp
+
+# Runtime state (staging ledger, uploads, DB files) never belongs in the image.
+data/

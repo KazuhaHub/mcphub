@@ -1,3 +1,4 @@
+import { findReusableApproval, resolveConsentScopes } from '../services/oauthApprovalService.js';
 import { getUserSessionVersion, resolveJwtUser } from '../utils/userSession.js';
 import { Request, Response } from 'express';
 import {
@@ -401,6 +402,60 @@ async function resolveResourceTarget(
  * GET /oauth/authorize
  * Display authorization page or handle authorization
  */
+async function authorizeAndRedirect(
+  req: Request,
+  res: Response,
+  user: AuthenticatedUser & {
+    approvalId?: string;
+    approvalContext?: { redirectUri: string; resource: string };
+  },
+  redirectUri: string,
+  state: string | undefined,
+  options: {
+    issuer: string | undefined;
+    /** The configured external resource the code is bound to (RFC 8707), if any. */
+    resource?: string;
+    redirect?: (target: string) => void;
+  },
+): Promise<void> {
+  const redirect = options.redirect ?? ((target: string) => res.redirect(target));
+  const oauth = getOAuthServer()!;
+  const request = new OAuth2Request(req);
+  // Both shells submit an empty scope for the configured default permissions.
+  request.query = { ...request.query };
+  request.body = { ...request.body };
+  if (request.query.scope === '') delete request.query.scope;
+  if (request.body.scope === '') delete request.body.scope;
+  const response = new OAuth2Response(res);
+  let code;
+  try {
+    code = await runWithOAuthRequestContext(
+      { issuer: options.issuer, resource: options.resource },
+      () =>
+        oauth.authorize(request, response, {
+          authenticateHandler: { handle: async () => user },
+        }),
+    );
+  } catch (error) {
+    // Silent GET authorization must return the same OAuth errors as explicit consent.
+    if (error instanceof Error && 'code' in error) {
+      const redirectUrl = new URL(redirectUri);
+      redirectUrl.searchParams.set('error', error.name || 'server_error');
+      redirectUrl.searchParams.set('error_description', error.message);
+      setIssuerParam(redirectUrl, options.issuer);
+      if (state) redirectUrl.searchParams.set('state', state);
+      redirect(redirectUrl.toString());
+      return;
+    }
+    throw error;
+  }
+  const redirectUrl = new URL(redirectUri);
+  redirectUrl.searchParams.set('code', code.authorizationCode);
+  setIssuerParam(redirectUrl, options.issuer);
+  if (state) redirectUrl.searchParams.set('state', state);
+  redirect(redirectUrl.toString());
+}
+
 export const getAuthorize = async (req: Request, res: Response): Promise<void> => {
   try {
     const oauth = getOAuthServer();
@@ -584,6 +639,40 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
       });
       return;
     }
+
+    const consentConfig = systemConfig?.oauthServer;
+    const effectiveScopes = resolveConsentScopes(
+      scope,
+      consentConfig?.allowedScopes || ['read', 'write'],
+    );
+    // A remembered consent is reused only for MCPHub's own scopes. A credential-write grant is
+    // always confirmed explicitly, and an external resource's scopes are not MCPHub's.
+    if (
+      user &&
+      consentConfig?.alwaysShowApprovalScreen === false &&
+      !credentialWriteServer &&
+      !externalResource
+    ) {
+      const approval = await findReusableApproval(
+        user,
+        client,
+        redirect_uri,
+        resource || '',
+        effectiveScopes,
+      );
+      if (approval) {
+        await authorizeAndRedirect(
+          req,
+          res,
+          { ...user, approvalId: approval.id },
+          redirect_uri,
+          state,
+          { issuer: await resolveIssuer(req) },
+        );
+        return;
+      }
+    }
+
     const requestToken = typeof req.query.token === 'string' ? req.query.token : '';
     const tokenField = requestToken
       ? `<input type="hidden" name="token" value="${escapeHtml(requestToken)}">`
@@ -592,13 +681,16 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
     // Get translation function from request (set by i18n middleware)
     const t = (req as any).t || ((key: string) => key);
 
-    // A credential-write request lists no scope rows: the consent says that one thing only.
+    // A credential-write request lists no scope rows: the consent says that one thing only. An
+    // external resource lists what was requested of it, which is not MCPHub's own scope set.
     const scopes = credentialWriteServer
       ? []
-      : (scope || 'read write')
-          .split(' ')
-          .filter((s) => s)
-          .map((s) => ({ name: s, description: getScopeDescription(s) }));
+      : externalResource
+        ? (scope || 'read write')
+            .split(' ')
+            .filter((s) => s)
+            .map((s) => ({ name: s, description: getScopeDescription(s) }))
+        : effectiveScopes.map((s) => ({ name: s, description: getScopeDescription(s) }));
 
     const formFields = `
       <input type="hidden" name="client_id" value="${escapeHtml(client_id)}" />
@@ -819,33 +911,24 @@ export const postAuthorize = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Create OAuth request/response
-    const request = new OAuth2Request(req);
-    const response = new OAuth2Response(res);
-
-    // Authorize the request
-    const code = await runWithOAuthRequestContext(
+    await authorizeAndRedirect(
+      req,
+      res,
+      {
+        ...user,
+        approvalContext: {
+          redirectUri: validatedRedirectUri,
+          resource: typeof req.body.resource === 'string' ? req.body.resource : '',
+        },
+      },
+      validatedRedirectUri,
+      state,
       {
         issuer,
         resource: resourceClass.kind === 'external' ? resourceClass.entry.resource : undefined,
+        redirect: redirectTo,
       },
-      () =>
-        oauth.authorize(request, response, {
-          authenticateHandler: {
-            handle: async () => user,
-          },
-        }),
     );
-
-    // Build redirect URL with authorization code
-    const redirectUrl = new URL(validatedRedirectUri);
-    redirectUrl.searchParams.set('code', code.authorizationCode);
-    setIssuerParam(redirectUrl, issuer);
-    if (state) {
-      redirectUrl.searchParams.set('state', state);
-    }
-
-    redirectTo(redirectUrl.toString());
   } catch (error) {
     logger.error('Authorization error:', error);
 

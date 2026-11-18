@@ -1,3 +1,4 @@
+import { useBranding } from '@/contexts/BrandingContext';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
@@ -43,6 +44,7 @@ interface MenuItem {
 
 const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
   const { t } = useTranslation();
+  const { dashboardTitle } = useBranding();
   const { auth } = useAuth();
   const { allServers } = useServerContext();
   const { groups } = useGroupData();
@@ -194,7 +196,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
         {!collapsed && (
           <div className="hub-sidebar-label flex min-w-0 flex-col leading-tight">
             <span className="truncate text-[14px] font-semibold tracking-tight text-[var(--hub-ink)]">
-              {t('app.title')}
+              {dashboardTitle}
             </span>
             {appVersion && (
               <span className="hub-mono truncate text-[11px] text-[var(--hub-ink-3)]">

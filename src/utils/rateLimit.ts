@@ -140,6 +140,14 @@ export const mcpConnectionRateLimiter = createStandardRateLimiter({
   max: envLimit('MCP_RATE_LIMIT_MAX', 480),
 });
 
+// Staged downloads are one-time tokens fetched by MCP clients; they must not
+// consume the MCP connection budget (a burst of downloads would then throttle
+// tool calls) nor be unlimited.
+export const stagingDownloadRateLimiter = createStandardRateLimiter({
+  windowMs: envInt('STAGING_DOWNLOAD_RATE_LIMIT_WINDOW_MS', MINUTE_1),
+  max: envLimit('STAGING_DOWNLOAD_RATE_LIMIT_MAX', 120),
+});
+
 export const authAttemptRateLimiter = createStandardRateLimiter({
   windowMs: envInt('AUTH_RATE_LIMIT_WINDOW_MS', MINUTES_15),
   max: envLimit('AUTH_RATE_LIMIT_MAX', 20),
@@ -157,6 +165,13 @@ export const authAttemptRateLimiter = createStandardRateLimiter({
 export const authRegistrationRateLimiter = createStandardRateLimiter({
   windowMs: envInt('REGISTER_RATE_LIMIT_WINDOW_MS', MINUTES_15),
   max: envLimit('REGISTER_RATE_LIMIT_MAX', 20),
+});
+
+// Public passkey sign-in challenges are issued before any credential is checked,
+// so every request counts. Verification attempts use the login limiter instead.
+export const passkeyChallengeRateLimiter = createStandardRateLimiter({
+  windowMs: envInt('PASSKEY_RATE_LIMIT_WINDOW_MS', MINUTES_15),
+  max: envLimit('PASSKEY_RATE_LIMIT_MAX', 100),
 });
 
 export const spaPageRateLimiter = createStandardRateLimiter({

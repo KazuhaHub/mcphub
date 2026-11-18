@@ -1,5 +1,9 @@
 import { jest } from '@jest/globals';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { logger } from './logger.js';
 
 // Mocks must be defined before importing the module under test.
 
@@ -21,17 +25,34 @@ jest.mock('../dao/DatabaseDaoFactory.js', () => ({
   },
 }));
 
+let settingsPathMock = '/nonexistent/mcp_settings.json';
 const loadOriginalSettingsMock = jest.fn(() => ({ users: [] }));
 jest.mock('../config/index.js', () => ({
   loadOriginalSettings: loadOriginalSettingsMock,
-  // No credentials file next to it, so there is no personal credential import to run.
-  getSettingsPath: () => '/nonexistent/mcp_settings.json',
+  getSettingsPath: () => settingsPathMock,
 }));
 
 const userRepoCountMock = jest.fn<() => Promise<number>>();
+const userRepoExistsMock = jest.fn<(username: string) => Promise<boolean>>();
+const userRepoCreateMock = jest.fn<(user: unknown) => Promise<unknown>>();
 jest.mock('../db/repositories/UserRepository.js', () => ({
   UserRepository: jest.fn().mockImplementation(() => ({
     count: userRepoCountMock,
+    exists: userRepoExistsMock,
+    create: userRepoCreateMock,
+  })),
+}));
+
+const filePasskeysMock = jest.fn<(username: string) => Promise<unknown[]>>();
+jest.mock('../dao/PasskeyDao.js', () => ({
+  PasskeyDaoImpl: jest.fn().mockImplementation(() => ({ findByUsername: filePasskeysMock })),
+}));
+const dbPasskeyLookupMock = jest.fn<(credentialId: string) => Promise<unknown>>();
+const dbPasskeySaveMock = jest.fn<(passkey: unknown) => Promise<void>>();
+jest.mock('../dao/PasskeyDaoDbImpl.js', () => ({
+  PasskeyDaoDbImpl: jest.fn().mockImplementation(() => ({
+    findByCredentialId: dbPasskeyLookupMock,
+    save: dbPasskeySaveMock,
   })),
 }));
 
@@ -64,6 +85,21 @@ jest.mock('../db/repositories/SystemConfigRepository.js', () => ({
     update: systemConfigUpdateMock,
   })),
 }));
+
+// Repositories not under test: inert stand-ins so migrateToDatabase can run end to end.
+for (const repo of [
+  'ServerRepository',
+  'GroupRepository',
+  'UserConfigRepository',
+  'OAuthClientRepository',
+  'OAuthTokenRepository',
+  'BuiltinPromptRepository',
+  'BuiltinResourceRepository',
+]) {
+  jest.mock(`../db/repositories/${repo}.js`, () => ({
+    [repo]: jest.fn().mockImplementation(() => ({})),
+  }));
+}
 
 describe('initializeDatabaseMode legacy bearer auth migration', () => {
   beforeEach(() => {
@@ -136,5 +172,152 @@ describe('initializeDatabaseMode legacy bearer auth migration', () => {
     expect(systemConfigGetMock).toHaveBeenCalledTimes(1);
     expect(bearerKeyCreateMock).not.toHaveBeenCalled();
     expect(systemConfigUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('migrates file keys that are already hashed without re-hashing or needing a raw token', async () => {
+    loadOriginalSettingsMock.mockReturnValueOnce({
+      users: [],
+      mcpServers: {},
+      bearerKeys: [
+        {
+          id: 'k1',
+          name: 'hashed',
+          tokenHash: 'a'.repeat(64),
+          tokenPrefix: 'mcphub_a',
+          enabled: true,
+          accessType: 'all',
+        },
+      ],
+    } as any);
+
+    const { migrateToDatabase } = await import('./migration.js');
+    await migrateToDatabase(false);
+
+    const arg = bearerKeyCreateMock.mock.calls[0][0] as any;
+    expect(arg.tokenHash).toBe('a'.repeat(64));
+    expect(arg.tokenPrefix).toBe('mcphub_a');
+    expect(arg.token).toBeNull(); // the plaintext column is never written
+  });
+
+  describe('source file scrubbing after a successful migration', () => {
+    let dir: string;
+    let file: string;
+    const original = {
+      users: [],
+      mcpServers: { s: { command: 'x' } },
+      systemConfig: { routing: { enableBearerAuth: true, bearerAuthKey: 'legacy-secret' } },
+      bearerKeys: [
+        { id: 'k1', name: 'a', token: 'plain-token-1234567890', enabled: true, accessType: 'all' },
+      ],
+    };
+
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'));
+      file = path.join(dir, 'mcp_settings.json');
+      fs.writeFileSync(file, JSON.stringify(original));
+      settingsPathMock = file;
+      // the migration reads the same file the scrub rewrites
+      loadOriginalSettingsMock.mockImplementation(() => JSON.parse(fs.readFileSync(file, 'utf8')));
+    });
+
+    afterEach(() => {
+      fs.chmodSync(dir, 0o755);
+      fs.rmSync(dir, { recursive: true, force: true });
+      settingsPathMock = '/nonexistent/mcp_settings.json';
+      loadOriginalSettingsMock.mockImplementation(() => ({ users: [] }));
+    });
+
+    it('rewrites the file with hashed keys and keeps the rest intact', async () => {
+      const { migrateToDatabase } = await import('./migration.js');
+      expect(await migrateToDatabase(false)).toBe(true);
+
+      const out = JSON.parse(fs.readFileSync(file, 'utf8'));
+      expect(out.bearerKeys[0].tokenHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(out.bearerKeys[0]).not.toHaveProperty('token');
+      expect(out.systemConfig.routing).toEqual({ enableBearerAuth: true, bearerAuthKey: '' });
+      expect(out.mcpServers).toEqual(original.mcpServers);
+      expect(fs.readFileSync(file, 'utf8')).not.toMatch(/plain-token|legacy-secret/);
+    });
+
+    it('keeps an explicit empty bearerKeys array empty and clears the stale routing secret', async () => {
+      fs.writeFileSync(file, JSON.stringify({ ...original, bearerKeys: [] }));
+      const { migrateToDatabase } = await import('./migration.js');
+      expect(await migrateToDatabase(false)).toBe(true);
+
+      const out = JSON.parse(fs.readFileSync(file, 'utf8'));
+      expect(out.bearerKeys).toEqual([]);
+      expect(out.systemConfig.routing.bearerAuthKey).toBe('');
+      expect(fs.readFileSync(file, 'utf8')).not.toMatch(/legacy-secret/);
+      expect(bearerKeyCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('warns but still succeeds when the file cannot be rewritten', async () => {
+      // read-only file: the write fails, the migration must not
+      fs.chmodSync(file, 0o444);
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined as any);
+      const { migrateToDatabase } = await import('./migration.js');
+      const ok = await migrateToDatabase(false);
+
+      expect(ok).toBe(true);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('plaintext bearer tokens may remain'));
+      expect(fs.readFileSync(file, 'utf8')).toContain('plain-token');
+      warn.mockRestore();
+    });
+  });
+});
+
+describe('migrateToDatabase passkeys', () => {
+  const passkey = (username: string, credentialId: string) => ({ username, credentialId });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    loadOriginalSettingsMock.mockReturnValueOnce({
+      mcpServers: {},
+      users: [
+        { username: 'alice', password: 'hash-a', isAdmin: false },
+        { username: 'admin', password: 'hash-b', isAdmin: true },
+      ],
+    } as any);
+    // `admin` already exists in the database; `alice` is created by this migration
+    userRepoExistsMock.mockImplementation(async (username) => username === 'admin');
+    userRepoCreateMock.mockResolvedValue({});
+    dbPasskeyLookupMock.mockImplementation(async (id) => (id === 'already-there' ? {} : null));
+    dbPasskeySaveMock.mockResolvedValue(undefined);
+  });
+
+  it('copies the passkeys of users it created, once each', async () => {
+    const fresh = passkey('alice', 'fresh');
+    filePasskeysMock.mockImplementation(async (username) =>
+      username === 'alice' ? [fresh, passkey('alice', 'already-there')] : [passkey(username, 'x')],
+    );
+
+    const { migrateToDatabase } = await import('./migration.js');
+    expect(await migrateToDatabase(false)).toBe(true);
+
+    // An account that already existed keeps only its own passkeys
+    expect(filePasskeysMock.mock.calls).toEqual([['alice']]);
+    expect(dbPasskeySaveMock.mock.calls).toEqual([[fresh]]);
+  });
+
+  it('still succeeds when the file-mode passkey store is damaged', async () => {
+    filePasskeysMock.mockRejectedValue(new Error('Invalid passkey store'));
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined as any);
+
+    const { migrateToDatabase } = await import('./migration.js');
+    expect(await migrateToDatabase(false)).toBe(true);
+
+    expect(dbPasskeySaveMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('Skipped passkey migration'),
+      expect.any(Error),
+    );
+    warn.mockRestore();
+  });
+
+  it('does not touch passkeys when no user was created', async () => {
+    userRepoExistsMock.mockResolvedValue(true);
+    const { migrateToDatabase } = await import('./migration.js');
+    expect(await migrateToDatabase(false)).toBe(true);
+    expect(filePasskeysMock).not.toHaveBeenCalled();
   });
 });

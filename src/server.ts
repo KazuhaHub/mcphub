@@ -1,4 +1,5 @@
 import express from 'express';
+import { warnMissingToolPolicyReferences } from './services/toolPolicyDiagnostics.js';
 import {
   smartRoutingPathMiddleware,
   assertSmartRoutingNameAvailable,
@@ -10,10 +11,25 @@ import cors, { type CorsOptions } from 'cors';
 import config, { isWebDisabled } from './config/index.js';
 import path from 'path';
 import fs from 'fs';
-import { initUpstreamServers, connected, cleanupAllServers } from './services/mcpService.js';
 import { stampLegacyBindings } from './services/credentialBindingService.js';
+import {
+  initUpstreamServers,
+  connected,
+  cleanupAllServers,
+  drainStdioTerminations,
+  reconcileReplicaServers,
+  STDIO_TERMINATION_DRAIN_BUDGET_MS,
+} from './services/mcpService.js';
+import { startReplicaSync, stopReplicaSync } from './services/replicaService.js';
+import { replicaRequestContext } from './middlewares/replicaConfig.js';
+import { isReplicaMode } from './utils/replicaMode.js';
 import { initMiddlewares } from './middlewares/index.js';
 import { initRoutes } from './routes/index.js';
+import {
+  getFileStagingSettings,
+  getStagingStateStore,
+  isStagingRuntimeSupported,
+} from './services/fileStaging/settings.js';
 import { initI18n } from './utils/i18n.js';
 import {
   handleSseConnection,
@@ -37,6 +53,8 @@ import http from 'http';
 import type { Socket } from 'net';
 import { mcpConnectionRateLimiter, spaPageRateLimiter } from './utils/rateLimit.js';
 import { closeHttpServer } from './utils/serverShutdown.js';
+import { formatBoundAddress, listenOnAddress, resolveDisplayHost } from './utils/listenAddress.js';
+import { exitAfterBindFailure } from './utils/bindFailureExit.js';
 import { logger } from './utils/logger.js';
 import {
   startActivityRetention,
@@ -66,12 +84,14 @@ export class AppServer {
   private server: http.Server | null = null;
   private connections = new Set<Socket>();
   private port: number | string;
+  private host: string | undefined;
   private frontendPath: string | null = null;
   private basePath: string;
   private disableWeb: boolean;
 
   constructor() {
     this.app = express();
+    this.app.use(replicaRequestContext);
     this.app.set('trust proxy', resolveTrustProxySetting());
     // Delegate-based CORS so the Host header is available for the same-host
     // check inside resolveCorsOrigin.
@@ -91,6 +111,7 @@ export class AppServer {
       ),
     );
     this.port = config.port;
+    this.host = config.host;
     this.basePath = config.basePath;
     this.disableWeb = isWebDisabled();
   }
@@ -103,6 +124,7 @@ export class AppServer {
 
       // Initialize default admin user if no users exist
       await initializeDefaultUser();
+      await warnMissingToolPolicyReferences();
 
       // Give personal credential bindings from before destination fingerprints their server's
       // current destination, before any request can resolve one. Logs and continues on failure.
@@ -147,10 +169,16 @@ export class AppServer {
 
       initMiddlewares(this.app);
       await initRoutes(this.app);
+
+      // Bring up the file-staging ledger before serving tool calls (#1056,
+      // R4b): the process/DB lock must fail at startup, not on the first tool
+      // call that needs staging. Failure is logged, never fatal.
+      await this.initializeFileStaging();
+
       logger.log('Server initialized successfully');
 
-      initUpstreamServers()
-        .then(() => {
+      const upstreamInitialization = initUpstreamServers()
+        .then(async () => {
           logger.log('MCP server initialized successfully');
 
           // A browser opening /services/mcp or /services/sse is the hub link of a service with
@@ -230,6 +258,7 @@ export class AppServer {
             sseUserContextMiddleware,
             handleMcpOtherRequest,
           );
+          await startReplicaSync(reconcileReplicaServers);
         })
         .catch((error) => {
           logger.error('Error initializing MCP server', safeStringify({ error }));
@@ -239,9 +268,33 @@ export class AppServer {
           // Find and serve frontend
           this.findAndServeFrontend();
         });
+      if (isReplicaMode()) await upstreamInitialization;
     } catch (error) {
       logger.error('Error initializing server', safeStringify({ error }));
       throw error;
+    }
+  }
+
+  /**
+   * Initialize the file-staging ledger when the feature is enabled (#1056).
+   * A second instance sharing the staging state directory fails here on the
+   * lock instead of on the first staging tool call. A failure (including a
+   * disabled feature whose config read fails) must never prevent startup.
+   */
+  private async initializeFileStaging(): Promise<void> {
+    try {
+      const settings = await getFileStagingSettings();
+      if (!settings.enabled) return;
+      // Hosted and replica deployments have no single local staging root; do
+      // not create directories or take the process lock there.
+      if (!isStagingRuntimeSupported()) {
+        logger.warn('File staging is enabled but this deployment mode does not support it');
+        return;
+      }
+      await getStagingStateStore();
+      logger.log('File staging ledger initialized');
+    } catch (error) {
+      logger.error('Failed to initialize the file staging ledger:', error);
     }
   }
 
@@ -285,16 +338,38 @@ export class AppServer {
   }
 
   start(): void {
-    this.server = this.app.listen(this.port, () => {
-      logger.log(`Server is running on port ${this.port}`);
-      if (this.frontendPath && !this.disableWeb) {
-        logger.log(`Open http://localhost:${this.port} in your browser to access MCPHub UI`);
-      } else {
+    this.server = listenOnAddress(
+      this.app,
+      this.port,
+      this.host,
+      () => {
+        const displayUrl = `http://${resolveDisplayHost(this.host)}:${this.port}`;
         logger.log(
-          `MCPHub API is running on http://localhost:${this.port}, but the UI is not available`,
+          `Server is running on port ${this.port} (bound to ${formatBoundAddress(this.server?.address())})`,
         );
-      }
-    });
+        if (this.frontendPath && !this.disableWeb) {
+          logger.log(`Open ${displayUrl} in your browser to access MCPHub UI`);
+        } else {
+          logger.log(`MCPHub API is running on ${displayUrl}, but the UI is not available`);
+        }
+      },
+      (error) => {
+        // Without this handler the error reaches the uncaught-exception guard, which logs it
+        // and continues: the process then either keeps running with no HTTP listener or exits
+        // with status 0, depending on what else holds the event loop open.
+        //
+        // Upstream stdio servers may already be starting; stop them rather than orphan them,
+        // and wait for those terminations before exiting: process.exit() would cancel them.
+        void exitAfterBindFailure({
+          error,
+          host: this.host,
+          port: this.port,
+          cleanupUpstreamServers: cleanupAllServers,
+          drainUpstreamTerminations: drainStdioTerminations,
+          budgetMs: STDIO_TERMINATION_DRAIN_BUDGET_MS,
+        });
+      },
+    );
     this.server.on('connection', (socket) => {
       this.connections.add(socket);
       socket.once('close', () => this.connections.delete(socket));
@@ -306,6 +381,7 @@ export class AppServer {
    */
   async shutdown(): Promise<void> {
     logger.log('[SHUTDOWN] Starting graceful shutdown...');
+    await stopReplicaSync();
 
     // Stop accepting new connections while existing requests finish within the grace period.
     const httpShutdown = this.server
@@ -313,18 +389,37 @@ export class AppServer {
       : Promise.resolve();
 
     stopActivityRetention();
+    // In-flight calls still need their upstream clients until HTTP draining completes.
+    await httpShutdown;
 
     // Close all MCP clients and stateless modern MCP exchanges.
     try {
       cleanupAllServers();
       await closeModernMcpHandler?.();
+      // Every caller of shutdown() calls process.exit() right afterwards. That
+      // cancels the asynchronous half of an upstream termination, the tree-kill
+      // spawn and the SIGKILL escalation, and leaves the descendants of an
+      // `npx` wrapper running. This is the exit path that runs on every Ctrl-C
+      // and service stop, so it is also the one that collects orphans.
+      const settled = await drainStdioTerminations(STDIO_TERMINATION_DRAIN_BUDGET_MS);
+      if (!settled) {
+        logger.warn('[SHUTDOWN] Upstream stdio cleanup did not settle; possible orphans');
+      }
       logger.log('[SHUTDOWN] MCP clients closed');
     } catch (error) {
       logger.error('[SHUTDOWN] Error closing MCP clients', safeStringify({ error }));
     }
 
-    await httpShutdown;
     this.server = null;
+
+    // Hand the staging lock back before the process exits: the next instance
+    // would otherwise refuse to start until the heartbeat staleness window.
+    try {
+      const { releaseAllStagingProcessLocks } = await import('./services/fileStaging/processLock.js');
+      await releaseAllStagingProcessLocks();
+    } catch (error) {
+      logger.error('[SHUTDOWN] Error releasing the staging lock', safeStringify({ error }));
+    }
 
     // Close database connection if in database mode
     const useDatabase =

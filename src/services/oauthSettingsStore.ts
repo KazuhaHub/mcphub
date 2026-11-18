@@ -1,6 +1,10 @@
 import { getServerDao } from '../dao/index.js';
 import { ServerConfig } from '../types/index.js';
 import { logger } from '../utils/logger.js';
+import { IsNull } from 'typeorm';
+import { getAppDataSource } from '../db/connection.js';
+import { Server } from '../db/entities/Server.js';
+import { isReplicaMode } from '../utils/replicaMode.js';
 
 type OAuthConfig = NonNullable<ServerConfig['oauth']>;
 export type ServerConfigWithOAuth = ServerConfig & { oauth: OAuthConfig };
@@ -41,6 +45,8 @@ export const mutateOAuthSettings = async (
 
   const { name: _, ...serverConfig } = server;
 
+  const expectedOAuth = server.oauth ? structuredClone(server.oauth) : undefined;
+
   if (!serverConfig.oauth) {
     serverConfig.oauth = {};
   }
@@ -51,6 +57,15 @@ export const mutateOAuthSettings = async (
   };
 
   mutator(context);
+
+  if (isReplicaMode()) {
+    const result = await getAppDataSource().getRepository(Server).createQueryBuilder()
+      .update().set({ oauth: () => ':nextOAuth' })
+      .where({ name: serverName, oauth: expectedOAuth ?? IsNull() })
+      .setParameter('nextOAuth', JSON.stringify(serverConfig.oauth)).execute();
+    if (result.affected !== 1) throw new Error('OAuth configuration changed; retry with current credentials');
+    return context.serverConfig as ServerConfigWithOAuth;
+  }
 
   const updated = await serverDao.update(
     serverName,
@@ -150,11 +165,23 @@ export const updatePendingAuthorization = async (
   pending: Partial<NonNullable<OAuthConfig['pendingAuthorization']>>,
 ): Promise<ServerConfigWithOAuth | undefined> => {
   return mutateOAuthSettings(serverName, ({ oauth }) => {
-    oauth.pendingAuthorization = {
-      ...(oauth.pendingAuthorization || {}),
+    const existing = oauth.pendingAuthorization;
+    // A codeVerifier is bound to the state it was generated for. When a new
+    // state replaces the previous one without a verifier of its own, drop the
+    // stale verifier instead of keeping a mismatched (state, verifier) pair.
+    const stateChanged =
+      pending.state !== undefined && pending.state !== existing?.state;
+    const next: NonNullable<OAuthConfig['pendingAuthorization']> = {
+      ...(existing || {}),
       ...pending,
-      createdAt: pending.createdAt ?? Date.now(),
+      codeVerifier: pending.codeVerifier ?? (stateChanged ? undefined : existing?.codeVerifier),
     };
+    if (next.codeVerifier === undefined) delete next.codeVerifier;
+    // Anchor the flow TTL to the start of the flow: only refresh createdAt
+    // when the state actually changes, not on verifier-only updates.
+    next.createdAt =
+      pending.createdAt ?? (stateChanged || !existing?.createdAt ? Date.now() : existing.createdAt);
+    oauth.pendingAuthorization = next;
   });
 };
 

@@ -9,6 +9,9 @@ import React, {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiResponse, BearerKey } from '@/types';
+import type { FakeIpException } from '../../../src/types/network.js';
+import type { ToolPolicyRule } from '../../../src/types/toolPolicy.js';
+import { validateToolPolicies } from '../../../src/utils/toolPolicy.js';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiGet, apiPut, apiPost, apiDelete } from '@/utils/fetchInterceptor';
@@ -22,6 +25,7 @@ interface RoutingConfig {
   enableBearerAuth: boolean;
   bearerAuthKey: string;
   bearerAuthHeaderName: string;
+  allowAuthorizationPassthrough: boolean;
   jsonBodyLimit: string;
   skipAuth: boolean;
   allowTokenInQuery: boolean;
@@ -82,6 +86,8 @@ interface MCPRouterConfig {
 }
 
 interface OAuthServerConfig {
+  alwaysShowApprovalScreen: boolean;
+  approvalLifetime: number;
   enabled: boolean;
   accessTokenLifetime: number;
   refreshTokenLifetime: number;
@@ -125,11 +131,13 @@ interface BetterAuthConfig {
 
 interface SystemSettings {
   systemConfig?: {
+    toolPolicies?: ToolPolicyRule[];
     routing?: RoutingConfig;
     install?: InstallConfig;
     smartRouting?: SmartRoutingConfig;
     toolResultCompression?: ToolResultCompressionConfig;
     mcpRouter?: MCPRouterConfig;
+    normalizeToolNames?: boolean;
     nameSeparator?: string;
     oauthServer?: OAuthServerConfig;
     auth?: {
@@ -137,7 +145,7 @@ interface SystemSettings {
       betterAuth?: Partial<BetterAuthConfig>;
     };
     enableSessionRebuild?: boolean;
-    network?: { allowedCidrs?: string[] };
+    network?: { allowedCidrs?: string[]; fakeIpExceptions?: FakeIpException[] };
     activityLog?: {
       storeToolPayload?: boolean;
       retentionDays?: number;
@@ -154,6 +162,8 @@ interface TempRoutingConfig {
 }
 
 interface SettingsContextValue {
+  toolPolicies: ToolPolicyRule[] | undefined;
+  updateToolPolicies: (rules: ToolPolicyRule[]) => Promise<boolean>;
   routingConfig: RoutingConfig;
   tempRoutingConfig: TempRoutingConfig;
   setTempRoutingConfig: React.Dispatch<React.SetStateAction<TempRoutingConfig>>;
@@ -165,8 +175,12 @@ interface SettingsContextValue {
   allowRegistration: boolean;
   updateAllowRegistration: (value: boolean) => Promise<void>;
   betterAuthConfig: BetterAuthConfig;
+  normalizeToolNames: boolean;
+  updateNormalizeToolNames: (value: boolean) => Promise<boolean | undefined>;
   nameSeparator: string;
   enableSessionRebuild: boolean;
+  fakeIpExceptions: FakeIpException[];
+  updateFakeIpExceptions: (value: FakeIpException[]) => Promise<boolean>;
   allowedCidrs: string[];
   updateAllowedCidrs: (value: string[]) => Promise<boolean>;
   storeToolPayload: boolean;
@@ -230,6 +244,8 @@ interface SettingsContextValue {
 }
 
 const getDefaultOAuthServerConfig = (): OAuthServerConfig => ({
+  alwaysShowApprovalScreen: true,
+  approvalLifetime: 1209600,
   enabled: true,
   accessTokenLifetime: 3600,
   refreshTokenLifetime: 1209600,
@@ -366,6 +382,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     enableBearerAuth: true,
     bearerAuthKey: '',
     bearerAuthHeaderName: 'Authorization',
+    allowAuthorizationPassthrough: false,
     jsonBodyLimit: '1mb',
     skipAuth: false,
     allowTokenInQuery: true,
@@ -430,9 +447,12 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     getDefaultBetterAuthConfig(),
   );
 
+  const [normalizeToolNames, setNormalizeToolNames] = useState(false);
   const [nameSeparator, setNameSeparator] = useState<string>('-');
   const [enableSessionRebuild, setEnableSessionRebuild] = useState<boolean>(false);
+  const [fakeIpExceptions, setFakeIpExceptions] = useState<FakeIpException[]>([]);
   const [allowedCidrs, setAllowedCidrs] = useState<string[]>([]);
+  const [toolPolicies, setToolPolicies] = useState<ToolPolicyRule[]>();
   const [storeToolPayload, setStoreToolPayload] = useState<boolean>(true);
   const [activityRetentionDays, setActivityRetentionDays] = useState<number | null>(null);
   const [activityViewDays, setActivityViewDays] = useState<number>(90);
@@ -464,6 +484,13 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     try {
       const data: ApiResponse<SystemSettings> = await apiGet('/settings');
 
+      if (data.success && data.data?.systemConfig) {
+        const rules = data.data.systemConfig.toolPolicies === undefined
+          ? []
+          : data.data.systemConfig.toolPolicies;
+        validateToolPolicies(rules);
+        setToolPolicies(rules);
+      }
       if (data.success && data.data?.systemConfig?.routing) {
         setRoutingConfig({
           enableGlobalRoute: data.data.systemConfig.routing.enableGlobalRoute ?? true,
@@ -472,6 +499,8 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
           bearerAuthKey: data.data.systemConfig.routing.bearerAuthKey || '',
           bearerAuthHeaderName:
             data.data.systemConfig.routing.bearerAuthHeaderName || 'Authorization',
+          allowAuthorizationPassthrough:
+            data.data.systemConfig.routing.allowAuthorizationPassthrough === true,
           jsonBodyLimit: data.data.systemConfig.routing.jsonBodyLimit || '1mb',
           skipAuth: data.data.systemConfig.routing.skipAuth ?? false,
           allowTokenInQuery: data.data.systemConfig.routing.allowTokenInQuery ?? true,
@@ -558,6 +587,8 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
             : [...defaultDynamic.allowedGrantTypes];
 
           setOAuthServerConfig({
+            alwaysShowApprovalScreen: oauth.alwaysShowApprovalScreen ?? true,
+            approvalLifetime: oauth.approvalLifetime ?? 1209600,
             enabled: oauth.enabled ?? defaultOauthConfig.enabled,
             accessTokenLifetime:
               oauth.accessTokenLifetime ?? defaultOauthConfig.accessTokenLifetime,
@@ -586,7 +617,9 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
         setAllowRegistration(data.data?.systemConfig?.auth?.allowRegistration === true);
         setBetterAuthConfig(normalizeBetterAuthConfig(data.data?.systemConfig?.auth?.betterAuth));
       }
+      if (data.success) setFakeIpExceptions(data.data?.systemConfig?.network?.fakeIpExceptions ?? []);
       if (data.success) setAllowedCidrs(data.data?.systemConfig?.network?.allowedCidrs ?? []);
+      if (data.success) setNormalizeToolNames(data.data?.systemConfig?.normalizeToolNames === true);
       if (data.success && data.data?.systemConfig?.nameSeparator !== undefined) {
         setNameSeparator(data.data.systemConfig.nameSeparator);
       }
@@ -1092,6 +1125,37 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     }
   };
 
+  // Update tool name compatibility flag
+  const updateNormalizeToolNames = async (value: boolean) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await apiPut('/system-config', {
+        normalizeToolNames: value,
+      });
+
+      if (data.success) {
+        setNormalizeToolNames(value);
+        showToast(t('settings.systemConfigUpdated'));
+        return true;
+      } else {
+        setError(data.error || 'Failed to update tool name compatibility setting');
+        showToast(data.error || t('settings.toolNameCompatibilityUpdateFailed'));
+        return false;
+      }
+    } catch (error) {
+      console.error('Failed to update tool name compatibility setting', { value, error });
+      setError(
+        error instanceof Error ? error.message : 'Failed to update tool name compatibility setting',
+      );
+      showToast(t('settings.toolNameCompatibilityUpdateFailed'));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Update session rebuild flag
   const updateSessionRebuild = async (value: boolean) => {
     setLoading(true);
@@ -1115,6 +1179,47 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       console.error('Failed to update session rebuild setting', { value, error });
       setError(error instanceof Error ? error.message : 'Failed to update session rebuild setting');
       showToast(t('errors.failedToUpdateSessionRebuild'));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateToolPolicies = async (rules: ToolPolicyRule[]): Promise<boolean> => {
+    setLoading(true);
+    try {
+      const data = await apiPut('/system-config', { toolPolicies: rules });
+      if (!data.success) {
+        showToast(data.message || data.error || t('settings.toolPolicies.saveFailed'), 'error');
+        return false;
+      }
+      setToolPolicies(rules);
+      showToast(t('settings.systemConfigUpdated'));
+      return true;
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : t('settings.toolPolicies.saveFailed'),
+        'error',
+      );
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateFakeIpExceptions = async (value: FakeIpException[]): Promise<boolean> => {
+    setLoading(true);
+    try {
+      const data = await apiPut('/system-config', { network: { fakeIpExceptions: value } });
+      if (!data.success) {
+        showToast(data.message || data.error || t('settings.fakeIp.saveFailed'), 'error');
+        return false;
+      }
+      setFakeIpExceptions(data.data.network.fakeIpExceptions ?? []);
+      showToast(t('settings.systemConfigUpdated'));
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t('settings.fakeIp.saveFailed'), 'error');
       return false;
     } finally {
       setLoading(false);
@@ -1306,6 +1411,8 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   }, [routingConfig]);
 
   const value: SettingsContextValue = {
+    toolPolicies,
+    updateToolPolicies,
     routingConfig,
     tempRoutingConfig,
     setTempRoutingConfig,
@@ -1317,8 +1424,12 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     allowRegistration,
     updateAllowRegistration,
     betterAuthConfig,
+    normalizeToolNames,
+    updateNormalizeToolNames,
     nameSeparator,
     enableSessionRebuild,
+    fakeIpExceptions,
+    updateFakeIpExceptions,
     allowedCidrs,
     updateAllowedCidrs,
     storeToolPayload,

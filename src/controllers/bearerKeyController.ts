@@ -1,10 +1,36 @@
 import { Request, Response } from 'express';
 import { ApiResponse, BearerKey, BearerKeyAccessType, BearerKeyKind } from '../types/index.js';
-import { getBearerKeyDao, getUserDao } from '../dao/index.js';
+import { getBearerKeyDao, getGroupDao, getUserDao } from '../dao/index.js';
 import { logger } from '../utils/logger.js';
 import { generateBearerToken, maskedBearerToken } from '../utils/bearerKeyHash.js';
 
-const VALID_ACCESS_TYPES: BearerKeyAccessType[] = ['all', 'groups', 'servers', 'custom'];
+const VALID_ACCESS_TYPES: BearerKeyAccessType[] = [
+  'all',
+  'groups',
+  'servers',
+  'custom',
+  'exclude',
+];
+
+const normalizeStringList = (value: unknown): string[] | undefined =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : undefined;
+
+const validateExcludedScope = (
+  accessType: BearerKeyAccessType,
+  excludedGroups: string[],
+  excludedServers: string[],
+  res: Response,
+): boolean => {
+  if (accessType !== 'exclude') return true;
+  if (excludedGroups.length > 0 || excludedServers.length > 0) return true;
+  res.status(400).json({
+    success: false,
+    message: 'Exclude scope requires at least one excluded group or server',
+  });
+  return false;
+};
 
 type AuthenticatedUser = {
   username?: string;
@@ -33,6 +59,50 @@ const validateSystemScope = (
     return false;
   }
   return true;
+};
+
+const resolvePersonalScope = async (
+  accessType: BearerKeyAccessType | undefined,
+  allowedGroups: unknown,
+  res: Response,
+): Promise<Partial<BearerKey> | undefined> => {
+  if (accessType !== 'all' && accessType !== 'groups') {
+    res
+      .status(400)
+      .json({ success: false, message: 'Personal keys support only all or groups scope' });
+    return;
+  }
+  const groupIds = new Set<string>();
+  if (accessType === 'groups') {
+    if (
+      !Array.isArray(allowedGroups) ||
+      allowedGroups.length === 0 ||
+      !allowedGroups.every((value) => typeof value === 'string' && value.trim().length > 0)
+    ) {
+      res.status(400).json({ success: false, message: 'Select at least one allowed group' });
+      return;
+    }
+    const dao = getGroupDao();
+    for (const reference of allowedGroups as string[]) {
+      const group =
+        (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reference)
+          ? await dao.findById(reference)
+          : null) || (await dao.findByName(reference));
+      if (!group) {
+        res.status(400).json({ success: false, message: 'Allowed group not found' });
+        return;
+      }
+      // Persist IDs so renaming or recreating a group cannot redirect the grant.
+      groupIds.add(group.id);
+    }
+  }
+  return {
+    accessType,
+    allowedGroups: [...groupIds],
+    allowedServers: [],
+    excludedGroups: [],
+    excludedServers: [],
+  };
 };
 
 export const getBearerKeys = async (req: Request, res: Response): Promise<void> => {
@@ -72,6 +142,8 @@ export const createBearerKey = async (req: Request, res: Response): Promise<void
       accessType,
       allowedGroups,
       allowedServers,
+      excludedGroups,
+      excludedServers,
     } = req.body as Partial<BearerKey>;
 
     if (!name || typeof name !== 'string') {
@@ -97,8 +169,28 @@ export const createBearerKey = async (req: Request, res: Response): Promise<void
       }
     }
 
-    const resolvedAccessType = kind === 'user' ? 'all' : accessType;
+    const resolvedAccessType = kind === 'user' && accessType === undefined ? 'all' : accessType;
+    const personalScope =
+      kind === 'user'
+        ? await resolvePersonalScope(resolvedAccessType, allowedGroups, res)
+        : undefined;
+    if (kind === 'user' && !personalScope) return;
     if (kind === 'system' && !validateSystemScope(resolvedAccessType, res)) {
+      return;
+    }
+
+    const resolvedExcludedGroups =
+      kind === 'system' ? (normalizeStringList(excludedGroups) ?? []) : [];
+    const resolvedExcludedServers =
+      kind === 'system' ? (normalizeStringList(excludedServers) ?? []) : [];
+    if (
+      !validateExcludedScope(
+        resolvedAccessType ?? 'all',
+        resolvedExcludedGroups,
+        resolvedExcludedServers,
+        res,
+      )
+    ) {
       return;
     }
 
@@ -111,6 +203,9 @@ export const createBearerKey = async (req: Request, res: Response): Promise<void
       accessType: resolvedAccessType ?? 'all',
       allowedGroups: kind === 'system' && Array.isArray(allowedGroups) ? allowedGroups : [],
       allowedServers: kind === 'system' && Array.isArray(allowedServers) ? allowedServers : [],
+      excludedGroups: resolvedExcludedGroups,
+      excludedServers: resolvedExcludedServers,
+      ...personalScope,
     });
 
     // The only response that carries the plaintext token.
@@ -147,11 +242,21 @@ export const updateBearerKey = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const { name, enabled, accessType, allowedGroups, allowedServers } =
+    const { name, enabled, accessType, allowedGroups, allowedServers, excludedGroups, excludedServers } =
       req.body as Partial<BearerKey>;
     const updates: Partial<BearerKey> = {};
     if (name !== undefined) updates.name = name;
     if (enabled !== undefined) updates.enabled = enabled;
+
+    if (existing.kind === 'user' && (accessType !== undefined || allowedGroups !== undefined)) {
+      const scope = await resolvePersonalScope(
+        accessType === undefined ? existing.accessType : accessType,
+        allowedGroups === undefined ? existing.allowedGroups : allowedGroups,
+        res,
+      );
+      if (!scope) return;
+      Object.assign(updates, scope);
+    }
 
     if (existing.kind !== 'user' && user?.isAdmin) {
       if (accessType !== undefined) {
@@ -163,6 +268,34 @@ export const updateBearerKey = async (req: Request, res: Response): Promise<void
       }
       if (allowedServers !== undefined) {
         updates.allowedServers = Array.isArray(allowedServers) ? allowedServers : [];
+      }
+      if (excludedGroups !== undefined) {
+        updates.excludedGroups = normalizeStringList(excludedGroups) ?? [];
+      }
+      if (excludedServers !== undefined) {
+        updates.excludedServers = normalizeStringList(excludedServers) ?? [];
+      }
+
+      const resultingAccessType = updates.accessType ?? existing.accessType;
+      if (resultingAccessType !== 'exclude') {
+        // Drop exclusions when the key no longer uses the exclude scope.
+        updates.excludedGroups = [];
+        updates.excludedServers = [];
+      } else {
+        const resultingExcludedGroups =
+          updates.excludedGroups ?? existing.excludedGroups ?? [];
+        const resultingExcludedServers =
+          updates.excludedServers ?? existing.excludedServers ?? [];
+        if (
+          !validateExcludedScope(
+            resultingAccessType,
+            resultingExcludedGroups,
+            resultingExcludedServers,
+            res,
+          )
+        ) {
+          return;
+        }
       }
     }
 

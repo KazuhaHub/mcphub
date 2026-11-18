@@ -28,3 +28,6 @@ export * from './BuiltinResourceDaoDbImpl.js';
 // Export the DAO factory and convenience functions
 export * from './DaoFactory.js';
 export * from './DatabaseDaoFactory.js';
+
+export * from './OAuthApprovalDao.js';
+export * from './PasskeyDao.js';

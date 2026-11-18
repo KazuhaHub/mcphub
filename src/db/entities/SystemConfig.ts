@@ -6,11 +6,17 @@ import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn } fro
  */
 @Entity({ name: 'system_config' })
 export class SystemConfig {
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  dashboardName?: string;
+
+  @Column({ type: 'simple-json', nullable: true })
+  toolPolicies?: import('../../types/index.js').ToolPolicyRule[];
+
   @PrimaryColumn({ type: 'varchar', length: 50, default: 'default' })
   id: string;
 
   @Column({ type: 'simple-json', nullable: true })
-  network?: { allowedCidrs?: string[] };
+  network?: import('../../types/index.js').SystemConfig['network'];
 
   @Column({ type: 'simple-json', nullable: true })
   routing?: Record<string, any>;
@@ -26,6 +32,9 @@ export class SystemConfig {
 
   @Column({ type: 'simple-json', nullable: true })
   mcpRouter?: Record<string, any>;
+
+  @Column({ type: 'boolean', nullable: true })
+  normalizeToolNames?: boolean;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
   nameSeparator?: string;
@@ -50,6 +59,9 @@ export class SystemConfig {
 
   @Column({ type: 'simple-json', nullable: true })
   workspace?: Record<string, any>;
+
+  @Column({ type: 'simple-json', nullable: true })
+  fileStaging?: import('../../types/index.js').FileStagingSettings;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt: Date;

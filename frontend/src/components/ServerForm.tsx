@@ -1,3 +1,4 @@
+import UserGroupSelection from './UserGroupSelection';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,6 +16,7 @@ import {
   getDefaultUserRiskEdit,
 } from '../utils/serverFormPayload';
 import ServerToolRiskField from './ServerToolRiskField';
+import { parseOAuthRelayForm } from '../utils/oauthRelayForm';
 import {
   deselectShareUsers,
   filterShareUsers,
@@ -126,6 +128,7 @@ const ServerForm = ({
       // and preserved by the backend `normalizeOAuth` whitelist (#1193). Each
       // key is only added when the stored config actually has it, so the
       // payload does not gain absent fields.
+      ...(oauth?.authorizationRelay && { authorizationRelay: oauth.authorizationRelay }),
       ...(oauth?.authorizationServerMetadata && {
         authorizationServerMetadata: oauth.authorizationServerMetadata,
       }),
@@ -153,6 +156,7 @@ const ServerForm = ({
     passthroughHeaders: initialData?.config?.passthroughHeaders?.join(', ') || '',
     visibility: (initialData?.config?.visibility ?? 'private') as 'private' | 'group' | 'public',
     sharedWithUsers: initialData?.config?.sharedWithUsers || [],
+    sharedWithUserGroups: initialData?.config?.sharedWithUserGroups || [],
     // Admins only: the fields stay undefined for anyone else, so their saves leave them alone.
     ...(auth.user?.isAdmin
       ? {
@@ -195,6 +199,10 @@ const ServerForm = ({
     // Proxychains proxy config: round-trip the stored value so editing the
     // server does not silently drop it (there is no in-form editor for it).
     proxy: initialData?.config?.proxy,
+    // Per-tool file staging and the server staging declaration (#1056): no
+    // in-form editors in PR1, so round-trip them through the payload.
+    tools: initialData?.config?.tools,
+    staging: initialData?.config?.staging,
     // On-demand spawning initialization
     startOnDemand: initialData?.config?.startOnDemand === true,
     idleTimeoutMs: initialData?.config?.idleTimeoutMs ?? 300000,
@@ -270,6 +278,7 @@ const ServerForm = ({
   });
 
   const [shareCandidates, setShareCandidates] = useState<string[]>([]);
+  const [shareUserGroups, setShareUserGroups] = useState<string[]>([]);
   const [shareCandidatesLoading, setShareCandidatesLoading] = useState(false);
   const [shareCandidatesError, setShareCandidatesError] = useState(false);
   const [shareUserSearch, setShareUserSearch] = useState('');
@@ -285,7 +294,7 @@ const ServerForm = ({
     setShareCandidatesLoading(true);
     setShareCandidatesError(false);
 
-    void apiGet<{ success: boolean; data?: string[] }>(
+    void apiGet<{ success: boolean; data?: string[]; userGroups?: string[] }>(
       `/servers/${encodeURIComponent(shareCandidatesServer)}/share-candidates`,
     )
       .then((response) => {
@@ -293,6 +302,7 @@ const ServerForm = ({
 
         if (response.success && Array.isArray(response.data)) {
           setShareCandidates(response.data);
+          setShareUserGroups(response.userGroups || []);
         } else {
           setShareCandidatesError(true);
         }
@@ -388,6 +398,14 @@ const ServerForm = ({
 
   const [isRequestOptionsExpanded, setIsRequestOptionsExpanded] = useState<boolean>(false);
   const [isOAuthSectionExpanded, setIsOAuthSectionExpanded] = useState<boolean>(false);
+  const [relayOrigins, setRelayOrigins] = useState(
+    initialData?.config?.oauth?.authorizationRelay?.allowedRedirectOrigins.join('\n') || '',
+  );
+  const [relayMetadata, setRelayMetadata] = useState(
+    initialData?.config?.oauth?.authorizationServerMetadata
+      ? JSON.stringify(initialData.config.oauth!.authorizationServerMetadata, null, 2)
+      : '',
+  );
   const [isKeepAliveSectionExpanded, setIsKeepAliveSectionExpanded] = useState<boolean>(false);
   const [isAdvancedExpanded, setIsAdvancedExpanded] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -558,6 +576,7 @@ const ServerForm = ({
 
   const openApiSource = getOpenApiSource(formData);
   const openApiSourcePresent = serverType === 'openapi' && isOpenApiSourceReady(openApiSource);
+  const openApiPersonalOAuth = formData.oauth?.identityMode === 'personal';
 
   useEffect(() => {
     openApiStatsRequestId.current += 1;
@@ -621,7 +640,12 @@ const ServerForm = ({
 
     try {
       const payload = buildServerPayload({
-        formData,
+        formData: formData.oauth?.authorizationRelay
+          ? {
+              ...formData,
+              oauth: { ...formData.oauth, ...parseOAuthRelayForm(relayOrigins, relayMetadata) },
+            }
+          : formData,
         serverType,
         envVars,
         headerVars,
@@ -651,7 +675,11 @@ const ServerForm = ({
 
       onSubmit(payload);
     } catch (err) {
-      setError(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setError(
+        err instanceof Error && err.message.startsWith('server.oauth.relay')
+          ? t(err.message)
+          : `Error: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -665,7 +693,9 @@ const ServerForm = ({
       </div>
 
       {(error || formError) && (
-        <div className="bg-red-50 text-red-700 p-3 rounded mb-4">{formError || error}</div>
+        <div role="alert" className="bg-red-50 text-red-700 p-3 rounded mb-4">
+          {formError || error}
+        </div>
       )}
 
       <form onSubmit={handleSubmit}>
@@ -978,14 +1008,14 @@ const ServerForm = ({
                 {/* Security Configuration */}
                 <div className="mb-4" onChange={markOpenApiSecurityTouched}>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-medium text-[var(--hub-ink-2)]">
+                    <label htmlFor="openApiSecurityType" className="block text-sm font-medium text-[var(--hub-ink-2)]">
                       {t('server.openapi.security')}
                     </label>
                     <button
                       type="button"
                       onClick={() => void detectOpenApiSecurity()}
                       disabled={
-                        securityDetectionLoading || openApiStatsLoading || !openApiSourcePresent
+                        openApiPersonalOAuth || securityDetectionLoading || openApiStatsLoading || !openApiSourcePresent
                       }
                       className="hub-btn text-xs !h-7 !px-2"
                     >
@@ -995,26 +1025,31 @@ const ServerForm = ({
                     </button>
                   </div>
                   <select
-                    value={formData.openapi?.securityType || 'none'}
-                    onChange={(e) =>
-                      setFormData((prev) => {
-                        setOpenApiSecurityNotice(null);
-                        return {
-                          ...prev,
-                          openapi: {
-                            ...prev.openapi,
-                            securityType: e.target.value as any,
-                            url: prev.openapi?.url || '',
-                          },
-                        };
-                      })
-                    }
+                    id="openApiSecurityType"
+                    value={openApiPersonalOAuth ? 'personalOAuth' : formData.openapi?.securityType || 'none'}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const personal = value === 'personalOAuth';
+                      setOpenApiSecurityNotice(null);
+                      setFormData((prev) => ({
+                        ...prev,
+                        oauth: { ...prev.oauth, identityMode: personal ? 'personal' : 'shared' },
+                        openapi: {
+                          ...prev.openapi,
+                          securityType: personal
+                            ? 'none'
+                            : (value as NonNullable<ServerFormData['openapi']>['securityType']),
+                          url: prev.openapi?.url || '',
+                        },
+                      }));
+                    }}
                     className="w-full py-2 px-3 form-input"
                   >
                     <option value="none">{t('server.openapi.securityNone')}</option>
                     <option value="apiKey">{t('server.openapi.securityApiKey')}</option>
                     <option value="http">{t('server.openapi.securityHttp')}</option>
                     <option value="oauth2">{t('server.openapi.securityOAuth2')}</option>
+                    <option value="personalOAuth">{t('server.openapi.securityPersonalOAuth')}</option>
                     <option value="openIdConnect">
                       {t('server.openapi.securityOpenIdConnect')}
                     </option>
@@ -1036,7 +1071,7 @@ const ServerForm = ({
                 </div>
 
                 {/* API Key Configuration */}
-                {formData.openapi?.securityType === 'apiKey' && (
+                {!openApiPersonalOAuth && formData.openapi?.securityType === 'apiKey' && (
                   <div className="mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800">
                     <h4 className="text-sm font-medium mb-3 text-[var(--hub-ink-2)]">
                       {t('server.openapi.apiKeyConfig')}
@@ -1112,7 +1147,7 @@ const ServerForm = ({
                 )}
 
                 {/* HTTP Authentication Configuration */}
-                {formData.openapi?.securityType === 'http' && (
+                {!openApiPersonalOAuth && formData.openapi?.securityType === 'http' && (
                   <div className="mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800">
                     <h4 className="text-sm font-medium mb-3 text-gray-700 dark:text-gray-300">
                       {t('server.openapi.httpAuthConfig')}
@@ -1176,7 +1211,7 @@ const ServerForm = ({
                 )}
 
                 {/* OpenID Connect Configuration */}
-                {formData.openapi?.securityType === 'openIdConnect' && (
+                {!openApiPersonalOAuth && formData.openapi?.securityType === 'openIdConnect' && (
                   <div className="mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800">
                     <h4 className="text-sm font-medium mb-3 text-gray-700 dark:text-gray-300">
                       {t('server.openapi.openIdConnectConfig')}
@@ -1228,8 +1263,51 @@ const ServerForm = ({
                   </div>
                 )}
 
+                {openApiPersonalOAuth && (
+                  <div className="mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800">
+                    <p className="mb-3 text-xs text-[var(--hub-ink-3)]">
+                      {t('server.oauth.personalIdentityHelp')}
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {([
+                        { field: 'clientId', type: 'text', required: true },
+                        { field: 'clientSecret', type: 'password' },
+                        { field: 'authorizationEndpoint', type: 'url', required: true, metadataField: 'authorization_endpoint' },
+                        { field: 'tokenEndpoint', type: 'url', required: true, metadataField: 'token_endpoint' },
+                        { field: 'scopes', type: 'text' },
+                      ] as const).map(({ field, type, ...options }) => {
+                        const metadata = formData.oauth?.authorizationServerMetadata;
+                        const metadataField = 'metadataField' in options ? options.metadataField : undefined;
+                        return (
+                          <label key={field} className="block text-xs text-gray-600">
+                            {t(`server.oauth.${field}`)}
+                            <input
+                              type={type}
+                              value={(metadataField && metadata?.[metadataField]) ?? formData.oauth?.[field] ?? ''}
+                              required={'required' in options}
+                              autoComplete={type === 'password' ? 'new-password' : undefined}
+                              placeholder={field === 'scopes' ? t('server.oauth.scopesPlaceholder') : undefined}
+                              onChange={(e) => {
+                                if (metadataField && metadata) {
+                                  handleOAuthChange('authorizationServerMetadata', {
+                                    ...metadata,
+                                    [metadataField]: e.target.value,
+                                  });
+                                } else {
+                                  handleOAuthChange(field, e.target.value);
+                                }
+                              }}
+                              className="mt-1 w-full border rounded px-2 py-1 text-sm form-input"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* OAuth2 Configuration */}
-                {formData.openapi?.securityType === 'oauth2' && (
+                {!openApiPersonalOAuth && formData.openapi?.securityType === 'oauth2' && (
                   <div className="mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800">
                     <h4 className="text-sm font-medium mb-3 text-gray-700 dark:text-gray-300">
                       {t('server.openapi.oauth2Config')}
@@ -2027,6 +2105,16 @@ const ServerForm = ({
 
                 {formData.visibility === 'group' && (
                   <div className="mt-4 rounded border border-gray-200 dark:border-gray-700 p-3">
+                    <UserGroupSelection
+                      options={shareUserGroups}
+                      selected={formData.sharedWithUserGroups || []}
+                      disabled={
+                        shareCandidatesLoading || shareCandidatesError || !initialData?.name
+                      }
+                      onChange={(sharedWithUserGroups) =>
+                        setFormData((previous) => ({ ...previous, sharedWithUserGroups }))
+                      }
+                    />
                     <div className="text-sm font-medium text-[var(--hub-ink-2)]">
                       {t('server.shareWithUsers', 'Share with users')}
                     </div>
@@ -2229,12 +2317,14 @@ const ServerForm = ({
                             id="oauthIdentityMode"
                             className="w-full py-2 px-3 form-input"
                             value={formData.oauth?.identityMode || 'shared'}
-                            onChange={(e) =>
+                            onChange={(e) => {
                               handleOAuthChange(
                                 'identityMode',
                                 e.target.value as 'shared' | 'personal',
-                              )
-                            }
+                              );
+                              if (e.target.value !== 'personal')
+                                handleOAuthChange('authorizationRelay', undefined);
+                            }}
                           >
                             <option value="shared">{t('server.oauth.sharedIdentity')}</option>
                             <option value="personal">{t('server.oauth.personalIdentity')}</option>
@@ -2262,6 +2352,82 @@ const ServerForm = ({
                               {t('server.oauth.allowInsecureTokenEndpointHelp')}
                             </p>
                           </div>
+                        )}
+                      {(serverType === 'sse' || serverType === 'streamable-http') &&
+                        formData.oauth?.identityMode === 'personal' &&
+                        (auth.user?.isAdmin || formData.oauth.authorizationRelay) && (
+                          <details className="mb-4 rounded border border-gray-200 dark:border-gray-700 p-3">
+                            <summary className="cursor-pointer text-sm font-medium">
+                              {t('server.oauth.advancedSettings')}
+                            </summary>
+                            <div className="mt-3 space-y-3">
+                              <label className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  id="oauthAuthorizationRelay"
+                                  checked={Boolean(formData.oauth.authorizationRelay)}
+                                  disabled={!auth.user?.isAdmin}
+                                  onChange={(e) =>
+                                    handleOAuthChange(
+                                      'authorizationRelay',
+                                      e.target.checked ? { allowedRedirectOrigins: [] } : undefined,
+                                    )
+                                  }
+                                />
+                                {t('server.oauth.relayEnabled')}
+                              </label>
+                              <p className="text-xs text-gray-500">{t('server.oauth.relayHelp')}</p>
+                              {formData.oauth.authorizationRelay && (
+                                <>
+                                  <div>
+                                    <label
+                                      htmlFor="oauthRelayOrigins"
+                                      className="block text-xs mb-1"
+                                    >
+                                      {t('server.oauth.relayOrigins')}
+                                    </label>
+                                    <textarea
+                                      id="oauthRelayOrigins"
+                                      rows={2}
+                                      required
+                                      disabled={!auth.user?.isAdmin}
+                                      value={relayOrigins}
+                                      onChange={(e) => setRelayOrigins(e.target.value)}
+                                      placeholder="https://login.microsoftonline.com"
+                                      className="w-full py-2 px-3 form-input font-mono text-xs"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      {t('server.oauth.relayOriginsHelp')}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <label
+                                      htmlFor="oauthRelayMetadata"
+                                      className="block text-xs mb-1"
+                                    >
+                                      {t('server.oauth.relayMetadata')}
+                                    </label>
+                                    <textarea
+                                      id="oauthRelayMetadata"
+                                      rows={8}
+                                      wrap="off"
+                                      required
+                                      disabled={!auth.user?.isAdmin}
+                                      value={relayMetadata}
+                                      onChange={(e) => setRelayMetadata(e.target.value)}
+                                      placeholder={
+                                        '{\n  "issuer": "http://broker.internal:3000",\n  "authorization_endpoint": "http://broker.internal:3000/authorize",\n  "token_endpoint": "http://broker.internal:3000/token",\n  "response_types_supported": ["code"]\n}'
+                                      }
+                                      className="w-full py-2 px-3 form-input font-mono text-xs"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      {t('server.oauth.relayMetadataHelp')}
+                                    </p>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </details>
                         )}
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div>

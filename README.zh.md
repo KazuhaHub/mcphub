@@ -31,12 +31,13 @@ MCPHub 是 AI 客户端与 MCP 服务器之间的统一控制点。一次连接�
 - **统一 MCP 网关** - 通过稳定的 MCP 端点暴露所有已连接的服务器，也支持分组和单服务器路由
 - **服务器别名与路由** - 设置别名，并将客户端路由到所有服务器、指定分组、单个服务器或智能路由
 - **SSE / Streamable HTTP / stdio 支持** - 通过支持的传输方式连接本地和远程 MCP 服务器
+- **文件暂存** - 让 stdio 工具接收客户端文件的上传副本，或把结果写出来由 hub 以一次性下载链接提供 ([了解更多](docs/zh/features/file-staging.mdx))
 - **热插拔配置** - 无需停机即可添加、移除或更新服务器
 
 ### 管控访问与凭据
 
 - **个人凭据** ⭐ - 一个共享服务器支持每位用户独立绑定密钥，加密保存并隔离 stdio 运行进程（[了解更多](docs/zh/features/per-user-credentials.mdx)）
-- **身份认证与访问控制** - 使用 OAuth 2.0、Bearer Key 以及服务器或分组可见性控制访问权限
+- **身份认证与访问控制** - 使用 OAuth 2.0、Bearer Key、通行密钥以及服务器或分组可见性控制访问权限
 - **OAuth 2.0 支持** ⭐ - 客户端和服务端模式，实现安全认证 ([了解更多](https://docs.mcphub.app/zh/features/oauth))
 - **社交一键登录** - 通过 Better Auth 集成支持 GitHub 和 Google 快捷登录（需启用数据库模式）
 - **服务器与分组管理** - 组织服务器分组，管理可见性，并控制 Tool、Prompt 与 Resource 的暴露范围
@@ -48,6 +49,7 @@ MCPHub 是 AI 客户端与 MCP 服务器之间的统一控制点。一次连接�
 - **Web 控制台** - 通过浏览器管理服务器配置和运行状态
 - **工具结果压缩** - 在返回客户端前透明压缩大型文本工具输出
 - **数据库模式** - 将配置存储在 PostgreSQL 中，适用于生产环境 ([了解更多](https://docs.mcphub.app/zh/configuration/database-configuration))
+- **多副本部署** - 共享 PostgreSQL 配置，明确会话亲和性与故障重连边界 ([部署指南](https://docs.mcphub.app/zh/configuration/replicas))
 - **Docker 就绪** - 容器化部署，开箱即用
 
 ## 🔧 快速开始
@@ -100,6 +102,10 @@ docker run -p 3000:3000 -v ./data:/app/data samanhappy/mcphub
 - **`latest-full`**（扩展镜像）— 在 `latest` 基础上增加 Rust 工具链（Cargo/rustc）、Docker Engine，以及 Playwright 浏览器（Chrome + Firefox，仅限 amd64）。适合需要运行 Rust MCP server 或容器嵌套的场景。镜像体积更大。
 
 构建选项与 Docker-in-Docker 配置详见 [Docker 部署文档](https://docs.mcphub.app/zh/configuration/docker-setup)。
+
+### 使用个人凭据的部署如何升级
+
+数据库模式需要持久化的 `MCPHUB_CREDENTIAL_ENCRYPTION_KEY` 或已有密钥文件，不再自动生成本地密钥。更换仍可正常使用的容器前，请备份原密钥，并在部署密钥配置中保留相同值。密钥丢失后，仅有数据库备份无法恢复加密凭据。正常部署的升级步骤和升级后无法使用的恢复方法，见[凭据密钥升级与恢复指南](docs/zh/configuration/credential-key-upgrade.mdx)。
 
 ### 访问控制台
 
@@ -164,7 +170,7 @@ pnpm dev
 - **后端**：Node.js、Express、TypeScript（ESM）
 - **前端**：React、Vite、Tailwind CSS
 - **存储**：默认基于文件的 `mcp_settings.json`；可选 PostgreSQL（TypeORM + pgvector，用于智能路由）
-- **认证**：本地账号使用 JWT + bcrypt；支持 Bearer Key、内置 OAuth 2.0 服务端（`@node-oauth/oauth2-server`），以及可选的 Better Auth（GitHub/Google 一键登录）
+- **认证**：本地账号使用 JWT + bcrypt，并可选用通行密钥（WebAuthn）；支持 Bearer Key、内置 OAuth 2.0 服务端（`@node-oauth/oauth2-server`），以及可选的 Better Auth（GitHub/Google 一键登录）
 - **协议**：Model Context Protocol SDK
 
 ## 🏢 生产支持

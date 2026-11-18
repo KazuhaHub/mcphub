@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   getBearerKeyDao,
+  getOAuthApprovalDao,
   getOAuthClientDao,
   getOAuthTokenDao,
   getSystemConfigDao,
@@ -357,6 +358,8 @@ export const revokeConnectedClient = async (
     );
     if (!owned) return false;
     await revokeUserClientTokens(username, id);
+    // Remembered consent would otherwise let the client back in without the consent screen.
+    await getOAuthApprovalDao().deleteByUserAndClient(username, id);
   } else {
     const dao = getBearerKeyDao();
     const key = await dao.findById(id);
@@ -370,6 +373,7 @@ export const revokeConnectedClient = async (
 /** Revoke every OAuth grant and user-level key of `username`. */
 export const revokeAllConnectedClients = async (username: string): Promise<void> => {
   await revokeUserTokens(username);
+  await getOAuthApprovalDao().deleteByUsername(username);
   await getBearerKeyDao().deleteByOwner(username);
   await closeLiveSessions(username);
 };

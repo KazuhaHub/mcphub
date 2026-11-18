@@ -1,4 +1,7 @@
+import { OAuthApproval } from './OAuthApproval.js';
+import { Passkey } from './Passkey.js';
 import { CapabilitySnapshot } from './CapabilitySnapshot.js';
+import { OAuthState } from './OAuthState.js';
 import { CredentialBindingImport } from './CredentialBindingImport.js';
 import { CredentialBinding } from './CredentialBinding.js';
 import { UserServerSelectionRecord } from './UserServerSelectionRecord.js';
@@ -15,9 +18,14 @@ import BearerKey from './BearerKey.js';
 import Activity from './Activity.js';
 import BuiltinPrompt from './BuiltinPrompt.js';
 import BuiltinResource from './BuiltinResource.js';
+import { FileStagingRefEntity } from './FileStagingRef.js';
+import { FileStagingTokenEntity } from './FileStagingToken.js';
 
 // Export all entities
 export default [
+  OAuthApproval,
+  Passkey,
+  OAuthState,
   CapabilitySnapshot,
   CredentialBinding,
   CredentialBindingImport,
@@ -35,10 +43,15 @@ export default [
   Activity,
   BuiltinPrompt,
   BuiltinResource,
+  FileStagingRefEntity,
+  FileStagingTokenEntity,
 ];
 
 // Export individual entities for direct use
 export {
+  OAuthApproval,
+  Passkey,
+  OAuthState,
   CapabilitySnapshot,
   CredentialBinding,
   CredentialBindingImport,
@@ -56,4 +69,6 @@ export {
   Activity,
   BuiltinPrompt,
   BuiltinResource,
+  FileStagingRefEntity,
+  FileStagingTokenEntity,
 };

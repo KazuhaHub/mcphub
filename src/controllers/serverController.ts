@@ -1,8 +1,16 @@
-import { hasCredentialTemplate, hasPersonalAuthentication } from '../utils/credentialTemplate.js';
 import { notifyWorkspaceUser } from '../services/userServerStatusService.js';
 import { getT } from '../utils/i18n.js';
+import { validateToolPolicies } from '../utils/toolPolicy.js';
+import {
+  assertStagingConfigConsistent,
+  normalizeFileStagingSettings,
+  normalizeServerStaging,
+  normalizeToolFileStaging,
+  resolveFileStagingSettings,
+} from '../utils/fileStagingConfig.js';
+import { hasCredentialTemplate, hasPersonalAuthentication } from '../utils/credentialTemplate.js';
 import { matchesNamePattern } from '../utils/namePattern.js';
-import { validateAllowedCidrs } from '../utils/ssrf.js';
+import { validateAllowedCidrs, validateFakeIpExceptions } from '../utils/ssrf.js';
 import {
   canonicalDestination,
   copyCredentialBindings,
@@ -31,7 +39,6 @@ import {
 } from '../services/serverMaintenanceService.js';
 import { StdioOptionsError } from '../utils/stdioOptions.js';
 import { CredentialBindingError } from '../utils/credentialTemplate.js';
-import { isDeepStrictEqual } from 'node:util';
 import { Request, Response } from 'express';
 import {
   ApiResponse,
@@ -62,6 +69,7 @@ import {
   syncToolEmbedding,
   toggleServerStatus,
   reconnectServer,
+  waitForServerConnect,
   reinstallServer,
   updateServerInfoVisibility,
   updateServerInfoAvailability,
@@ -73,7 +81,7 @@ import {
   syncAllServerToolsEmbeddings,
 } from '../services/vectorSearchService.js';
 import { createSafeJSON } from '../utils/serialization.js';
-import { getNameSeparator } from '../config/index.js';
+import appConfig, { getNameSeparator } from '../config/index.js';
 import { cloneDefaultOAuthServerConfig } from '../constants/oauthServerDefaults.js';
 import {
   ExternalResourceValidationError,
@@ -98,14 +106,18 @@ import {
 } from '../services/serverConfigPresenter.js';
 import { disconnectUpstreamOAuth } from '../services/upstreamOAuthDisconnectService.js';
 import type { UpstreamOAuthDisconnectScope } from '../services/upstreamOAuthDisconnectService.js';
-import { normalizeServerConfigForPersistence } from '../utils/serverConfigPersistence.js';
+import {
+  normalizeServerConfigForPersistence,
+  normalizeToolConfig,
+} from '../utils/serverConfigPersistence.js';
+import { hasConnectionRelevantChange, type ServerRecord } from '../utils/connectionRelevantConfig.js';
 import {
   isPrivilegedServerConfig,
   ServerConfigValidationError,
 } from '../utils/serverConfigValidation.js';
 import { validateServerName } from '../utils/serverNameValidation.js';
 import { setCachedSystemConfig } from '../utils/systemConfigCache.js';
-import { DEFAULT_INSTALL_BASE_URL, withResolvedInstallBaseUrl } from '../utils/installBaseUrl.js';
+import { getDefaultInstallBaseUrl, withResolvedInstallBaseUrl } from '../utils/installBaseUrl.js';
 import {
   getSmartRoutingConfig,
   parseBooleanEnvVar,
@@ -128,7 +140,7 @@ type DescribableConfig = Record<
   string,
   { enabled: boolean; description?: string; hiddenParams?: string[] }
 >;
-type ServerRecord = ServerConfig & { name: string };
+
 
 type RequestUser = {
   username: string;
@@ -239,6 +251,20 @@ const loadAuthorizedServer = async (
   return server;
 };
 
+// Tool, prompt and resource settings change what is exposed, not how upstream
+// servers connect, so their handlers only broadcast. The unscoped
+// notifyToolChanged() would re-initialize every enabled server that is not
+// connected and re-spawn its stdio process. See #938 and #1426.
+const broadcastPromptSettingsChanged = (): void => {
+  broadcastToolListChanged();
+  broadcastPromptListChanged();
+};
+
+const broadcastResourceSettingsChanged = (): void => {
+  broadcastToolListChanged();
+  broadcastResourceListChanged();
+};
+
 const ensureNonAdminCanManageConfig = (
   req: Request,
   res: Response,
@@ -252,8 +278,9 @@ const ensureNonAdminCanManageConfig = (
   if (isPrivilegedServerConfig(config)) {
     res.status(403).json({
       success: false,
-      message:
-        config.oauth?.allowInsecureTokenEndpoint === true
+      message: config.oauth?.authorizationRelay
+        ? 'Only admins can create or modify servers using an OAuth authorization relay'
+        : config.oauth?.allowInsecureTokenEndpoint === true
           ? 'Only admins can create or modify servers allowing HTTP OAuth token endpoints'
           : config.passthroughHeaders?.length || config.openapi?.passthroughHeaders?.length
             ? 'Only admins can create or modify servers forwarding caller headers'
@@ -365,103 +392,7 @@ const clearDescriptionOverride = (
   return nextItems;
 };
 
-const stripUndefinedDeep = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.map((item) => stripUndefinedDeep(item));
-  }
 
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, nestedValue]) => nestedValue !== undefined)
-        .map(([key, nestedValue]) => [key, stripUndefinedDeep(nestedValue)]),
-    );
-  }
-
-  return value;
-};
-
-// Fields baked into the live MCP client/transport at connect time. Editing any
-// of these requires tearing down and re-establishing the runtime. Everything
-// else in ServerConfig (description, manageUrl, owner, visibility, sharedWithUsers,
-// `enabled`, and the tools/prompts/resources per-item overrides) is read-time
-// or access metadata that can be applied without a reconnect.
-const CONNECTION_RELEVANT_CONFIG_FIELDS = [
-  'type',
-  'url',
-  'command',
-  'args',
-  'env',
-  'headers',
-  'passthroughHeaders',
-  'options',
-  'oauth',
-  'openapi',
-  'perSessionClient',
-  'credentialTemplate',
-  'startOnDemand',
-  'idleTimeoutMs',
-  'enableKeepAlive',
-  'protocolNegotiation',
-  'keepAliveInterval',
-  'proxy',
-] as const;
-
-type ConnectionRelevantServerConfig = Pick<
-  ServerConfig,
-  (typeof CONNECTION_RELEVANT_CONFIG_FIELDS)[number]
->;
-
-const toConnectionRelevantConfig = (
-  config: ServerConfig | ServerRecord,
-): ConnectionRelevantServerConfig => {
-  // Only incoming values are validated: a stored pause list or maintenance window does not
-  // take part in the comparison and must never make an unrelated edit fail.
-  const {
-    pausedUsers: _pausedUsers,
-    maintenance: _maintenance,
-    maxToolRisk: _maxToolRisk,
-    toolRiskOverrides: _toolRiskOverrides,
-    defaultUserRisk: _defaultUserRisk,
-    credentialWriteClients: _credentialWriteClients,
-    ...withoutRuntimeState
-  } = config;
-  const normalized = normalizeServerConfigForPersistence(withoutRuntimeState) as Record<
-    string,
-    unknown
-  >;
-  const picked: Record<string, unknown> = {};
-  for (const field of CONNECTION_RELEVANT_CONFIG_FIELDS) {
-    // Database mode reads unset columns (e.g. `proxy`) back as null, while a
-    // request leaves them out; both mean "not set".
-    picked[field] = normalized[field] ?? undefined;
-  }
-  const comparable = stripUndefinedDeep(picked) as Record<string, unknown>;
-  // Treat the default request timeout (60000, the dashboard form default) as
-  // equivalent to "not set": an explicit 60000 stored via API/file import and an
-  // absent timeout resolve to the same effective connect timeout. Without this, a
-  // stored explicit 60000 (or the dashboard echoing 60000 back) would look like a
-  // connection change on unrelated edits and reload the runtime for nothing.
-  const options = comparable.options as { timeout?: number } | undefined;
-  if (options && options.timeout === 60000) {
-    delete options.timeout;
-    if (Object.keys(options).length === 0) {
-      delete comparable.options;
-    }
-  }
-  return comparable as ConnectionRelevantServerConfig;
-};
-
-// True when an edit touches at least one field the live connection depends on,
-// i.e. the runtime must be torn down and reconnected.
-const hasConnectionRelevantChange = (
-  existingServer: ServerRecord,
-  nextConfig: ServerConfig,
-): boolean =>
-  !isDeepStrictEqual(
-    toConnectionRelevantConfig(existingServer),
-    toConnectionRelevantConfig(nextConfig),
-  );
 
 export const getAllServers = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -565,7 +496,11 @@ export const getServerShareCandidates = async (req: Request, res: Response): Pro
       .filter((username) => username !== effectiveOwner)
       .sort((left, right) => left.localeCompare(right));
 
-    res.json({ success: true, data: usernames });
+    res.json({
+      success: true,
+      data: usernames,
+      userGroups: [...new Set(users.flatMap((user) => user.userGroups ?? []))].sort(),
+    });
   } catch (error) {
     logger.error('Failed to get server share candidates:', error);
     res.status(500).json({
@@ -674,7 +609,10 @@ export const getAllSettings = async (req: Request, res: Response): Promise<void>
             }
           : {}),
       },
-      DEFAULT_INSTALL_BASE_URL,
+      getDefaultInstallBaseUrl({
+        requestOrigin: req.get?.('host') ? `${req.protocol}://${req.get('host')}` : undefined,
+        basePath: appConfig.basePath,
+      }),
     );
 
     const settings: McpSettings = {
@@ -1084,8 +1022,9 @@ export const batchCreateServers = async (req: Request, res: Response): Promise<v
           results.push({
             name: serverName,
             success: false,
-            message:
-              normalizedConfig.oauth?.allowInsecureTokenEndpoint === true
+            message: normalizedConfig.oauth?.authorizationRelay
+              ? 'Only admins can create or modify servers using an OAuth authorization relay'
+              : normalizedConfig.oauth?.allowInsecureTokenEndpoint === true
                 ? 'Only admins can create or modify servers allowing HTTP OAuth token endpoints'
                 : normalizedConfig.passthroughHeaders?.length ||
                     normalizedConfig.openapi?.passthroughHeaders?.length
@@ -1188,7 +1127,12 @@ export const deleteServer = async (req: Request, res: Response): Promise<void> =
 
     const result = await removeServer(existingServer.name);
     if (result.success) {
-      notifyToolChanged();
+      // removeServer already closed the server and dropped it from serverInfos.
+      // Only broadcast: a full re-init would reconnect every other server that
+      // is not connected (see #938).
+      broadcastToolListChanged();
+      broadcastPromptListChanged();
+      broadcastResourceListChanged();
       res.json({
         success: true,
         message: 'Server removed successfully',
@@ -1379,7 +1323,8 @@ export const updateServer = async (req: Request, res: Response): Promise<void> =
     }
 
     if (
-      ((existingServer.oauth?.allowInsecureTokenEndpoint === true ||
+      ((Boolean(existingServer.oauth?.authorizationRelay) ||
+        existingServer.oauth?.allowInsecureTokenEndpoint === true ||
         Boolean(
           existingServer.passthroughHeaders?.length ||
             existingServer.openapi?.passthroughHeaders?.length,
@@ -1580,6 +1525,7 @@ export const updateServer = async (req: Request, res: Response): Promise<void> =
         finalName,
         normalizedConfig.visibility ?? 'private',
         normalizedConfig.sharedWithUsers,
+        normalizedConfig.sharedWithUserGroups,
       );
       updateServerInfoAvailability(finalName, availabilityAfter);
       updateServerInfoToolRisk(finalName, toolRiskAfter);
@@ -1996,7 +1942,7 @@ export const batchToggleTools = async (req: Request, res: Response): Promise<voi
         return;
       }
       if (liveServer?.config) liveServer.config = { ...liveServer.config, tools };
-      notifyToolChanged();
+      broadcastToolListChanged();
     }
     const data: BatchToggleToolsResponse = { matchedTools, enabled };
     res.json({ success: true, data });
@@ -2054,20 +2000,16 @@ export const toggleTool = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    // For an already-connected server, notifyToolChanged()'s full re-init pass
-    // takes the "already connected" shortcut and preserves the in-memory
-    // serverInfo verbatim (see registerAllTools) instead of applying the
-    // freshly-persisted tools config — so findToolOnServer's enabled check
-    // would keep seeing the pre-toggle state until the server reconnects for
-    // an unrelated reason. Patch the live config in place so the toggle takes
-    // effect immediately, without waiting for (or forcing) a reconnect.
+    // findToolOnServer's enabled check reads the in-memory serverInfo.config,
+    // which nothing reloads from settings while the server stays connected.
+    // Patch the live config in place so the toggle takes effect immediately,
+    // without waiting for (or forcing) a reconnect.
     const liveServer = getServerByName(serverName);
     if (liveServer?.config) {
       liveServer.config = { ...liveServer.config, tools };
     }
 
-    // Notify that tools have changed
-    notifyToolChanged();
+    broadcastToolListChanged();
 
     res.json({
       success: true,
@@ -2078,6 +2020,245 @@ export const toggleTool = async (req: Request, res: Response): Promise<void> => 
       success: false,
       message: 'Internal server error',
     });
+  }
+};
+
+/**
+ * Per-tool file staging opt-in (#1056, design §9.5, R13).
+ *
+ * PATCH /api/servers/:name/file-staging with
+ * `{ tool, enabled, inputParams?, outputParams? }`.
+ *
+ * Owner-or-admin, the same permission `toggleTool` uses. Omitted parameter
+ * lists keep their stored value, so disabling a tool (or re-enabling it) never
+ * loses the declaration. The updated config is validated as a whole so an
+ * enabled tool still requires `staging.adapter` (and a stdio server).
+ */
+
+/**
+ * A staging edit is only live once the child has been rebuilt in the new cwd.
+ * `initializeClientsFromSettings` publishes the entry and fires the handshake,
+ * so a resolved reconnect is not proof of success: wait (bounded) for the
+ * connect to settle, then report only a failure this restart produced. An
+ * on-demand server spawns on the next call, so there is nothing to wait for.
+ */
+const restartFailureOf = async (serverName: string, errorBefore: string | null): Promise<boolean> => {
+  const runtime = getServerByName(serverName);
+  if (!runtime || runtime.config?.startOnDemand === true) return false;
+  if (runtime.enabled === false) return false;
+  await waitForServerConnect(serverName);
+  const after = getServerByName(serverName);
+  if (!after || after.enabled === false) return false;
+  return after.status === 'disconnected' && Boolean(after.error) && after.error !== errorBefore;
+};
+
+/**
+ * Per-tool file staging opt-in (#1056, design §9.5, R13).
+ *
+ * PATCH /api/servers/:name/file-staging with
+ * `{ tool, enabled, inputParams?, outputParams? }`.
+ *
+ * Owner-or-admin, the same permission `toggleTool` uses. Omitted parameter
+ * lists keep their stored value, so disabling a tool (or re-enabling it) never
+ * loses the declaration. The updated config is validated as a whole so an
+ * enabled tool still requires `staging.adapter` (and a stdio server).
+ */
+export const updateToolFileStaging = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const serverName = decodeURIComponent(req.params.name);
+    const {
+      tool,
+      enabled,
+      inputParams,
+      outputParams,
+    } = (req.body ?? {}) as {
+      tool?: unknown;
+      enabled?: unknown;
+      inputParams?: unknown;
+      outputParams?: unknown;
+    };
+
+    if (typeof tool !== 'string' || tool.trim().length === 0) {
+      res.status(400).json({ success: false, message: 'Tool name is required' });
+      return;
+    }
+    if (['__proto__', 'constructor', 'prototype'].includes(tool)) {
+      res.status(400).json({ success: false, message: 'Invalid tool name' });
+      return;
+    }
+    if (typeof enabled !== 'boolean') {
+      res.status(400).json({ success: false, message: 'Enabled status must be a boolean' });
+      return;
+    }
+    if (inputParams !== undefined && !Array.isArray(inputParams)) {
+      res
+        .status(400)
+        .json({ success: false, message: 'inputParams must be an array of parameter names' });
+      return;
+    }
+    if (outputParams !== undefined && !Array.isArray(outputParams)) {
+      res
+        .status(400)
+        .json({ success: false, message: 'outputParams must be an array of parameter names' });
+      return;
+    }
+
+    const server = await loadAuthorizedServer(req, res, serverName);
+    if (!server) return;
+
+    const tools = { ...(server.tools ?? {}) };
+    const configKey = findToolConfigKey(tools, serverName, tool, liveToolNames(serverName));
+    const existing = tools[configKey];
+    const existingFileStaging = existing?.fileStaging;
+    // Only the supplied lists change; a bare enable/disable keeps the stored
+    // declaration (R33: disabling must not drop params).
+    const fileStaging = normalizeToolFileStaging(
+      {
+        enabled,
+        inputParams: inputParams !== undefined ? inputParams : existingFileStaging?.inputParams,
+        outputParams: outputParams !== undefined ? outputParams : existingFileStaging?.outputParams,
+      },
+      configKey,
+    );
+    const nextTools = {
+      ...tools,
+      [configKey]: normalizeToolConfig(configKey, {
+        ...existing,
+        enabled: existing?.enabled ?? true,
+        fileStaging,
+      }),
+    };
+    assertStagingConfigConsistent({ ...server, tools: nextTools });
+
+    if (!(await getServerDao().updateTools(serverName, nextTools))) {
+      res.status(500).json({ success: false, message: 'Failed to save settings' });
+      return;
+    }
+
+    broadcastToolListChanged();
+    const errorBeforeRestart = getServerByName(serverName)?.error ?? null;
+    // `stagedTools` is connection-relevant: the child must be rebuilt into (or
+    // out of) the per-principal staging root now, not on the next restart. The
+    // old child is closed before the live config advertises staging, so no call
+    // can be dispatched to a child that still runs in the hub cwd.
+    try {
+      await reconnectServer(serverName);
+    } catch (error) {
+      logger.error(`[staging] failed to reconnect ${serverName} after a tool change`, error);
+      res.status(500).json({
+        success: false,
+        message: 'Saved, but the server could not be restarted with the new staging setting',
+      });
+      return;
+    }
+    const liveServer = getServerByName(serverName);
+    if (liveServer?.config) {
+      liveServer.config = { ...liveServer.config, tools: nextTools };
+    }
+
+    if (await restartFailureOf(serverName, errorBeforeRestart)) {
+      res.status(500).json({
+        success: false,
+        message: 'Saved, but the server did not start with the new staging setting',
+      });
+      return;
+    }
+
+    res.json({ success: true, data: nextTools[configKey] });
+  } catch (error) {
+    if (error instanceof ServerConfigValidationError) {
+      res.status(400).json({ success: false, message: error.message });
+      return;
+    }
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Server staging declaration (#1056, design §9.5, R13).
+ *
+ * PATCH /api/servers/:name/staging with `{ shared?, adapter? }`. An owner may
+ * declare the adapter on their own private server; changing the `shared` trust
+ * flag is admin-only. Omitted fields keep their stored value.
+ */
+export const updateServerStaging = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const serverName = decodeURIComponent(req.params.name);
+    const body = req.body as unknown;
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      res.status(400).json({ success: false, message: 'Request body must be an object' });
+      return;
+    }
+    const { shared, adapter } = body as Record<string, unknown>;
+    if (shared === undefined && adapter === undefined) {
+      res
+        .status(400)
+        .json({ success: false, message: 'Provide at least one of shared or adapter' });
+      return;
+    }
+    if (shared !== undefined && typeof shared !== 'boolean') {
+      res.status(400).json({ success: false, message: 'shared must be a boolean' });
+      return;
+    }
+
+    const server = await loadAuthorizedServer(req, res, serverName);
+    if (!server) return;
+    // See updateToolFileStaging: only `shared` is a trust change.
+    // `shared` is a trust grant: only an admin may add or remove it. An owner
+    // keeps control of the adapter for their own private server.
+    if (shared !== undefined && getRequestUser(req)?.isAdmin !== true) {
+      res
+        .status(403)
+        .json({ success: false, message: 'Only admins can change shared file staging' });
+      return;
+    }
+
+    const existing = server.staging ?? {};
+    const staging = normalizeServerStaging({
+      shared: shared !== undefined ? shared : existing.shared,
+      adapter: adapter !== undefined ? adapter : existing.adapter,
+    });
+    assertStagingConfigConsistent({ ...server, staging });
+
+    if (!(await getServerDao().update(serverName, { staging }))) {
+      res.status(500).json({ success: false, message: 'Failed to save settings' });
+      return;
+    }
+
+    broadcastToolListChanged();
+    const errorBeforeRestart = getServerByName(serverName)?.error ?? null;
+    // Same ordering as the tool PATCH: the old child must be gone before the
+    // live config says the server is staged.
+    try {
+      await reconnectServer(serverName);
+    } catch (error) {
+      logger.error(`[staging] failed to reconnect ${serverName} after a staging change`, error);
+      res.status(500).json({
+        success: false,
+        message: 'Saved, but the server could not be restarted with the new staging setting',
+      });
+      return;
+    }
+    const liveServer = getServerByName(serverName);
+    if (liveServer?.config) {
+      liveServer.config = { ...liveServer.config, staging };
+    }
+
+    if (await restartFailureOf(serverName, errorBeforeRestart)) {
+      res.status(500).json({
+        success: false,
+        message: 'Saved, but the server did not start with the new staging setting',
+      });
+      return;
+    }
+
+    res.json({ success: true, data: staging ?? null });
+  } catch (error) {
+    if (error instanceof ServerConfigValidationError) {
+      res.status(400).json({ success: false, message: error.message });
+      return;
+    }
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -2142,7 +2323,7 @@ export const updateToolDescription = async (req: Request, res: Response): Promis
     }
 
     // Notify that tools have changed
-    notifyToolChanged();
+    broadcastToolListChanged();
 
     syncToolEmbedding(serverName, toolName);
 
@@ -2243,7 +2424,7 @@ export const updateToolHiddenParams = async (req: Request, res: Response): Promi
       liveServer.config = { ...liveServer.config, tools };
     }
 
-    notifyToolChanged();
+    broadcastToolListChanged();
     syncToolEmbedding(serverName, toolName);
 
     res.json({
@@ -2378,7 +2559,7 @@ export const resetToolDescription = async (req: Request, res: Response): Promise
       return;
     }
 
-    notifyToolChanged();
+    broadcastToolListChanged();
     syncToolEmbedding(serverName, toolName);
 
     const defaultDescription =
@@ -2417,18 +2598,71 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       toolResultCompression,
       mcpRouter,
       nameSeparator,
+      normalizeToolNames,
+      dashboardName,
       enableSessionRebuild,
       oauthServer,
       auth,
       activityLog,
+      fileStaging: requestFileStaging,
       network,
       workspace,
+      toolPolicies,
     } = req.body;
-    const hasNetworkUpdate = network !== undefined;
-    if (hasNetworkUpdate && (!network || !validateAllowedCidrs(network.allowedCidrs))) {
+    if (
+      oauthServer?.approvalLifetime !== undefined &&
+      (!Number.isSafeInteger(oauthServer.approvalLifetime) ||
+        oauthServer.approvalLifetime <= 0 ||
+        oauthServer.approvalLifetime > 31536000)
+    ) {
       res.status(400).json({
         success: false,
-        message: 'network.allowedCidrs must be an array of valid IPv4 or IPv6 CIDRs',
+        message: 'approvalLifetime must be between 1 and 31536000 seconds',
+      });
+      return;
+    }
+    if (toolPolicies !== undefined) {
+      try {
+        validateToolPolicies(toolPolicies);
+      } catch (error) {
+        res.status(400).json({ success: false, message: (error as Error).message });
+        return;
+      }
+    }
+    if (
+      dashboardName !== undefined &&
+      (typeof dashboardName !== 'string' || dashboardName.trim().length > 100)
+    ) {
+      res
+        .status(400)
+        .json({
+          success: false,
+          message: 'dashboardName must be a string of at most 100 characters',
+        });
+      return;
+    }
+    if (
+      routing?.allowAuthorizationPassthrough !== undefined &&
+      typeof routing.allowAuthorizationPassthrough !== 'boolean'
+    ) {
+      res.status(400).json({
+        success: false,
+        message: 'routing.allowAuthorizationPassthrough must be a boolean',
+      });
+      return;
+    }
+    const hasNetworkUpdate = network !== undefined;
+    if (
+      hasNetworkUpdate &&
+      (!network ||
+        (network.allowedCidrs === undefined && network.fakeIpExceptions === undefined) ||
+        (network.allowedCidrs !== undefined && !validateAllowedCidrs(network.allowedCidrs)) ||
+        (network.fakeIpExceptions !== undefined &&
+          !validateFakeIpExceptions(network.fakeIpExceptions)))
+    ) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid network allowedCidrs or fakeIpExceptions',
       });
       return;
     }
@@ -2449,6 +2683,15 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
     }
     const { smartRouting } = migrateLegacySmartRoutingConfig(requestSmartRouting);
 
+    let fileStagingUpdate: ReturnType<typeof normalizeFileStagingSettings>;
+    try {
+      fileStagingUpdate = normalizeFileStagingSettings(requestFileStaging);
+    } catch (error) {
+      res.status(400).json({ success: false, message: (error as Error).message });
+      return;
+    }
+    const hasFileStagingUpdate = fileStagingUpdate !== undefined;
+
     const hasRoutingUpdate =
       routing &&
       (typeof routing.enableGlobalRoute === 'boolean' ||
@@ -2456,6 +2699,7 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
         typeof routing.enableBearerAuth === 'boolean' ||
         typeof routing.bearerAuthKey === 'string' ||
         typeof routing.bearerAuthHeaderName === 'string' ||
+        typeof routing.allowAuthorizationPassthrough === 'boolean' ||
         typeof routing.jsonBodyLimit === 'string' ||
         typeof routing.skipAuth === 'boolean' ||
         typeof routing.allowTokenInQuery === 'boolean');
@@ -2508,6 +2752,11 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
         typeof mcpRouter.referer === 'string' ||
         typeof mcpRouter.title === 'string' ||
         typeof mcpRouter.baseUrl === 'string');
+
+    if (normalizeToolNames !== undefined && typeof normalizeToolNames !== 'boolean') {
+      res.status(400).json({ success: false, message: 'normalizeToolNames must be a boolean' });
+      return;
+    }
 
     const hasNameSeparatorUpdate = typeof nameSeparator === 'string';
 
@@ -2578,7 +2827,9 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
 
     const hasOAuthServerUpdate =
       oauthServer &&
-      (typeof oauthServer.enabled === 'boolean' ||
+      (typeof oauthServer.alwaysShowApprovalScreen === 'boolean' ||
+        typeof oauthServer.approvalLifetime === 'number' ||
+        typeof oauthServer.enabled === 'boolean' ||
         typeof oauthServer.accessTokenLifetime === 'number' ||
         typeof oauthServer.refreshTokenLifetime === 'number' ||
         typeof oauthServer.authorizationCodeLifetime === 'number' ||
@@ -2620,13 +2871,17 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       !hasToolResultCompressionUpdate &&
       !hasMcpRouterUpdate &&
       !hasNameSeparatorUpdate &&
+      normalizeToolNames === undefined &&
+      dashboardName === undefined &&
       !hasSessionRebuildUpdate &&
       !hasOAuthServerUpdate &&
       !hasBetterAuthUpdate &&
       typeof auth?.allowRegistration !== 'boolean' &&
       !hasActivityLogUpdate &&
       !hasWorkspaceUpdate &&
-      !hasNetworkUpdate
+      !hasFileStagingUpdate &&
+      !hasNetworkUpdate &&
+      toolPolicies === undefined
     ) {
       res.status(400).json({
         success: false,
@@ -2654,7 +2909,7 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
         install: {
           pythonIndexUrl: '',
           npmRegistry: '',
-          baseUrl: 'http://localhost:3000',
+          baseUrl: '', // blank = unset, resolved when read
         },
         smartRouting: {
           enabled: false,
@@ -2706,7 +2961,7 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       systemConfig.install = {
         pythonIndexUrl: '',
         npmRegistry: '',
-        baseUrl: 'http://localhost:3000',
+        baseUrl: '', // blank = unset, resolved when read
       };
     }
 
@@ -2793,6 +3048,10 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
 
       if (typeof routing.bearerAuthHeaderName === 'string') {
         systemConfig.routing.bearerAuthHeaderName = routing.bearerAuthHeaderName.trim();
+      }
+
+      if (typeof routing.allowAuthorizationPassthrough === 'boolean') {
+        systemConfig.routing.allowAuthorizationPassthrough = routing.allowAuthorizationPassthrough;
       }
 
       if (typeof routing.jsonBodyLimit === 'string') {
@@ -3117,6 +3376,12 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
 
     if (oauthServer) {
       const target = systemConfig.oauthServer;
+      if (typeof oauthServer.alwaysShowApprovalScreen === 'boolean') {
+        target.alwaysShowApprovalScreen = oauthServer.alwaysShowApprovalScreen;
+      }
+      if (typeof oauthServer.approvalLifetime === 'number') {
+        target.approvalLifetime = oauthServer.approvalLifetime;
+      }
       if (typeof oauthServer.enabled === 'boolean') {
         target.enabled = oauthServer.enabled;
       }
@@ -3284,6 +3549,14 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       }
     }
 
+    if (typeof dashboardName === 'string') {
+      systemConfig.dashboardName = dashboardName.trim();
+    }
+
+    if (typeof normalizeToolNames === 'boolean') {
+      systemConfig.normalizeToolNames = normalizeToolNames;
+    }
+
     if (typeof nameSeparator === 'string') {
       systemConfig.nameSeparator = nameSeparator;
     }
@@ -3335,9 +3608,26 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       systemConfig.workspace.enabledAt = new Date().toISOString();
     }
 
-    if (hasNetworkUpdate) {
-      systemConfig.network = { allowedCidrs: [...new Set<string>(network.allowedCidrs)] };
+    if (fileStagingUpdate) {
+      systemConfig.fileStaging = {
+        ...resolveFileStagingSettings(systemConfig.fileStaging),
+        ...fileStagingUpdate,
+      };
     }
+
+    if (hasNetworkUpdate) {
+      systemConfig.network = {
+        ...systemConfig.network,
+        ...(network.allowedCidrs !== undefined
+          ? { allowedCidrs: [...new Set<string>(network.allowedCidrs)] }
+          : {}),
+        ...(network.fakeIpExceptions !== undefined
+          ? { fakeIpExceptions: network.fakeIpExceptions }
+          : {}),
+      };
+    }
+
+    if (toolPolicies !== undefined) systemConfig.toolPolicies = toolPolicies;
 
     // Save using DAO (supports both file and database modes)
     try {
@@ -3431,8 +3721,8 @@ export const togglePrompt = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Notify that tools have changed (as prompts are part of the tool listing)
-    notifyToolChanged();
+    // Notify that prompts have changed
+    broadcastPromptSettingsChanged();
 
     res.json({
       success: true,
@@ -3501,8 +3791,8 @@ export const updatePromptDescription = async (req: Request, res: Response): Prom
       return;
     }
 
-    // Notify that tools have changed (as prompts are part of the tool listing)
-    notifyToolChanged();
+    // Notify that prompts have changed
+    broadcastPromptSettingsChanged();
 
     res.json({
       success: true,
@@ -3551,7 +3841,7 @@ export const resetPromptDescription = async (req: Request, res: Response): Promi
       return;
     }
 
-    notifyToolChanged();
+    broadcastPromptSettingsChanged();
 
     const defaultDescription =
       getServerByName(serverName)?.prompts.find((prompt) => prompt.name === promptName)
@@ -3625,7 +3915,7 @@ export const toggleResource = async (req: Request, res: Response): Promise<void>
     }
 
     // Notify that tools/resources metadata has changed
-    notifyToolChanged();
+    broadcastResourceSettingsChanged();
 
     res.json({
       success: true,
@@ -3695,7 +3985,7 @@ export const updateResourceDescription = async (req: Request, res: Response): Pr
     }
 
     // Notify that tools/resources metadata has changed
-    notifyToolChanged();
+    broadcastResourceSettingsChanged();
 
     res.json({
       success: true,
@@ -3744,7 +4034,7 @@ export const resetResourceDescription = async (req: Request, res: Response): Pro
       return;
     }
 
-    notifyToolChanged();
+    broadcastResourceSettingsChanged();
 
     const defaultDescription =
       getServerByName(serverName)?.resources.find((resource) => resource.uri === resourceUri)

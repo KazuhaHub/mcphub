@@ -1,3 +1,5 @@
+import { validateAuthorizationRelay } from '../utils/oauthServerMetadata.js';
+import { withReplicaLock } from './replicaLock.js';
 import { expandServerConfig } from './serverConfigEnvironment.js';
 import type { FetchLike } from '../utils/ssrf.js';
 import { getCredentialBindingDao, getServerDao, getUserDao } from '../dao/DaoFactory.js';
@@ -36,10 +38,15 @@ export const withPersonalOAuthLock = <T>(
   serverName: string,
   username: string,
   action: () => Promise<T>,
-): Promise<T> => serialize(JSON.stringify([serverName, username]), action);
+): Promise<T> => withReplicaLock(JSON.stringify(['oauth', serverName, username]), () =>
+  serialize(JSON.stringify([serverName, username]), action));
+
+// A missing credential to the workspace status (it is not a runtime failure), and recognisable
+// on its own where a request must report that personal authorization is still needed.
+export class PersonalAuthorizationRequiredError extends MissingCredentialError {}
 
 export const personalAuthorizationRequired = (name: string) =>
-  new MissingCredentialError(
+  new PersonalAuthorizationRequiredError(
     isWorkspaceEnabled()
       ? `Personal authorization required for '${name}'. Connect it from your workspace.`
       : `Personal authorization required for '${name}'. Connect in Dashboard → Servers.`,
@@ -69,7 +76,11 @@ const declarationOAuth = (oauth?: OAuth): OAuth => {
 // normalizes the OAuth object (#1362).
 const fingerprint = (expanded: ServerConfig): string =>
   // URL-only MCP declarations use SSE; dashboard saves make that default explicit.
-  canonicalJson([expanded.type ?? 'sse', expanded.url, declarationOAuth(expanded.oauth)]);
+  canonicalJson([
+    expanded.type ?? 'sse',
+    expanded.type === 'openapi' ? [expanded.openapi?.url, expanded.openapi?.schema] : expanded.url,
+    declarationOAuth(expanded.oauth),
+  ]);
 // Bindings persisted before #1362 stored the whole declaration:
 // JSON.stringify([declaration, expanded.url, expanded.oauth]). Normalize such a stored
 // value to the current destination-only format so an upgrade does not orphan every
@@ -141,6 +152,7 @@ export class PersonalOAuthContext {
       context.revision = binding.encryptedValues;
       context.disconnected = Object.keys(values).length === 0;
     }
+    validateAuthorizationRelay(context.config.oauth);
     personalOAuthContexts.set(context.config, context);
     return context;
   }
@@ -325,11 +337,22 @@ export class PersonalOAuthContext {
     pending: Partial<NonNullable<OAuth['pendingAuthorization']>>,
   ) {
     return this.mutate(({ oauth }) => {
+      const existing = oauth.pendingAuthorization;
+      // Mirror oauthSettingsStore.updatePendingAuthorization: the verifier is
+      // bound to its state (drop a stale verifier on state change) and the
+      // flow TTL only refreshes when the state actually changes.
+      const stateChanged =
+        pending.state !== undefined && pending.state !== existing?.state;
       oauth.pendingAuthorization = {
-        ...oauth.pendingAuthorization,
+        ...existing,
         ...pending,
-        createdAt: pending.createdAt ?? Date.now(),
+        codeVerifier: pending.codeVerifier ?? (stateChanged ? undefined : existing?.codeVerifier),
+        createdAt:
+          pending.createdAt ?? (stateChanged || !existing?.createdAt ? Date.now() : existing.createdAt),
       };
+      if (oauth.pendingAuthorization.codeVerifier === undefined) {
+        delete oauth.pendingAuthorization.codeVerifier;
+      }
     });
   }
   clearOAuthData(_name: string, scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') {

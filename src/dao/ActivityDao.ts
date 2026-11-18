@@ -51,6 +51,7 @@ export class ActivityDaoDbImpl implements ActivityDao {
 
   async create(activity: Omit<IActivity, 'id'>): Promise<IActivity> {
     const created = await this.repository.create({
+      policy: activity.policy,
       timestamp: activity.timestamp,
       server: activity.server,
       tool: activity.tool,
@@ -135,6 +136,7 @@ export class ActivityDaoDbImpl implements ActivityDao {
 
   private mapToActivity(entity: any): IActivity {
     return {
+      policy: entity.policy,
       id: entity.id,
       timestamp: entity.timestamp,
       server: entity.server,

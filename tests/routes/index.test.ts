@@ -18,6 +18,8 @@ jest.mock('../../src/controllers/serverController.js', () => ({
   updateServer: routeHandler,
   deleteServer: routeHandler,
   toggleServer: routeHandler,
+  updateToolFileStaging: routeHandler,
+  updateServerStaging: routeHandler,
   reloadServer: routeHandler,
   reinstallServerHandler: routeHandler,
   disconnectServerOAuth: routeHandler,
@@ -144,6 +146,8 @@ jest.mock('../../src/controllers/metricsController.js', () => ({ metrics: routeH
 
 jest.mock('../../src/controllers/healthController.js', () => ({
   healthCheck: routeHandler,
+  livenessCheck: routeHandler,
+  readinessCheck: routeHandler,
 }));
 
 jest.mock('../../src/controllers/betterAuthController.js', () => ({

@@ -54,6 +54,7 @@ export class OAuthTokenDaoDbImpl implements OAuthTokenDao {
       resource: entity.resource,
       grantCreatedAt: entity.grantCreatedAt ? new Date(entity.grantCreatedAt) : undefined,
       lastUsedAt: entity.lastUsedAt ? new Date(entity.lastUsedAt) : undefined,
+      approvalId: entity.approvalId,
     });
     return this.mapToOAuthToken(token);
   }
@@ -132,6 +133,7 @@ export class OAuthTokenDaoDbImpl implements OAuthTokenDao {
     resource?: string | null;
     grantCreatedAt?: Date | null;
     lastUsedAt?: Date | null;
+    approvalId?: string;
   }): IOAuthToken {
     return {
       accessToken: token.accessToken,
@@ -147,6 +149,7 @@ export class OAuthTokenDaoDbImpl implements OAuthTokenDao {
         ? new Date(token.grantCreatedAt).toISOString()
         : undefined,
       lastUsedAt: token.lastUsedAt ? new Date(token.lastUsedAt).toISOString() : undefined,
+      approvalId: token.approvalId,
     };
   }
 }

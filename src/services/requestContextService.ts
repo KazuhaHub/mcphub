@@ -25,6 +25,8 @@ export interface RequestContext {
   keyKind?: BearerKeyKind;
   /** The OAuth grant or user-level key that authenticated the request, for activity history. */
   credential?: SessionCredential;
+  /** Server names hidden from a system bearer key with accessType 'exclude'. */
+  excludedServers?: string[];
   hostedAuth?: HostedAuthContext;
 }
 
@@ -229,6 +231,23 @@ export class RequestContextService {
     if (requestContext) {
       requestContext.keyKind = keyKind;
     }
+  }
+
+  /**
+   * Set the upstream servers hidden by an 'exclude'-scoped bearer key.
+   */
+  public setBearerKeyExclusions(excludedServers?: string[]): void {
+    const requestContext = this.getRequestContext();
+    if (requestContext) {
+      requestContext.excludedServers = excludedServers;
+    }
+  }
+
+  /**
+   * Get the upstream servers hidden by the current bearer key, if any.
+   */
+  public getBearerKeyExclusions(): string[] | undefined {
+    return this.getRequestContext()?.excludedServers;
   }
 
   /**

@@ -34,7 +34,9 @@ Each server has a `visibility` setting (`private` / `group` / `public`) that con
 
 - `'private'` (default): only the server's `owner` (and admins) can see it. Servers seeded from `mcp_settings.json` migrate in with `'private'` to preserve the historical admin-only behaviour.
 - `'public'`: every authenticated user can see and call the server. Use this for servers you want to share across all users of the same MCPHub instance — including social-login users created by Better Auth.
-- `'group'`: the owner and usernames listed in the server's `sharedWithUsers` array can see and call it. Sharing grants runtime access only; selected users cannot edit or delete the server.
+- `'group'`: the owner, usernames listed in `sharedWithUsers`, and members of groups listed in `sharedWithUserGroups` can see and call it. Sharing grants runtime access only; selected users cannot edit or delete the server.
+
+Administrators assign user groups in **Users → Edit → User groups**, using comma-separated, case-sensitive names. The same name on multiple users identifies one user group; clearing a user's list removes all memberships. These user groups are independent of server Groups. Server owners select existing user groups in the server sharing controls; group-route sharing offers the same selection. For example, a user with `userGroups: ["readers"]` can use a server with `visibility: "group"` and `sharedWithUserGroups: ["readers"]`. Membership changes apply on the next authenticated request, including existing user-key and OAuth sessions. Sharing a group route does not grant access to its underlying servers: configure both as needed. Sharing grants usage, not configuration management, and tool policies can further restrict it.
 
 The visibility is editable per server from the dashboard (Server form → Advanced Options → Visibility). Edit an existing server to select local usernames for `'group'` sharing. For deployments where every user should see every server (single-user self-hosted, small trusted team), an operator can set the relevant servers to `'public'` from the dashboard.
 
@@ -57,9 +59,9 @@ curl http://localhost:3000/api/servers \
 
 The JWT is signed with `JWT_SECRET`. If `JWT_SECRET` is not set, MCPHub generates an ephemeral random secret at startup; this is fine for development but means every restart invalidates outstanding tokens. **Set `JWT_SECRET` explicitly in production.**
 
-Issued JWTs expire after a fixed 24 hours (`TOKEN_EXPIRY` in `src/controllers/authController.ts`); the lifetime is not configurable via environment variables.
+Issued JWTs expire after a fixed 24 hours (`DASHBOARD_TOKEN_EXPIRY` in `src/utils/userSession.ts`); the lifetime is not configurable via environment variables.
 
-JWTs and MCPHub OAuth grants are bound to the user's current password hash. Deleting the local user or changing their password invalidates those credentials; recreating the same username does not restore them. JWT authorization reads the user's current administrator status. User deletion also removes OAuth tokens, pending authorization codes on the handling instance, and entries in server/group sharing lists.
+JWTs, [passkeys](#passkeys) and MCPHub OAuth grants are bound to the user's current password hash. Deleting the local user or changing their password invalidates those credentials; recreating the same username does not restore them. JWT authorization reads the user's current administrator status. User deletion also removes OAuth tokens, pending authorization codes on the handling instance, and entries in server/group sharing lists.
 
 Upgrading from credentials without a session version requires signing in again and reconnecting OAuth clients. Database deployments add a nullable `session_version` column to `oauth_tokens` through the normal startup schema synchronization. Restart every replica when upgrading.
 
@@ -67,10 +69,24 @@ Upgrading from credentials without a session version requires signing in again a
 
 The first admin account is created at startup by `initializeDefaultUser()`. If no users exist, MCPHub creates `admin` and uses `ADMIN_PASSWORD` if set. When running through `pnpm dev`, it uses `admin123`; other starts generate a random password and print it to the server logs.
 
+## Passkeys
+
+Local accounts can sign in with a passkey (WebAuthn) instead of a password. A passkey is a discoverable credential held by the user's device, password manager, or security key, so the login page asks for no username: select **Sign in with a passkey** and confirm with the device's fingerprint, face, screen lock, or PIN.
+
+To add one, open the user menu → **Passkeys** → **Add passkey**, enter an optional name and the current password, then follow the browser prompt. The password confirms the session owner before a long-lived credential is added. The page lists each passkey with when it was added and last used and whether it is synced, and removes any of them after confirmation. An account can hold up to 20 passkeys.
+
+- **Secure context:** browsers offer passkeys only on HTTPS pages or on `localhost`, and only for a domain name, not an IP address.
+- **Bound to the host name:** a passkey belongs to the host name the dashboard was opened with when it was created (the WebAuthn relying-party ID). MCPHub takes it from the browser's `Origin`, stores it with the passkey, and accepts the passkey only under that host. Opening the dashboard under another host name requires a separate passkey there. Behind a reverse proxy, pass the original `Origin` (or `Host` and protocol) through to MCPHub.
+- **Session:** passkey sign-in issues the same 24-hour JWT as password login and requires user verification on the authenticator. Each challenge expires after five minutes and is accepted once; in [replica mode](/configuration/replicas) the spent challenge is recorded in the shared `oauth_state` table, so this holds across replicas. Signature counters reject a cloned authenticator that reports them: the stored counter only moves forward, also when sign-ins race, while authenticators that always report 0 (most synced passkeys) keep working. Challenges are signed with `JWT_SECRET`, so the two requests of a sign-in may reach different replicas.
+- **Policy:** passkeys are a local-account credential, so [SSO-only sign-in](#sso-only-sign-in) refuses passkey sign-in and registration as well; stored passkeys work again when password login is re-enabled. Bearer keys, forward-auth identities, and skip-auth mode cannot register passkeys, and users created by SSO keep signing in through their provider because they have no known local password.
+- **Lifecycle:** like JWTs and OAuth grants, passkeys are bound to the account's current password. Changing or resetting the password, or deleting and recreating the user, revokes them, and the user adds them again afterwards. Remove the passkey of a lost device from the Passkeys page; after an account compromise, reset the password to revoke every passkey.
+- **Storage:** file mode keeps passkeys in `<settings file>.passkeys.json` with owner-only permissions, outside `mcp_settings.json` and configuration exports. Database mode uses the `user_passkeys` table; with `DB_SYNCHRONIZE=false`, apply `docs/migrations/0008-passkeys.sql` before upgrading. Migrating from file to database mode copies passkeys with their users.
+- **Rate limits:** issuing sign-in challenges is capped by `PASSKEY_RATE_LIMIT_MAX` per `PASSKEY_RATE_LIMIT_WINDOW_MS` (default 100 per 15 minutes). Failed passkey sign-ins and failed password confirmations count against the login limiter (`AUTH_RATE_LIMIT_MAX`).
+
 ## Bearer keys
 
 Bearer keys are long-lived static tokens managed at `/api/auth/keys`. Tokens are generated by the
-backend and returned in plaintext only once, in the create response. MCPHub stores only a SHA-256
+backend and returned in plaintext only once, in the create or reset response. MCPHub stores only a SHA-256
 hash of the token and an 8-character display prefix (`tokenPrefix`); later list and update responses
 contain the prefix, never the token or the hash. Keys written by older versions in plaintext are
 hashed in place at startup, and their existing tokens keep working. A settings export contains
@@ -96,7 +112,7 @@ source and MCPHub does not rewrite it: if it still lists plaintext `bearerKeys[]
 | `tokenPrefix` | The first characters of the token, for telling keys apart. Not a secret. |
 | `kind` | `system` for operator-managed scoped keys, or `user` for keys that inherit an owner's visibility. |
 | `owner` | Required for user-level keys. |
-| `accessType` | `all` (dashboard + MCP), or a scoped value enforced inside `sseService.ts` for MCP-only access. |
+| `accessType` | `all` (dashboard + MCP for system keys; MCP only for personal keys), or a scoped value enforced inside `sseService.ts` for MCP-only access. Scoped values are `groups`, `servers`, `custom`, and `exclude` (all resources except `excludedGroups` / `excludedServers`). |
 | `enabled` | Disabled keys are ignored without being deleted. |
 
 Admins can create and manage all keys. Regular users can create, rename, enable, disable and delete
@@ -106,9 +122,21 @@ group/server endpoint, MCPHub resolves the current owner record and applies that
 visibility. The optional `/:user/mcp/...` routes remain supported, but the URL username must match the
 key owner.
 
+Personal keys support `accessType: 'all'` (the default, retaining the owner's permissions) or `accessType: 'groups'` with a non-empty `allowedGroups` array. Select the scope when creating or editing a key in Settings. The API accepts existing group names or IDs and saves group IDs. A restricted key can use only `/mcp/{allowed-group}` and `/mcp/$smart/{allowed-group}` (and equivalent SSE/user-scoped routes). Global `/mcp`, global `$smart`, direct-server routes, and other groups are denied, even when the target server belongs to an allowed group. This preserves group capability selections. Multiple allowed groups are accessed through their individual endpoints, without an aggregate global catalog.
+
+The key scope always intersects with the owner's current group/server visibility and group capability selections; it never grants additional permissions. An administrator-owned personal key still obeys its group scope. Group deletion or an empty persisted allow list denies access rather than restoring unrestricted access. Existing keys without a group restriction retain their behavior. Recognized personal keys still enforce their identity and scope when `enableBearerAuth` is `false`; anonymous requests remain governed by that deployment setting.
+
 System-level keys preserve the original scoped-key behavior. Only system-level keys with
 `accessType === 'all'` are accepted by the dashboard / management API middleware. Restricted
 system-level keys are enforced at the MCP transport layer.
+
+`accessType: 'exclude'` is the inverse of an allow list: the key can use the global `/mcp` and
+`/mcp/$smart` endpoints, but servers named in `excludedServers` and every member of a group named
+in `excludedGroups` disappear from listings, smart routing, and tool/prompt/resource calls. A
+group route whose members are all excluded is rejected, and a server that belongs to both an
+excluded and a non-excluded group stays excluded. Exclusions fail safe when a name goes stale: a
+leftover entry only denies something that no longer exists. The scope requires at least one
+excluded group or server and is available only to system-level keys.
 
 The header name can be customized via `systemConfig.routing.bearerAuthHeaderName` (default `Authorization`). The legacy `systemConfig.routing.bearerAuthKey` field is preserved only for one-time migration into the bearer key store.
 
@@ -143,6 +171,10 @@ When `systemConfig.oauthServer.enabled` is `true`, MCPHub exposes an OAuth 2.0 /
 OAuth access tokens issued here authenticate MCP transport requests and `/oauth/userinfo`. They are not dashboard API credentials and are rejected on `/api/*`; use a dashboard JWT, Better Auth session, configured forward auth, or a system all-access bearer key for management.
 
 ## Better Auth (GitHub / Google / local OIDC)
+
+<Warning>
+  **Upgrading from MCPHub v1.1.14 or earlier:** Better Auth 1.7 uses `/sign-in/social` for generic OIDC login and changes the provider callback from `/oauth2/callback/<providerId>` to `/callback/<providerId>`. Add the new exact redirect URI to your identity provider before upgrading: `<public MCPHub URL><Better Auth basePath>/callback/<providerId>`. With the default mount and provider ID, this is `https://mcphub.example.com/api/auth/better/callback/oidc`. Include any installation `BASE_PATH` and custom `BETTER_AUTH_BASE_PATH`. Keep the old URI allowed while older instances remain in service. This is the identity provider callback, not the dashboard destination after login.
+</Warning>
 
 Better Auth is optional and initialized once at process startup. That means any change to either `BETTER_AUTH_*` environment variables or stored `systemConfig.auth.betterAuth` values still requires a restart.
 
@@ -198,6 +230,7 @@ To allow sign-in only through the SSO providers, turn on **Disable password logi
 - **Recovery:** `BETTER_AUTH_DISABLE_PASSWORD_LOGIN` overrides the stored setting in both directions. If the identity provider is unavailable, set it to `false` and restart to sign in with a local password again. Keep a strong password on the local admin for that case.
 - **Scripts and the CLI** cannot use the password login while it is disabled. Use a system-level bearer key with access type `all`, which authenticates the management API (`mcphub config set-token <key> --bearer` for the CLI).
 - Tokens issued by earlier password logins stay valid until they expire. Changing a local password still works, so the recovery password can be rotated.
+- [Passkeys](#passkeys) are refused too while password login is disabled, because they sign in to local accounts.
 
 ## Forward auth (JWKS-verified gateway identity)
 
@@ -224,6 +257,23 @@ When MCPHub runs behind an API gateway or identity-aware proxy that already auth
 ```
 
 The JWT is read from the configured bearer header (`Authorization: Bearer <jwt>` by default).
+
+Some gateways send the JWT in a header of their own without a `Bearer` prefix; Cloudflare Access, for example, adds `Cf-Access-Jwt-Assertion` to every request it admits. Set `jwks.tokenHeader` to that header name to read the token from it, sent either raw or as `Bearer <jwt>`. Once a token header is set, forward auth reads only that header, while the bearer header keeps working for bearer keys and OAuth tokens. MCPHub never forwards the token header to upstream servers, even when it is listed in `passthroughHeaders`. An invalid header name disables forward auth.
+
+```json
+"forwardAuth": {
+  "enabled": true,
+  "mode": "jwks",
+  "jwks": {
+    "uri": "https://<team>.cloudflareaccess.com/cdn-cgi/access/certs",
+    "issuer": "https://<team>.cloudflareaccess.com",
+    "audience": "<Access application AUD tag>",
+    "tokenHeader": "Cf-Access-Jwt-Assertion"
+  },
+  "usernameClaim": "email",
+  "emailClaim": "email"
+}
+```
 
 **Verification**
 

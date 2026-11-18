@@ -5,7 +5,7 @@ Read this guide when changing runtime wiring, MCP connections, HTTP routing, aut
 ## Runtime map
 
 - `src/index.ts` starts the process and `src/server.ts` owns `AppServer` initialization, route registration, and shutdown.
-- `src/services/mcpService.ts` owns the lifecycle of upstream MCP clients.
+- `src/services/mcpService.ts` wires upstream clients and MCP request handlers. `mcpConnectionLifecycle.ts` manages runtime shutdown and on-demand wake/idle transitions; `mcpStdioLifecycle.ts` owns process-tree termination and draining. `mcpTools.ts`, `mcpPrompts.ts`, and `mcpResources.ts` handle tool, prompt, and resource requests. Authorization wrappers stay in `mcpService.ts`; `mcpRequestScope.ts` bounds request-local server projections.
 - `src/routes/` defines HTTP routes; `src/controllers/` implements resource handlers.
 - `src/dao/` provides file-backed persistence by default; `src/db/` provides the optional TypeORM/PostgreSQL backend.
 - `src/clients/` contains upstream MCP client wrappers.
@@ -26,11 +26,23 @@ When adding or changing a persisted field, update every applicable layer:
 
 Database mode is selected at startup by the code in `src/dao/DaoFactory.ts`: `USE_DB=true` enables it; when `USE_DB` is unset, a configured `DB_URL` enables it; an explicit `USE_DB=false` disables it.
 
+Multi-replica mode is explicit (`MCPHUB_REPLICA_MODE=true`). Run `pnpm db:setup` once before serving with `DB_SYNCHRONIZE=false`; `src/db/replicaSchema.ts` tracks configuration writes transactionally, and `src/services/replicaService.ts` reconciles them every five seconds. Configuration API handlers use a request-scoped database transaction; preserve that scope when adding DAO access. Sessions and application workflow state remain local. See [replica deployment](../configuration/replicas.mdx) for the supported boundaries and `pnpm test:replicas` for disposable Docker verification.
+
 Personal credential import is independent of user seeding. Validate source and destination ciphertext with the existing runtime key before importing, and commit bindings with their internal `credential_binding_imports` receipts in one transaction. Receipts must survive binding deletion to prevent retained source files from restoring revoked credentials; keep them out of configuration exports.
+
+## File staging
+
+Optional staged-file handoff for stdio servers (#1056). Modules live in `src/services/fileStaging/`: `adapter.ts` (pinned SSH profile, resolved-argv allowlist, per-principal cwd), `identity.ts` (owner hash), `rewrite.ts` (`mcpfile://` planning), `policy.ts` (shared lease/finalize decisions), `dispatch.ts` (the seam), `settings.ts` (master switch and store selection), `stateStore.ts` / `dbStateStore.ts` (ledgers), `tools.ts` (hub tools), `paths.ts` (layout and symlink-safe IO), `processLock.ts`. Configuration validation is in `src/utils/fileStagingConfig.ts`, the download handler is `src/controllers/fileStagingController.ts`, the staging PATCH routes are in `src/routes/serverRoutes.ts`, and virtual-tool injection plus dispatch are in `src/services/mcpService.ts`.
+
+`dispatchStagedToolCall()` is the single rewrite/lease/finalize seam, called from `callToolWithReconnect` so direct calls and `$smart call_tool` share it. Hidden-argument removal happens inside the wrapped per-call path, so a parameter declared for staging must also be rejected from `hiddenParams` at config validation. The order is security-relevant: re-read the config, validate the adapter/stable server id/pinned version, plan exact references, pin inputs and lease every output, rewrite only declared parameters, invoke, then finalize or fail the outputs. Pins are released in `finally`; do not add a second rewrite path.
+
+There are two ledger backends selected once in `settings.ts`: file mode (`FileStagingStateStore`, `data/staging-state/refs.json` plus a lock) and database mode (`DbStagingStateStore`, `file_staging_refs` / `file_staging_tokens`). Both implement `StagingStateStore` and share the decisions in `policy.ts`; keep lease/finalize rules there rather than duplicating them. With `DB_SYNCHRONIZE=false`, the schema comes from `docs/migrations/0006-file-staging.sql`.
+
+`processLock.ts` enforces one writer per state directory through `staging.lock` (30-second mtime heartbeat, takeover only after 120 seconds stale); initialization runs at startup when the master switch is on (otherwise on first use) and releases the lock when init fails. `resolveStagingCwd()` moves the child cwd to the principal root for any server with a staged tool, so a `fileStaging` toggle must remain connection-relevant in `src/utils/connectionRelevantConfig.ts`. The `mcphub_file_` prefix is reserved: the hub definition wins over an upstream tool and must never fall through to upstream dispatch. Download links are minted only from a configured non-localhost base URL (`src/utils/installBaseUrl.ts`).
 
 ## Bearer-key invariant
 
-Bearer keys have explicit kinds. Legacy and operator-created keys use `kind: 'system'`; user-level keys use `kind: 'user'` and must have an `owner`. Do not infer the kind from whether `owner` is empty. User-level keys restore the owner's live user context on MCP transport requests and are not dashboard API credentials.
+Bearer keys have explicit kinds. Legacy and operator-created keys use `kind: 'system'`; user-level keys use `kind: 'user'` and must have an `owner`. Do not infer the kind from whether `owner` is empty. Personal keys support `all` or `groups` scope; allowed-group scope must intersect with the owner's permissions and must not allow global or direct-server routes. User-level keys restore the owner's live user context on MCP transport requests and are not dashboard API credentials.
 
 Bearer-key tokens are never stored: `BearerKey` holds `tokenHash` (SHA-256, constant-time compared) and a display `tokenPrefix`. `token` exists only on the object `create()` returns, which is the one response that shows it. DAOs hash a plaintext `token` they are given, JSON reads and `migrateLegacyTokens()` (run at startup) hash plaintext left by older versions in place, and settings exports and key lists omit the token and the hash. Authentication compares `tokenHash` through `bearerHashMatches`; never compare or log `token`. See [ADR 0012](../adr/0012-security-hardening.md).
 
@@ -57,7 +69,8 @@ A credential-slot binding stores `destinationFingerprint` (see `src/utils/creden
 - `/mcp/{group|server}` routes to a group, server, or `$smart`. `SMART_ROUTING_PATH` adds a reserved alias for `$smart`; transport middleware normalizes the alias before authentication while preserving the original OAuth resource URL.
 - `/:user/mcp/{group|server}` and `/:user/sse/{group}` are user-scoped variants.
 - `AppServer.initialize()` in `src/server.ts` is the route-registration entry point.
-- Authentication spans dashboard JWT/bcrypt, bearer keys, MCPHub's OAuth authorization server, and optional Better Auth. Inspect the current middleware and route code before changing auth behavior.
+- Authentication spans dashboard JWT/bcrypt, passkeys, bearer keys, MCPHub's OAuth authorization server, and optional Better Auth. Inspect the current middleware and route code before changing auth behavior.
+- Passkeys (`src/services/passkeyService.ts`) are a local-account credential: they follow `disablePasswordLogin`, are stored like OAuth approvals (`PasskeyDao` sidecar file or `user_passkeys`), and their two public sign-in routes are listed in `isApiAuthExemptPath`. Each passkey keeps the RP ID it was created under and is accepted only there, and is bound to the owner's session version like OAuth approvals, so a password change or account recreation revokes it. Sign-in usage is written update-only (`recordUse`) with the counter check in the same write (`isCounterAdvance`; a conditional `UPDATE` in database mode), so a removed passkey is never recreated and a racing sign-in cannot move the counter backwards; replica mode records spent challenges in `oauth_state`.
 
 ## Declarative database configuration
 

@@ -17,7 +17,7 @@ MCPHub 提供灵活的身份认证机制来保护您的 MCP 服务器管理平�
 
 ## 本地用户与凭据失效
 
-Dashboard JWT 和 MCPHub 内置 OAuth 授权绑定签发时的用户密码哈希。删除本地用户或修改密码后，旧凭据失效；重建同名用户不会恢复旧凭据。JWT 请求使用用户当前的管理员权限。删除用户还会清理 OAuth token、处理实例内待兑换的授权码，以及服务器和组的共享名单。
+Dashboard JWT、[通行密钥](#通行密钥passkey) 和 MCPHub 内置 OAuth 授权绑定签发时的用户密码哈希。删除本地用户或修改密码后，旧凭据失效；重建同名用户不会恢复旧凭据。JWT 请求使用用户当前的管理员权限。删除用户还会清理 OAuth token、处理实例内待兑换的授权码，以及服务器和组的共享名单。
 
 从没有会话版本的旧凭据升级后，需要重新登录并重新连接 OAuth 客户端。数据库模式会通过正常的启动 schema 同步为 `oauth_tokens` 添加可空的 `session_version` 列。升级时应重启所有副本。
 
@@ -25,7 +25,25 @@ Dashboard JWT 和 MCPHub 内置 OAuth 授权绑定签发时的用户密码哈希
 
 内置 OAuth token 可用于 MCP 传输接口及 `/oauth/userinfo`，不能访问 `/api/*` 管理接口。管理操作请使用 Dashboard JWT、Better Auth session、已配置的 forward auth 或系统级全访问 bearer key。
 
+## 通行密钥（Passkey）
+
+本地账户可以使用通行密钥（WebAuthn）代替密码登录。通行密钥是保存在用户设备、密码管理器或安全密钥中的可发现凭据，因此登录页无需输入用户名：点击 **使用通行密钥登录**，再通过设备的指纹、面容、屏幕锁或 PIN 确认即可。
+
+添加方法：打开用户菜单 → **通行密钥** → **添加通行密钥**，填写可选名称和当前密码，然后按照浏览器提示操作。添加长期凭据前会用密码再次确认会话所有者。页面列出每个通行密钥的添加时间、上次使用时间以及是否已同步，并可在确认后移除。每个账户最多可保存 20 个通行密钥。
+
+- **安全上下文：** 浏览器只在 HTTPS 页面或 `localhost` 上提供通行密钥，并且只支持域名，不支持 IP 地址。
+- **绑定主机名：** 通行密钥属于创建时打开控制台所用的主机名（WebAuthn 依赖方 ID）。MCPHub 从浏览器的 `Origin` 获取该值并随通行密钥保存，之后只在同一主机名下接受该通行密钥。通过其他主机名打开控制台时，需要在那里另外添加通行密钥。使用反向代理时，请把原始 `Origin`（或 `Host` 与协议）传给 MCPHub。
+- **会话：** 通行密钥登录签发与密码登录相同的 24 小时 JWT，并要求认证器完成用户验证。每个挑战五分钟后过期，且只被接受一次；在 [副本模式](/zh/configuration/replicas) 下，已使用的挑战记录在共享的 `oauth_state` 表中，因此跨副本同样只接受一次。签名计数器会拒绝上报计数器的克隆认证器：已保存的计数器只会前进，并发登录时也是如此；始终上报 0 的认证器（多数同步通行密钥）不受影响。挑战使用 `JWT_SECRET` 签名，因此一次登录的两个请求可以到达不同副本。
+- **策略：** 通行密钥属于本地账户凭据，因此 [仅允许 SSO 登录](#仅允许-sso-登录) 生效时同样拒绝通行密钥登录和注册；重新启用密码登录后，已保存的通行密钥恢复可用。Bearer 密钥、转发认证身份和跳过认证模式不能注册通行密钥；由 SSO 创建的用户没有已知的本地密码，继续通过身份提供商登录。
+- **生命周期：** 与 JWT 和 OAuth 授权一样，通行密钥绑定账户当前的密码。修改或重置密码、删除后重建同名用户，都会使其失效，用户之后需重新添加。设备丢失时请在通行密钥页面移除对应条目；账户被盗用后，重置密码即可撤销全部通行密钥。
+- **存储：** 文件模式将通行密钥保存在 `<设置文件>.passkeys.json` 中（仅所有者可读写），不写入 `mcp_settings.json`，也不包含在配置导出中。数据库模式使用 `user_passkeys` 表；若 `DB_SYNCHRONIZE=false`，升级前请先执行 `docs/migrations/0008-passkeys.sql`。从文件模式迁移到数据库模式时，通行密钥会随用户一起迁移。
+- **限流：** 签发登录挑战受 `PASSKEY_RATE_LIMIT_MAX` / `PASSKEY_RATE_LIMIT_WINDOW_MS` 限制（默认每 15 分钟 100 次）。失败的通行密钥登录和失败的密码确认计入登录限流（`AUTH_RATE_LIMIT_MAX`）。
+
 ## Better Auth（GitHub / Google / 本地 OIDC）
+
+<Warning>
+  **从 MCPHub v1.1.14 或更早版本升级：** Better Auth 1.7 将通用 OIDC 登录入口改为 `/sign-in/social`，Provider 回调路径从 `/oauth2/callback/<providerId>` 改为 `/callback/<providerId>`。升级前请在身份提供商中添加新的完整重定向 URI：`<MCPHub 公开地址><Better Auth basePath>/callback/<providerId>`。使用默认挂载路径和 Provider ID 时为 `https://mcphub.example.com/api/auth/better/callback/oidc`。请包含安装使用的 `BASE_PATH` 及自定义 `BETTER_AUTH_BASE_PATH`。旧实例仍在运行时，请同时保留旧 URI。这是身份提供商返回 MCPHub 的回调地址，并非登录完成后的仪表盘跳转地址。
+</Warning>
 
 MCPHub 可以通过 Better Auth 为 Dashboard 提供第三方登录。当前支持：
 
@@ -97,6 +115,7 @@ Better Auth 登录成功后，MCPHub 会把会话映射回本地用户：
 - **恢复：** `BETTER_AUTH_DISABLE_PASSWORD_LOGIN` 在两个方向上都优先于已保存的设置。如果身份提供商不可用，将其设为 `false` 并重启，即可重新使用本地密码登录。为此请给本地管理员保留一个强密码。
 - **脚本和 CLI** 在禁用期间无法使用密码登录。请使用访问类型为 `all` 的系统级 Bearer 密钥，它可以访问管理 API（CLI 使用 `mcphub config set-token <key> --bearer`）。
 - 之前通过密码登录签发的令牌在过期前仍然有效。修改本地密码仍然可用，因此可以轮换用于恢复的密码。
+- 禁用密码登录期间同样拒绝 [通行密钥](#通行密钥passkey)，因为它们用于登录本地账户。
 
 ## 转发认证（基于 JWKS 验证的网关身份）
 
@@ -123,6 +142,23 @@ Better Auth 登录成功后，MCPHub 会把会话映射回本地用户：
 ```
 
 JWT 从配置的 Bearer 请求头中读取（默认为 `Authorization: Bearer <jwt>`）。
+
+部分网关会在自己的请求头中发送不带 `Bearer` 前缀的 JWT，例如 Cloudflare Access 会为每个放行的请求添加 `Cf-Access-Jwt-Assertion`。将 `jwks.tokenHeader` 设置为该请求头名称后，令牌将从该请求头读取，可以是原始 JWT，也可以是 `Bearer <jwt>`。设置令牌请求头后，转发认证只读取该请求头，Bearer 请求头仍可用于 Bearer 密钥和 OAuth 令牌。即使该请求头列在 `passthroughHeaders` 中，MCPHub 也不会将其转发给上游服务器。请求头名称无效时，转发认证将被禁用。
+
+```json
+"forwardAuth": {
+  "enabled": true,
+  "mode": "jwks",
+  "jwks": {
+    "uri": "https://<team>.cloudflareaccess.com/cdn-cgi/access/certs",
+    "issuer": "https://<team>.cloudflareaccess.com",
+    "audience": "<Access 应用的 AUD 标签>",
+    "tokenHeader": "Cf-Access-Jwt-Assertion"
+  },
+  "usernameClaim": "email",
+  "emailClaim": "email"
+}
+```
 
 **验证**
 
@@ -233,6 +269,24 @@ curl -X POST http://localhost:3000/api/groups/{groupId}/users \
   }
 }
 ```
+
+## Bearer 密钥
+
+Bearer 密钥通过 `/api/auth/keys` 管理。管理员可管理所有密钥，普通用户可创建、重命名、启用、禁用和删除自己的个人密钥。个人密钥（`kind: 'user'`）仅用于 MCP 传输接口，不能访问仪表盘或管理 API；请求时会读取所属用户的当前权限。使用可选的 `/:user/mcp/...` 路由时，URL 中的用户名必须与密钥所属用户一致。
+
+个人密钥支持默认的 `accessType: 'all'`（保留所属用户的权限），也支持 `accessType: 'groups'` 配合非空的 `allowedGroups` 数组。在设置中创建或编辑密钥时可选择访问范围。API 接受已有分组的名称或 ID，并保存分组 ID；运行时仅按解析出的分组 ID 匹配授权。
+
+限定分组的密钥只能访问 `/mcp/{允许的分组}`、`/mcp/$smart/{允许的分组}` 及对应的 SSE 和用户级路由。全局 `/mcp`、全局 `$smart`、直接服务器端点和其他分组均被拒绝，即使目标服务器属于允许的分组也不能通过直接服务器端点访问，以保留分组中的能力选择限制。允许多个分组时，需分别连接各分组端点，不提供聚合的全局目录。
+
+密钥范围始终与所属用户当前的分组、服务器可见性及分组中的能力选择取交集，不会授予额外权限。管理员拥有的个人密钥同样受分组范围限制。分组删除或已保存的允许列表为空时会拒绝访问，不会恢复为无限制访问。未限定分组的已有密钥保持原有行为。即使 `enableBearerAuth` 为 `false`，已识别的个人密钥仍会校验身份和范围；匿名请求继续遵循该部署设置。
+
+Bearer 密钥的令牌由后端生成，仅在创建或重置响应中以明文返回一次。MCPHub 只保存令牌的 SHA-256 哈希和 8 位显示前缀（`tokenPrefix`），之后的列表和更新响应只包含前缀，不包含令牌或哈希。旧版本以明文保存的密钥会在启动时原地哈希，原有令牌继续可用。配置导出既不包含令牌也不包含哈希。
+
+<Warning>
+哈希不可逆。早于此变更的版本无法验证已哈希的密钥，回滚需要升级前的备份（或新建密钥）。在数据库模式下，请同时升级共享该数据库的所有实例。数据库模式下设置文件仅作为迁移来源，MCPHub 不会改写它：如果文件中仍列有明文 `bearerKeys[].token` 或 `routing.bearerAuthKey`，启动时会记录警告，请从文件中删除。
+</Warning>
+
+系统密钥（`kind: 'system'`）保留原有范围规则。只有 `accessType: 'all'` 的系统密钥可访问仪表盘和管理 API，受限系统密钥的范围在 MCP 传输层执行。
 
 ## 重置 Bearer key
 

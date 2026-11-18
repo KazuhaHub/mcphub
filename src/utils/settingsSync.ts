@@ -1,6 +1,6 @@
 import { assertSmartRoutingNameAvailable } from './smartRoutingPath.js';
 import fs from 'node:fs';
-import { pbkdf2, randomBytes } from 'node:crypto';
+import { pbkdf2, randomBytes, randomUUID } from 'node:crypto';
 import { promisify, isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { getSettingsPath } from '../config/index.js';
@@ -11,8 +11,10 @@ import { UserServerSelectionRecord } from '../db/entities/UserServerSelectionRec
 import { Group } from '../db/entities/Group.js';
 import { expandServerConfig } from '../services/serverConfigEnvironment.js';
 import { ServerConfig } from '../types/index.js';
+import { remapServerIdReferences } from './serverIdReferences.js';
 import { normalizeServerConfigForPersistence } from './serverConfigPersistence.js';
 import { logger } from './logger.js';
+import { isLegacyServerId } from './serverIdentity.js';
 
 const deriveFingerprint = promisify(pbkdf2);
 
@@ -49,6 +51,7 @@ const declarationSchema = z.object({
       name,
       z
         .object({
+          id: z.string().uuid().optional(),
           type: z.enum(['stdio', 'sse', 'streamable-http', 'openapi']).optional(),
           url: z.string().optional(),
           command: z.string().optional(),
@@ -58,6 +61,7 @@ const declarationSchema = z.object({
           description: z.string().optional(),
           manageUrl: z.string().optional(),
           owner: z.string().optional(),
+          sharedWithUserGroups: z.array(z.string()).optional(),
           sharedWithUsers: z.array(z.string()).optional(),
           enableKeepAlive: z.boolean().optional(),
           protocolNegotiation: z.enum(['auto', 'legacy']).optional(),
@@ -74,8 +78,21 @@ const declarationSchema = z.object({
                 enabled: z.boolean(),
                 description: z.string().optional(),
                 hiddenParams: z.array(z.string()).optional(),
+                fileStaging: z
+                  .object({
+                    enabled: z.boolean(),
+                    inputParams: z.array(z.string()).optional(),
+                    outputParams: z.array(z.string()).optional(),
+                  })
+                  .optional(),
               }),
             )
+            .optional(),
+          staging: z
+            .object({
+              shared: z.boolean().optional(),
+              adapter: z.enum(['ssh']).optional(),
+            })
             .optional(),
           prompts: z
             .record(
@@ -104,6 +121,7 @@ const declarationSchema = z.object({
         instructions: z.string().optional(),
         owner: z.string().optional(),
         visibility: z.enum(['private', 'group', 'public']).optional(),
+        sharedWithUserGroups: z.array(z.string()).optional(),
         sharedWithUsers: z.array(z.string()).optional(),
         servers: z
           .array(
@@ -137,6 +155,28 @@ const canonical = (value: unknown): unknown => {
     );
   }
   return value;
+};
+
+/**
+ * Pick the persisted server id for a settings-sync write.
+ *
+ * An existing row's id is authoritative and preserved. Otherwise the
+ * declaration may not carry an id, and an id read from a file is not
+ * trustworthy: a name-derived placeholder (`legacyServerId`) is what old
+ * file-mode layers materialized on read, and persisting it would make staging
+ * refuse the server forever (`isLegacyServerId`). A server that exists only in
+ * the synced declaration therefore gets a random UUID instead.
+ */
+export const resolveSyncedServerId = (
+  existingId: string | undefined,
+  declaredId: string | undefined,
+  serverName: string,
+): string => {
+  // A name-derived placeholder is not an identity: keeping it would leave the
+  // synced server permanently ineligible for staging. Any real id wins.
+  if (existingId && !isLegacyServerId(existingId, serverName)) return existingId;
+  if (declaredId && !isLegacyServerId(declaredId, serverName)) return declaredId;
+  return randomUUID();
 };
 
 /** Startup-only reconciliation. Never use loadOriginalSettings: it can write defaults. */
@@ -208,6 +248,16 @@ export async function syncSettingsToDatabase(): Promise<void> {
     const serverRepo = manager.getRepository(Server);
     for (const { serverName, config, signature } of servers) {
       const existing = await serverRepo.findOneBy({ name: serverName });
+      if (existing && config.id && config.id !== existing.id) {
+        logger.warn(
+          'Settings sync: ignoring declared ID; existing database server ID is retained',
+          {
+            serverName,
+            declaredId: config.id,
+            retainedId: existing.id,
+          },
+        );
+      }
       const hash = await fingerprintDeclaration(signature, existing?.settingsSyncHash);
       const sameTarget =
         existing &&
@@ -233,6 +283,7 @@ export async function syncSettingsToDatabase(): Promise<void> {
       const oauth =
         sameTarget && sameOAuth ? { ...config.oauth, ...existing?.oauth } : config.oauth;
       const data: Record<string, unknown> = {
+        id: resolveSyncedServerId(existing?.id, config.id, serverName),
         name: serverName,
         enabled: config.enabled ?? true,
         visibility: config.visibility ?? 'private',
@@ -259,7 +310,20 @@ export async function syncSettingsToDatabase(): Promise<void> {
           isDeepStrictEqual(existing[key as keyof Server] ?? null, value ?? null),
         );
       counts.servers[!existing ? 'created' : unchanged ? 'unchanged' : 'updated']++;
-      if (!unchanged) await serverRepo.save(serverRepo.create({ ...existing, ...data }));
+      if (!unchanged) {
+        const rotatingId = Boolean(existing?.id) && existing!.id !== data.id;
+        if (rotatingId) {
+          // A new id is an update of the existing row, not a second row with the
+          // same name: `save()` on a fresh id would insert and hit the unique
+          // name constraint before the references could be remapped.
+          await serverRepo.update({ id: existing!.id }, data as never);
+          // Same transaction: a deny rule keyed by the old id must move with it,
+          // or it silently stops matching.
+          await remapServerIdReferences(existing!.id, String(data.id), manager);
+        } else {
+          await serverRepo.save(serverRepo.create({ ...existing, ...data }));
+        }
+      }
     }
     const groupRepo = manager.getRepository(Group);
     for (const group of declaration.groups ?? []) {
@@ -272,6 +336,7 @@ export async function syncSettingsToDatabase(): Promise<void> {
         instructions: group.instructions ?? null,
         owner: group.owner ?? null,
         visibility: group.visibility ?? null,
+        sharedWithUserGroups: group.sharedWithUserGroups ?? null,
         sharedWithUsers: group.sharedWithUsers ?? null,
       };
       const unchanged =

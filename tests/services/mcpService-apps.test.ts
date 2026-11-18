@@ -128,6 +128,7 @@ jest.mock('../../src/services/proxy.js', () => ({
   getProxyConfigFromEnv: jest.fn(() => undefined),
 }));
 
+const mockSystemConfig = jest.fn(async () => ({} as import('../../src/types/index.js').SystemConfig));
 const mockFindAll = jest.fn();
 const mockFindById = jest.fn();
 const mockUserFindByUsername = jest.fn(async () => ({
@@ -157,7 +158,7 @@ jest.mock('../../src/dao/index.js', () => ({
     findById: jest.fn(async () => null),
   })),
   getSystemConfigDao: jest.fn(() => ({
-    get: jest.fn(async () => ({})),
+    get: mockSystemConfig,
   })),
   getBuiltinPromptDao: jest.fn(() => ({
     findEnabled: mockBuiltinPrompts,
@@ -172,6 +173,8 @@ jest.mock('../../src/config/index.js', () => ({
   expandEnvVars: jest.fn((value: string) => value),
   replaceEnvVars: jest.fn((value: any) => value),
   getNameSeparator: jest.fn(() => '::'),
+  mcpHubName: 'test-hub',
+  mcpHubVersion: '1.0.0',
   default: {
     mcpHubName: 'test-hub',
     mcpHubVersion: '1.0.0',
@@ -192,6 +195,7 @@ import {
   initUpstreamServers,
 } from '../../src/services/mcpService.js';
 import { MCP_APPS_CAPABILITIES } from '../../src/utils/mcpApps.js';
+import { MCPHUB_INSTANCE_CAPABILITIES } from '../../src/utils/mcpHubIdentity.js';
 import { RequestContextService } from '../../src/services/requestContextService.js';
 
 const appsTools = [
@@ -240,6 +244,7 @@ const markSessionAsAppsCapable = async (sessionId: string, group: string) => {
 describe('mcpService MCP Apps transparent proxy', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSystemConfig.mockResolvedValue({});
     cleanupAllServers();
     mockClientsByServer.clear();
     mockFindAll.mockResolvedValue([makeServerConfig('apps-server')]);
@@ -280,6 +285,58 @@ describe('mcpService MCP Apps transparent proxy', () => {
 
   afterEach(() => {
     cleanupAllServers();
+  });
+
+  it.each([undefined, false, true].flatMap((enabled) =>
+    ['users.list', 'mcphub.file_query'].map((name) => ({ enabled, name })),
+  ))('round-trips $name with compatibility=$enabled', async ({ enabled, name }) => {
+    mockSystemConfig.mockResolvedValue({ normalizeToolNames: enabled });
+    mockClient.listTools.mockResolvedValue({ tools: [{ name, inputSchema: { type: 'object' } }] });
+    await initUpstreamServers();
+    await flushPromises();
+    const extra = { sessionId: 'ordinary-session' };
+    const { tools } = await handleListToolsRequest({}, extra);
+    expect(tools).toHaveLength(1);
+    expect(tools[0].name === name).toBe(enabled !== true);
+    if (enabled) expect(tools[0].name).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    const result = await handleCallToolRequest({ params: { name: tools[0].name, arguments: {} } }, extra);
+    expect(result.isError).not.toBe(true);
+    expect(mockClient.callTool).toHaveBeenCalledWith(expect.objectContaining({ name }), expect.anything());
+    expect(getServerByName('apps-server')?.tools[0].name).toBe(`apps-server::${name}`);
+  });
+
+  it('maps OpenAPI aliases back to operation names and rechecks disabled tools', async () => {
+    mockSystemConfig.mockResolvedValue({ normalizeToolNames: true });
+    const config = { ...makeServerConfig('apps-server'), type: 'openapi' as const, openapi: { url: 'https://example.com/spec.json' } };
+    mockFindAll.mockResolvedValue([config]);
+    mockFindById.mockResolvedValue(config);
+    mockOpenApiClient.getTools.mockReturnValue([{ name: 'users.list', inputSchema: { type: 'object' } }]);
+    await initUpstreamServers();
+    await flushPromises();
+    const extra = { sessionId: 'ordinary-session' };
+    const { tools } = await handleListToolsRequest({}, extra);
+    expect(tools).toHaveLength(1);
+    expect(tools[0].name).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    await handleCallToolRequest({ params: { name: tools[0].name, arguments: {} } }, extra);
+    expect(mockOpenApiClient.callTool.mock.calls[0][0]).toBe('users.list');
+    mockOpenApiClient.callTool.mockClear();
+    getServerByName('apps-server')!.config!.tools = { 'users.list': { enabled: false } };
+    const result = await handleCallToolRequest({ params: { name: tools[0].name, arguments: {} } }, extra);
+    expect(result.isError).toBe(true);
+    expect(mockOpenApiClient.callTool).not.toHaveBeenCalled();
+  });
+
+  it('does not route a previously listed alias after a policy denies its original name', async () => {
+    mockSystemConfig.mockResolvedValue({ normalizeToolNames: true });
+    mockClient.listTools.mockResolvedValue({ tools: [{ name: 'users.list', inputSchema: { type: 'object' } }] });
+    await initUpstreamServers();
+    await flushPromises();
+    const extra = { sessionId: 'ordinary-session' };
+    const { tools } = await handleListToolsRequest({}, extra);
+    mockSystemConfig.mockResolvedValue({ normalizeToolNames: true, toolPolicies: [{ id: 'deny', effect: 'deny', tool: 'users.list' }] });
+    const result = await handleCallToolRequest({ params: { name: tools[0].name, arguments: {} } }, extra);
+    expect(result.isError).toBe(true);
+    expect(mockClient.callTool).not.toHaveBeenCalled();
   });
 
   it('preserves positive discovery expiry on modern lists and leaves legacy shapes unchanged', async () => {
@@ -1251,6 +1308,21 @@ describe('mcpService MCP Apps transparent proxy', () => {
       },
     );
 
+    it.each([false, true])('round-trips normalized group aliases with preserveToolNames=%s', async (preserveToolNames) => {
+      mockSystemConfig.mockResolvedValue({ normalizeToolNames: true });
+      await setUpMixedRoute();
+      mockGroupFindByName.mockImplementation(async (name: string) => name === 'mixed' ? {
+        servers: [{ name: 'apps-server', alias: 'app.tools' }, { name: 'openapi-server', alias: 'api.tools', preserveToolNames }],
+      } : null);
+      const list = await withAppsRoute('mixed', () => handleListToolsRequest({}, { group: 'mixed' }));
+      expect(list.tools).toHaveLength(3);
+      for (const tool of list.tools) expect(tool.name).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+      const result = await withAppsRoute('mixed', () => handleCallToolRequest({ params: { name: list.tools[2].name, arguments: {} } }, { group: 'mixed' }));
+      expect(result.isError).not.toBe(true);
+      expect(mockOpenApiClient.callTool.mock.calls[0][0]).toBe('search-memories');
+      expect(mockClient.callTool).not.toHaveBeenCalled();
+    });
+
     it.each(['direct', 'wrapped'])(
       'resolves group aliases on a mixed Apps route (%s)',
       async (mode) => {
@@ -1368,6 +1440,223 @@ describe('mcpService MCP Apps transparent proxy', () => {
     expect(getServerByName('apps-server')?.tools).toEqual([
       expect.objectContaining({ name: 'apps-server::new-tool' }),
     ]);
+  });
+
+  it.each([
+    [
+      'tools',
+      'listTools',
+      'sendToolListChanged',
+      [{ name: 'new-tool', description: 'New tool', inputSchema: { type: 'object' } }],
+    ],
+    [
+      'prompts',
+      'listPrompts',
+      'sendPromptListChanged',
+      [{ name: 'new-prompt', description: 'New prompt' }],
+    ],
+    [
+      'resources',
+      'listResources',
+      'sendResourceListChanged',
+      [{ uri: 'test://new-resource', name: 'New resource' }],
+    ],
+  ] as const)(
+    'does not rebroadcast unchanged %s lists and broadcasts real changes',
+    async (kind, listMethod, sendMethod, changedList) => {
+      await initUpstreamServers();
+      await flushPromises();
+
+      const [, clientOptions] = (Client as jest.Mock).mock.calls.find(
+        ([info]) => info.name === 'mcp-client-apps-server',
+      )!;
+      const server = await getMcpServer('ordinary-session', 'apps-server');
+      const send = jest.spyOn(server, sendMethod).mockResolvedValue(undefined);
+      const onChanged = (clientOptions.listChanged as any)[kind].onChanged;
+      const currentList = (await (mockClient as any)[listMethod]())[kind];
+
+      onChanged(null, currentList);
+      await flushPromises();
+      expect(send).not.toHaveBeenCalled();
+
+      onChanged(null, changedList);
+      await flushPromises();
+      expect(send).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('ignores list changes from a self-connection so prefixed tools cannot accumulate', async () => {
+    const selfClient = createMockClient();
+    selfClient.getServerVersion.mockReturnValue({ name: 'test-hub', version: '1.0.0' });
+    selfClient.getServerCapabilities.mockReturnValue({
+      tools: {},
+      resources: {},
+      prompts: {},
+      ...MCPHUB_INSTANCE_CAPABILITIES,
+    } as any);
+    selfClient.listTools.mockResolvedValue({
+      tools: [{ name: 'only-tool', description: 'Only tool', inputSchema: { type: 'object' } }],
+    });
+    selfClient.listPrompts.mockResolvedValue({ prompts: [] });
+    selfClient.listResources.mockResolvedValue({ resources: [] });
+    selfClient.listResourceTemplates.mockResolvedValue({ resourceTemplates: [] });
+    mockClientsByServer.set('self-loop', selfClient);
+    mockFindAll.mockResolvedValue([makeServerConfig('self-loop')]);
+    await initUpstreamServers();
+    await flushPromises();
+
+    const [, clientOptions] = (Client as jest.Mock).mock.calls.find(
+      ([info]) => info.name === 'mcp-client-self-loop',
+    )!;
+    const server = await getMcpServer('ordinary-session', 'self-loop');
+    const send = jest.spyOn(server, 'sendToolListChanged').mockResolvedValue(undefined);
+    const initialNames = getServerByName('self-loop')!.tools.map((tool) => tool.name);
+    expect(initialNames).toEqual([]);
+
+    // Each round deliberately echoes the already-normalized name a self-connection
+    // would receive from MCPHub itself. Without the guard every pass adds another
+    // `self-loop::` prefix.
+    for (let round = 1; round <= 5; round += 1) {
+      clientOptions.listChanged.tools.onChanged(null, [
+        {
+          name: `${'self-loop::'.repeat(round)}only-tool`,
+          description: 'Only tool',
+          inputSchema: { type: 'object' },
+        },
+      ]);
+    }
+    await flushPromises();
+
+    expect(getServerByName('self-loop')!.tools.map((tool) => tool.name)).toEqual(initialNames);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('accepts list changes from a different MCPHub instance with the same product identity', async () => {
+    const peerClient = createMockClient();
+    peerClient.getServerVersion.mockReturnValue({ name: 'test-hub', version: '1.0.0' });
+    peerClient.getServerCapabilities.mockReturnValue({
+      tools: {},
+      prompts: {},
+      resources: {},
+      experimental: {
+        'io.mcphub/instance': { id: 'peer-hub-instance' },
+      },
+    } as any);
+    peerClient.listTools.mockResolvedValue({
+      tools: [{ name: 'bridge::search', description: 'Search', inputSchema: { type: 'object' } }],
+    });
+    peerClient.listPrompts.mockResolvedValue({ prompts: [] });
+    peerClient.listResources.mockResolvedValue({ resources: [] });
+    peerClient.listResourceTemplates.mockResolvedValue({ resourceTemplates: [] });
+    mockClientsByServer.set('bridge', peerClient);
+    mockFindAll.mockResolvedValue([makeServerConfig('bridge')]);
+    await initUpstreamServers();
+    await flushPromises();
+
+    const [, clientOptions] = (Client as jest.Mock).mock.calls.find(
+      ([info]) => info.name === 'mcp-client-bridge',
+    )!;
+    const server = await getMcpServer('ordinary-session', 'bridge');
+    const send = jest.spyOn(server, 'sendToolListChanged').mockResolvedValue(undefined);
+    expect(getServerByName('bridge')!.tools.map((tool) => tool.name)).toEqual([
+      'bridge::bridge::search',
+    ]);
+
+    clientOptions.listChanged.tools.onChanged(null, [
+      { name: 'bridge::search', description: 'Search', inputSchema: { type: 'object' } },
+      { name: 'bridge::new', description: 'New', inputSchema: { type: 'object' } },
+    ]);
+    await flushPromises();
+
+    expect(getServerByName('bridge')!.tools.map((tool) => tool.name)).toEqual([
+      'bridge::bridge::search',
+      'bridge::bridge::new',
+    ]);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('suppresses resource and template echoes from a self-connection', async () => {
+    const selfClient = createMockClient();
+    selfClient.getServerCapabilities.mockReturnValue({
+      tools: {},
+      prompts: {},
+      resources: {},
+      ...MCPHUB_INSTANCE_CAPABILITIES,
+    } as any);
+    selfClient.listTools.mockResolvedValue({ tools: [] });
+    selfClient.listPrompts.mockResolvedValue({ prompts: [] });
+    selfClient.listResources.mockResolvedValue({
+      resources: [{ uri: 'test://Report', name: 'Report' }],
+    });
+    selfClient.listResourceTemplates.mockResolvedValue({
+      resourceTemplates: [{ uriTemplate: 'test://{id}', name: 'Template' }],
+    });
+    mockClientsByServer.set('self-loop', selfClient);
+    mockFindAll.mockResolvedValue([makeServerConfig('self-loop')]);
+    await initUpstreamServers();
+    await flushPromises();
+
+    const [, clientOptions] = (Client as jest.Mock).mock.calls.find(
+      ([info]) => info.name === 'mcp-client-self-loop',
+    )!;
+    const server = await getMcpServer('ordinary-session', 'self-loop');
+    const sendResources = jest
+      .spyOn(server, 'sendResourceListChanged')
+      .mockResolvedValue(undefined);
+
+    for (let round = 1; round <= 5; round += 1) {
+      clientOptions.listChanged.resources.onChanged(
+        null,
+        Array.from({ length: round }, () => ({ uri: 'test://Report', name: 'Report' })),
+      );
+    }
+    await flushPromises();
+
+    expect(getServerByName('self-loop')!.resources).toEqual([]);
+    expect(getServerByName('self-loop')!.resourceTemplates).toEqual([]);
+    expect(sendResources).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates repeated resource URIs in one upstream cache', async () => {
+    mockClient.listResources.mockResolvedValue({
+      resources: [
+        { uri: 'test://Report', name: 'Report' },
+        { uri: 'test://Report', name: 'Report copy' },
+      ],
+    });
+    await initUpstreamServers();
+    await flushPromises();
+
+    expect(getServerByName('apps-server')!.resources).toEqual([
+      expect.objectContaining({ uri: 'test://Report', name: 'Report' }),
+    ]);
+  });
+
+  it('does not rebroadcast an unchanged resource list containing duplicate URIs', async () => {
+    const duplicateResources = [
+      { uri: 'test://Report', name: 'Report' },
+      { uri: 'test://Report', name: 'Report copy' },
+    ];
+    mockClient.listResources.mockResolvedValue({ resources: duplicateResources });
+    await initUpstreamServers();
+    await flushPromises();
+
+    const [, clientOptions] = (Client as jest.Mock).mock.calls.find(
+      ([info]) => info.name === 'mcp-client-apps-server',
+    )!;
+    const server = await getMcpServer('ordinary-session', 'apps-server');
+    const send = jest.spyOn(server, 'sendResourceListChanged').mockResolvedValue(undefined);
+
+    // The cache keeps one entry per URI. Replaying the same two-entry upstream
+    // list must normalize through that same deduplicating pipeline; otherwise
+    // one cached row is compared with two raw rows and looks like a change.
+    clientOptions.listChanged.resources.onChanged(null, duplicateResources);
+    await flushPromises();
+
+    expect(getServerByName('apps-server')!.resources).toEqual([
+      expect.objectContaining({ uri: 'test://Report', name: 'Report' }),
+    ]);
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('does not report a successful list-change notification after delivery fails', async () => {

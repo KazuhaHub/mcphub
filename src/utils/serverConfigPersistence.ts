@@ -1,10 +1,19 @@
-import { oauthServerMetadataSchema } from './oauthServerMetadata.js';
+import { oauthServerMetadataSchema, validateAuthorizationRelay } from './oauthServerMetadata.js';
 import { resolveUpstreamProtocolMode } from './mcpProtocol.js';
 import { validateCredentialTemplate } from './credentialTemplate.js';
 import { validateMaxBufferSize } from './stdioOptions.js';
 import { normalizeCredentialWriteClients } from './credentialWriteScope.js';
 import { ServerConfigValidationError } from './serverConfigValidation.js';
 import { normalizeManageUrl } from './manageUrl.js';
+import {
+  assertStagingConfigConsistent,
+  normalizeServerStaging,
+  normalizeToolFileStaging,
+} from './fileStagingConfig.js';
+// The hub's virtual staging tools own this namespace; an upstream tool with the
+// same name would be silently shadowed at list time and the staging tool
+// disabled (#1056, R12).
+import { STAGING_TOOL_PREFIX } from '../services/fileStaging/tools.js';
 import { ServerConfig } from '../types/index.js';
 import { normalizeMaintenance, normalizePausedUsers } from './serverMaintenance.js';
 import {
@@ -199,6 +208,17 @@ export const normalizeOAuth = (
     normalized.authorizationServerMetadata = result.data;
   }
 
+  if (oauth.authorizationRelay !== undefined) {
+    try {
+      validateAuthorizationRelay(oauth);
+    } catch {
+      throw new ServerConfigValidationError(
+        'Invalid oauth.authorizationRelay: requires personal OAuth, explicit server metadata and HTTPS redirect origins',
+      );
+    }
+    normalized.authorizationRelay = structuredClone(oauth.authorizationRelay);
+  }
+
   const clientId = trimToUndefined(oauth.clientId);
   const clientSecret = trimToUndefined(oauth.clientSecret);
   const accessToken = trimToUndefined(oauth.accessToken);
@@ -313,6 +333,65 @@ const inferServerType = (config: ServerConfig): NonNullable<ServerConfig['type']
   return undefined;
 };
 
+type ToolConfig = NonNullable<ServerConfig['tools']>[string];
+
+/**
+ * Normalize one tool config entry, preserving every field other than
+ * `fileStaging` verbatim. Throws a ServerConfigValidationError when the entry
+ * is malformed, when its key claims the hub's reserved staging namespace
+ * (#1056, R12), or when its staging params collide with hidden params.
+ *
+ * Exported so the per-tool staging PATCH applies exactly the same rules as a
+ * whole-config save.
+ */
+export const normalizeToolConfig = (key: string, tool: unknown): ToolConfig => {
+  // A tool named like a built-in staging tool would be shadowed at list time,
+  // and the staging tool would be disabled: reject the collision instead of
+  // silently losing either tool.
+  if (key.startsWith(STAGING_TOOL_PREFIX)) {
+    throw new ServerConfigValidationError(
+      `tool name \`${key}\` is reserved by the hub's built-in staging tools`,
+    );
+  }
+  if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) {
+    throw new ServerConfigValidationError(`tools.${key} must be an object`);
+  }
+  const entry = tool as ToolConfig;
+  const fileStaging = normalizeToolFileStaging(entry.fileStaging, key);
+  if (fileStaging?.enabled) {
+    const declared = [...(fileStaging.inputParams ?? []), ...(fileStaging.outputParams ?? [])];
+    const hidden = entry.hiddenParams ?? [];
+    const clash = declared.find((param) => hidden.includes(param));
+    if (clash) {
+      throw new ServerConfigValidationError(
+        `tools.${key}: file staging parameter "${clash}" cannot also be hidden`,
+      );
+    }
+  }
+  return fileStaging ? { ...entry, fileStaging } : { ...entry };
+};
+
+/**
+ * Normalize per-tool config, validating the optional `fileStaging` object
+ * (#1056) and preserving every other tool field verbatim. Returns undefined
+ * when there is nothing to store so an explicit `tools: undefined` is dropped
+ * rather than persisted as null.
+ */
+const normalizeToolsConfig = (
+  tools: ServerConfig['tools'],
+): ServerConfig['tools'] | undefined => {
+  // A nullable simple-json column surfaces as null in DB mode; treat it as absent.
+  if (tools === undefined || tools === null) return undefined;
+  if (typeof tools !== 'object' || Array.isArray(tools)) {
+    throw new ServerConfigValidationError('tools must be an object');
+  }
+  const normalized: NonNullable<ServerConfig['tools']> = {};
+  for (const [key, tool] of Object.entries(tools)) {
+    normalized[key] = normalizeToolConfig(key, tool);
+  }
+  return normalized;
+};
+
 export const normalizeServerConfigForPersistence = (config: ServerConfig): ServerConfig => {
   const normalizedType = inferServerType(config);
   resolveUpstreamProtocolMode({ ...config, type: normalizedType });
@@ -332,27 +411,56 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
   const oauth = normalizeOAuth(config.oauth);
   if (
     oauth?.identityMode === 'personal' &&
-    (!['sse', 'streamable-http'].includes(normalizedType || '') ||
+    (!['sse', 'streamable-http', 'openapi'].includes(normalizedType || '') ||
       oauth.accessToken ||
       oauth.refreshToken ||
       oauth.pendingAuthorization ||
       config.credentialTemplate?.length)
   ) {
     throw new ServerConfigValidationError(
-      'Personal OAuth requires an HTTP MCP server without shared tokens, pending authorization or credential slots',
+      'Personal OAuth requires an HTTP MCP or OpenAPI server without shared tokens, pending authorization or credential slots',
     );
   }
   const openapi = normalizeOpenApi(config.openapi);
+  if (normalizedType === 'openapi' && oauth?.identityMode === 'personal') {
+    if (
+      !oauth.clientId ||
+      (!oauth.authorizationServerMetadata && !(oauth.authorizationEndpoint && oauth.tokenEndpoint))
+    ) {
+      throw new ServerConfigValidationError(
+        'OpenAPI personal OAuth requires a client ID and authorization and token endpoints',
+      );
+    }
+    if (openapi?.security && openapi.security.type !== 'none')
+      throw new ServerConfigValidationError(
+        'OpenAPI personal OAuth requires no shared API security',
+      );
+  }
+  const tools = normalizeToolsConfig(config.tools);
+  const staging = normalizeServerStaging(config.staging);
 
   // Default visibility to 'private' so file-defined and freshly-created servers behave
   // identically to the pre-#817 implicit admin-only behaviour. Operators opt servers in
   // to 'public' or restricted 'group' sharing from the dashboard.
+  if (
+    config.sharedWithUserGroups != null &&
+    (!Array.isArray(config.sharedWithUserGroups) ||
+      !config.sharedWithUserGroups.every(
+        (name: unknown) => typeof name === 'string' && name.trim().length > 0,
+      ))
+  ) {
+    throw new ServerConfigValidationError(
+      'sharedWithUserGroups must be an array of non-empty strings',
+    );
+  }
   const visibility = config.visibility ?? 'private';
   const sharedWithUsers =
     visibility === 'group' ? normalizeSharedUsers(config.sharedWithUsers) : undefined;
 
   const normalized: ServerConfig = {
     ...config,
+    ...(tools !== undefined ? { tools } : {}),
+    ...(staging !== undefined ? { staging } : {}),
     type: normalizedType,
     protocolNegotiation: config.protocolNegotiation ?? undefined,
     credentialTemplate: validateCredentialTemplate({ ...config, type: normalizedType }),
@@ -383,6 +491,8 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
     ...(Object.prototype.hasOwnProperty.call(config, 'credentialWriteClients')
       ? { credentialWriteClients: normalizeCredentialWriteClients(config.credentialWriteClients) }
       : {}),
+    sharedWithUserGroups:
+      visibility === 'group' ? normalizeSharedUsers(config.sharedWithUserGroups) : undefined,
     options,
     perSessionClient: config.perSessionClient === true ? true : undefined,
     // The dashboard sends `startOnDemand: undefined` when the toggle is off, which
@@ -410,6 +520,17 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
   delete (normalized as unknown as Record<string, unknown>).packageVersion;
   delete (normalized as unknown as Record<string, unknown>).latestVersion;
   delete (normalized as unknown as Record<string, unknown>).updateAvailable;
+  // A DB simple-json NULL and an explicit `undefined` both mean "absent"; keep
+  // the key out of the object so a DAO update cannot null the column.
+  if (tools === undefined) delete (normalized as unknown as Record<string, unknown>).tools;
+  if (staging === undefined) delete (normalized as unknown as Record<string, unknown>).staging;
+
+  // An explicit `tools: undefined` / `staging: undefined` must normalize to an
+  // absent key: the DAO updates only properties the caller owns, and writing
+  // null would erase stored config instead of preserving it.
+  if (normalized.tools === undefined) delete normalized.tools;
+  if (normalized.staging === undefined) delete normalized.staging;
+  assertStagingConfigConsistent(normalized);
 
   if (normalizedType === 'openapi') {
     normalized.url = undefined;
@@ -418,7 +539,7 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
     normalized.env = undefined;
     normalized.headers = headers;
     normalized.passthroughHeaders = undefined;
-    normalized.oauth = undefined;
+    normalized.oauth = oauth?.identityMode === 'personal' ? oauth : undefined;
     normalized.enableKeepAlive = undefined;
     normalized.keepAliveInterval = undefined;
     normalized.openapi = openapi;

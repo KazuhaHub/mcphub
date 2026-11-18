@@ -6,7 +6,7 @@ import { BearerKey, SystemConfig } from '../types/index.js';
 import { getBetterAuthRuntimeConfig } from '../services/betterAuthConfig.js';
 import { authenticateForwardAuthToken } from '../services/forwardAuthService.js';
 import { bearerHashMatches, hashBearerToken } from '../utils/bearerKeyHash.js';
-import { getBearerTokenFromHeaders } from '../utils/bearerAuth.js';
+import { getBearerTokenFromHeaders, getForwardAuthTokenFromHeaders } from '../utils/bearerAuth.js';
 import { resolveCredentialWriteGrantFromToken } from '../utils/oauthBearer.js';
 import { logger } from '../utils/logger.js';
 import {
@@ -180,7 +180,7 @@ export const auth = async (req: Request, res: Response, next: NextFunction): Pro
   // Forward auth runs first: a JWT from the configured issuer either
   // authenticates here or is rejected, and never falls back to other methods.
   const forwardAuthResult = await authenticateForwardAuthToken(
-    getBearerTokenFromHeaders(req.headers, systemConfig),
+    getForwardAuthTokenFromHeaders(req.headers, systemConfig),
     systemConfig,
   );
   if (forwardAuthResult.status === 'rejected') {
@@ -191,6 +191,7 @@ export const auth = async (req: Request, res: Response, next: NextFunction): Pro
     (req as any).user = {
       username: forwardAuthResult.user.username,
       isAdmin: forwardAuthResult.user.isAdmin || false,
+      userGroups: forwardAuthResult.user.userGroups,
     };
     (req as any).forwardAuthUser = forwardAuthResult.user;
     next();
@@ -224,6 +225,7 @@ export const auth = async (req: Request, res: Response, next: NextFunction): Pro
       (req as any).user = {
         username: betterAuthUser.username,
         isAdmin: betterAuthUser.isAdmin || false,
+        userGroups: betterAuthUser.userGroups,
       };
       next();
       return;
@@ -254,7 +256,11 @@ export const auth = async (req: Request, res: Response, next: NextFunction): Pro
       res.status(401).json({ success: false, message: 'Token is not valid' });
       return;
     }
-    (req as any).user = { username: user.username, isAdmin: user.isAdmin || false };
+    (req as any).user = {
+      username: user.username,
+      isAdmin: user.isAdmin || false,
+      userGroups: user.userGroups,
+    };
     next();
   } catch (error) {
     res.status(401).json({ success: false, message: 'Token is not valid' });

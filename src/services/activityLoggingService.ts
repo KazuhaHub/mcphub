@@ -1,5 +1,5 @@
 import { getActivityDao, isActivityLoggingEnabled } from '../dao/DaoFactory.js';
-import { IActivity, ActivityStatus } from '../types/index.js';
+import { IActivity, ActivityStatus, ToolPolicyAudit } from '../types/index.js';
 import { stringifyWithoutRedaction, sanitizeStringForLogging } from '../utils/serialization.js';
 import { getCachedSystemConfig } from '../utils/systemConfigCache.js';
 import { logger } from '../utils/logger.js';
@@ -8,6 +8,7 @@ const PAYLOAD_OMITTED = JSON.stringify({
   _omitted: true,
   _reason: 'activityLog.storeToolPayload is disabled',
 });
+const STAGING_PAYLOAD_OMITTED = '[staged payload omitted]';
 const CREDENTIAL_TEMPLATE_PAYLOAD_OMITTED = JSON.stringify({
   _omitted: true,
   _reason: 'activityLog payload storage is disabled by security policy',
@@ -48,6 +49,7 @@ export class ActivityLoggingService {
    * Log a tool call activity
    */
   async logToolCall(params: {
+    policy?: ToolPolicyAudit;
     server: string;
     tool: string;
     duration: number;
@@ -66,6 +68,12 @@ export class ActivityLoggingService {
     /** Server Status code or internal unavailable reason that stopped the call, if any. */
     statusCode?: string;
     hasCredentialTemplate?: boolean;
+    /**
+     * Staged calls carry `mcpfile://` refs and absolute staging paths. The ref
+     * is a capability for the hub's download endpoint, so the payload is never
+     * stored even when `storeToolPayload` is on.
+     */
+    suppressPayload?: boolean;
   }): Promise<void> {
     if (!this.isEnabled()) {
       return;
@@ -79,16 +87,23 @@ export class ActivityLoggingService {
     try {
       // Personal credential calls are metadata-only because upstream responses can echo or
       // transform secrets in ways field-level redaction cannot reliably detect.
-      const storePayload = this.shouldStoreToolPayload() && !params.hasCredentialTemplate;
-      const omittedPayload = params.hasCredentialTemplate
-        ? CREDENTIAL_TEMPLATE_PAYLOAD_OMITTED
-        : PAYLOAD_OMITTED;
+      const storePayload =
+        this.shouldStoreToolPayload() &&
+        !params.hasCredentialTemplate &&
+        params.suppressPayload !== true;
+      const omittedPayload =
+        params.hasCredentialTemplate
+          ? CREDENTIAL_TEMPLATE_PAYLOAD_OMITTED
+          : params.suppressPayload === true
+            ? STAGING_PAYLOAD_OMITTED
+            : PAYLOAD_OMITTED;
       const errorMessage = params.errorMessage
         ? params.hasCredentialTemplate
           ? CREDENTIAL_TEMPLATE_ERROR
           : sanitizeStringForLogging(params.errorMessage)
         : undefined;
       const activity: Omit<IActivity, 'id'> = {
+        policy: params.policy,
         timestamp: new Date(),
         server: params.server,
         tool: params.tool,

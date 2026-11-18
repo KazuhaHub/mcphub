@@ -176,6 +176,7 @@ const buildOAuthConfig = (
   // declared once on `ServerFormData['oauth']` (frontend/src/types/index.ts),
   // so they can be read directly here; a key is only emitted when the form
   // actually carries it.
+  if (oauth.authorizationRelay) nextOAuth.authorizationRelay = oauth.authorizationRelay;
   if (oauth.authorizationServerMetadata) {
     nextOAuth.authorizationServerMetadata = oauth.authorizationServerMetadata;
   }
@@ -219,7 +220,11 @@ const buildOpenApiConfig = (formData: ServerFormData): NonNullable<ServerConfig[
     }
   }
 
-  if (formData.openapi?.securityType && formData.openapi.securityType !== 'none') {
+  if (
+    formData.oauth?.identityMode !== 'personal' &&
+    formData.openapi?.securityType &&
+    formData.openapi.securityType !== 'none'
+  ) {
     openapi.security = {
       type: formData.openapi.securityType,
       ...(formData.openapi.securityType === 'apiKey' && {
@@ -313,6 +318,10 @@ export const buildServerPayload = ({
     manageUrl,
     options,
     visibility: formData.visibility ?? 'private',
+    sharedWithUserGroups:
+      formData.visibility === 'group'
+        ? normalizeSharedUsers(formData.sharedWithUserGroups)
+        : undefined,
     sharedWithUsers:
       formData.visibility === 'group' ? normalizeSharedUsers(formData.sharedWithUsers) : undefined,
     // Sent only when the admin actually changed them in the form: an untouched or hidden
@@ -352,11 +361,18 @@ export const buildServerPayload = ({
     // Round-trip the stored proxychains config (no in-form editor) so an edit
     // of any other field does not drop it and force an avoidable reload.
     proxy: formData.proxy,
+    // Per-tool file staging and the server staging declaration (#1056) have no
+    // in-form editors in PR1 either; dropping them here would silently disable
+    // staging for every server edited in the dashboard.
+    tools: formData.tools,
+    staging: formData.staging,
   };
 
   if (serverType === 'openapi') {
     config.headers = headers;
     config.openapi = buildOpenApiConfig(formData);
+    if (formData.oauth?.identityMode === 'personal')
+      config.oauth = buildOAuthConfig(formData.oauth);
   } else if (serverType === 'sse' || serverType === 'streamable-http') {
     const keepAliveEnabled = formData.keepAlive?.enabled === true;
 

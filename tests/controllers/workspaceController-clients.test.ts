@@ -9,6 +9,10 @@ let workspaceConfig: Record<string, unknown> | null;
 const closeSessions = jest.fn();
 
 jest.mock('../../src/dao/index.js', () => ({
+  getOAuthApprovalDao: () => ({
+    deleteByUserAndClient: async () => undefined,
+    deleteByUsername: async () => undefined,
+  }),
   getOAuthTokenDao: () => ({
     findByUsername: async (username: string) => tokens.filter((t) => t.username === username),
     revokeUserClientTokens: async (username: string, clientId: string) => {

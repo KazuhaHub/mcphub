@@ -10,6 +10,10 @@
  */
 
 import * as client from 'openid-client';
+import { withReplicaLock } from './replicaLock.js';
+import { isReplicaMode } from '../utils/replicaMode.js';
+import { loadServerConfig } from './oauthSettingsStore.js';
+import { expandServerConfig } from './serverConfigEnvironment.js';
 import { getSystemConfigDao, getUserDao } from '../dao/index.js';
 import { ServerConfig } from '../types/index.js';
 import { resolveInstallBaseUrl } from '../utils/installBaseUrl.js';
@@ -36,11 +40,26 @@ interface RegisteredClientInfo {
 const registeredClients = new Map<string, RegisteredClientInfo>();
 const pendingRegistrations = new Map<string, Promise<RegisteredClientInfo>>();
 
-export const createOAuthFetch = async (serverConfig?: ServerConfig): Promise<FetchLike> => {
+export const createOAuthFetch = async (
+  serverConfig?: ServerConfig,
+  rejectRedirects = false,
+): Promise<FetchLike> => {
   const ownerUser = serverConfig?.owner
     ? await getUserDao().findByUsername(serverConfig.owner)
     : undefined;
-  return createRedirectValidatingFetch(fetch, ownerUser?.isAdmin === true);
+  const fetchToken: FetchLike = async (url, init) => {
+    const response = await fetch(url, {
+      ...init,
+      signal: init?.signal ?? AbortSignal.timeout(serverConfig?.options?.timeout || 30_000),
+    });
+    if (response.status >= 300 && response.status < 400)
+      throw new Error('OAuth token endpoint redirected');
+    return response;
+  };
+  return createRedirectValidatingFetch(
+    rejectRedirects ? fetchToken : fetch,
+    ownerUser?.isAdmin === true,
+  );
 };
 
 const toOpenIdClientFetch =
@@ -354,18 +373,24 @@ const registerAndPersistClient = async (
     logger.log('Successfully registered OAuth client', { serverName });
 
     // Extract client ID from the configuration
-    const clientId = (config as any).client_id || (config as any).clientId;
+    const registeredMetadata = config.clientMetadata();
+    const { client_id: clientId, client_secret: clientSecret } = registeredMetadata;
+    if (!clientId) {
+      throw new Error(`Registration for ${serverName} returned no client_id`);
+    }
     logger.log('Registered OAuth client identifier', { serverName, clientId });
 
     // Step 4: Store registered client information
     const clientInfo: RegisteredClientInfo = {
       config,
       clientId,
-      clientSecret: (config as any).client_secret, // Access client secret if available
+      clientSecret,
       registrationAccessToken: (config as any).registrationAccessToken,
       registrationClientUri: (config as any).registrationClientUri,
-      expiresAt: (config as any).client_secret_expires_at
-        ? (config as any).client_secret_expires_at * 1000
+      expiresAt:
+        typeof registeredMetadata.client_secret_expires_at === 'number' &&
+        registeredMetadata.client_secret_expires_at
+        ? registeredMetadata.client_secret_expires_at * 1000
         : undefined,
       metadata: config,
     };
@@ -489,7 +514,7 @@ export const exchangeCodeForToken = async (
 /**
  * Refresh access token using refresh token
  */
-export const refreshAccessToken = async (
+const refreshAccessTokenUnlocked = async (
   serverName: string,
   serverConfig: ServerConfig,
   clientInfo: RegisteredClientInfo,
@@ -527,6 +552,25 @@ export const refreshAccessToken = async (
     throw error;
   }
 };
+
+export const refreshAccessToken = (
+  serverName: string,
+  serverConfig: ServerConfig,
+  clientInfo: RegisteredClientInfo,
+  refreshToken: string,
+): Promise<{ accessToken: string; refreshToken?: string; expiresIn?: number }> =>
+  withReplicaLock(JSON.stringify(['oauth', serverName, 'shared']), async () => {
+    if (isReplicaMode()) {
+      const latest = await loadServerConfig(serverName);
+      if (!latest) throw new Error('Server no longer exists');
+      const oauth = (await expandServerConfig(latest)).oauth;
+      if (oauth?.refreshToken !== refreshToken) {
+        if (!oauth?.accessToken) throw new Error('OAuth credentials changed; reconnect');
+        return { accessToken: oauth.accessToken, refreshToken: oauth.refreshToken };
+      }
+    }
+    return refreshAccessTokenUnlocked(serverName, serverConfig, clientInfo, refreshToken);
+  });
 
 /**
  * Generate PKCE code verifier

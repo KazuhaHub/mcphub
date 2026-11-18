@@ -31,12 +31,13 @@ It works with MCP clients such as Claude Code, Cursor, Cherry Studio, OpenWebUI,
 - **Unified MCP Gateway** - Expose all connected servers through stable MCP endpoints, including routes for groups and individual servers
 - **Server Aliases and Routing** - Define aliases and route clients to all servers, specific groups, individual servers, or smart routing
 - **SSE / Streamable HTTP / stdio Support** - Connect local and remote MCP servers over the supported transports
+- **File Staging** - Let stdio tools accept an uploaded copy of a client file or write a result the hub serves as a one-time download ([Learn more](docs/features/file-staging.mdx))
 - **Hot-Swappable Config** - Add, remove, or update servers without downtime
 
 ### Control access and credentials
 
 - **Per-user Credentials** ⭐ - Bind personal keys to one shared server, with encrypted storage and isolated stdio runtimes ([Learn more](docs/features/per-user-credentials.mdx))
-- **Authentication and Access Control** - Use OAuth 2.0, bearer keys, and server or group visibility controls to manage access
+- **Authentication and Access Control** - Use OAuth 2.0, bearer keys, passkeys, and server or group visibility controls to manage access
 - **OAuth 2.0 Support** ⭐ - Both client and server modes for secure authentication ([Learn more](https://docs.mcphub.app/features/oauth))
 - **Social Login** - Seamless GitHub and Google login support with Better Auth integration (requires Database Mode)
 - **Server and Group Management** - Organize servers into groups, manage visibility, and control Tool, Prompt, and Resource exposure
@@ -49,6 +50,7 @@ It works with MCP clients such as Claude Code, Cursor, Cherry Studio, OpenWebUI,
 - **MCP Apps Proxy** - Transparently forward interactive MCP Apps on single-server routes ([Learn more](https://docs.mcphub.app/features/mcp-apps))
 - **Tool Result Compression** - Transparently reduce large text tool outputs before they reach clients
 - **Database Mode** - Store configuration in PostgreSQL for production environments ([Learn more](https://docs.mcphub.app/configuration/database-configuration))
+- **Multiple Replicas** - Share PostgreSQL configuration with explicit session affinity and reconnect boundaries ([Deployment guide](https://docs.mcphub.app/configuration/replicas))
 - **Docker-Ready** - Deploy instantly with containerized setup
 
 ## 🔧 Quick Start
@@ -101,6 +103,15 @@ Two image variants are published under `samanhappy/mcphub`:
 - **`latest-full`** — the extended image. Adds Rust toolchain (Cargo/rustc), Docker Engine, and Playwright browsers (Chrome + Firefox, amd64 only). Use this for Rust-based servers or container-in-container workflows. Larger download.
 
 See [Docker Setup](https://docs.mcphub.app/configuration/docker-setup) for build options and Docker-in-Docker configuration.
+
+### One-Click Deploy
+
+<a href="https://repocloud.io/details/MCPHub/"><img src="https://d16t0pc4846x52.cloudfront.net/deploylobe.svg" alt="Deploy on RepoCloud" height="42"></a>
+<a href="https://railway.com/deploy/mcphub"><img src="https://railway.com/button.svg" alt="Deploy on Railway" height="42"></a>
+
+### Upgrading deployments with personal credentials
+
+Database mode requires a persistent `MCPHUB_CREDENTIAL_ENCRYPTION_KEY` or an existing key file; it no longer generates a local key automatically. Before replacing a working container, back up its original key and preserve the same value in deployment secrets. A database backup alone cannot recover encrypted credentials if the key is lost. See the [Credential Key Upgrade and Recovery Guide](docs/configuration/credential-key-upgrade.mdx) for working deployments and recovery after a failed upgrade.
 
 ### Access Dashboard
 
@@ -166,7 +177,7 @@ Local development uses `admin` / `admin123` and stores its writable settings cop
 - **Backend**: Node.js, Express, TypeScript (ESM)
 - **Frontend**: React, Vite, Tailwind CSS
 - **Storage**: file-based `mcp_settings.json` by default; PostgreSQL via TypeORM with pgvector for Smart Routing
-- **Auth**: JWT + bcrypt for local accounts; bearer keys; built-in OAuth 2.0 server (`@node-oauth/oauth2-server`); optional Better Auth for GitHub/Google login
+- **Auth**: JWT + bcrypt for local accounts, with optional passkeys (WebAuthn); bearer keys; built-in OAuth 2.0 server (`@node-oauth/oauth2-server`); optional Better Auth for GitHub/Google login
 - **Protocol**: Model Context Protocol SDK
 
 ## 🏢 Production Support

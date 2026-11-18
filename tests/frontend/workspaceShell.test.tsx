@@ -21,6 +21,9 @@ jest.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ auth: { user: mockAuthUser, loading: false, isAuthenticated: true } }),
 }));
 jest.mock('@/contexts/SettingsContext', () => ({ useSettings: () => mockSettings }));
+jest.mock('@/contexts/BrandingContext', () => ({
+  useBranding: () => ({ dashboardName: '', dashboardTitle: 'app.title', setDashboardName: jest.fn() }),
+}));
 jest.mock('@/contexts/ServerContext', () => ({ useServerContext: () => ({ allServers: [] }) }));
 jest.mock('@/hooks/useGroupData', () => ({ useGroupData: () => ({ groups: [] }) }));
 jest.mock('@/services/activityService', () => ({

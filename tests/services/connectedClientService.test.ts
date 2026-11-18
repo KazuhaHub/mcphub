@@ -17,7 +17,17 @@ jest.mock('../../src/utils/systemConfigCache.js', () => ({
   },
   isDatabaseModeEnabled: () => false,
 }));
+let approvals: { username: string; clientId: string }[] = [];
+
 jest.mock('../../src/dao/index.js', () => ({
+  getOAuthApprovalDao: () => ({
+    deleteByUserAndClient: async (username: string, clientId: string) => {
+      approvals = approvals.filter((a) => !(a.username === username && a.clientId === clientId));
+    },
+    deleteByUsername: async (username: string) => {
+      approvals = approvals.filter((a) => a.username !== username);
+    },
+  }),
   getSystemConfigDao: () => ({
     get: async () => storedConfig,
     update: async (config: SystemConfig) => {
@@ -447,8 +457,19 @@ describe('revocation', () => {
     ];
     keys = [userKey()];
 
+    approvals = [
+      { username: 'alice', clientId: 'client-a' },
+      { username: 'alice', clientId: 'client-b' },
+      { username: 'bob', clientId: 'client-a' },
+    ];
+
     expect(await revokeConnectedClient('alice', 'oauth', 'client-a')).toBe(true);
     expect(tokens.map((t) => t.accessToken).sort()).toEqual(['a-bob', 'b-alice']);
+    // Remembered consent goes too, so the client cannot come back without the consent screen.
+    expect(approvals).toEqual([
+      { username: 'alice', clientId: 'client-b' },
+      { username: 'bob', clientId: 'client-a' },
+    ]);
     expect(keys).toHaveLength(1);
     expect(closeSessions).toHaveBeenCalledWith('alice', { kind: 'oauth', id: 'client-a' });
   });
@@ -487,8 +508,13 @@ describe('revocation', () => {
       userKey({ id: 'key-b', owner: 'bob' }),
       userKey({ id: 'sys', kind: 'system', owner: undefined }),
     ];
+    approvals = [
+      { username: 'alice', clientId: 'client-a' },
+      { username: 'bob', clientId: 'client-a' },
+    ];
     await revokeAllConnectedClients('alice');
     expect(tokens.map((t) => t.username)).toEqual(['bob']);
+    expect(approvals).toEqual([{ username: 'bob', clientId: 'client-a' }]);
     expect(keys.map((k) => k.id).sort()).toEqual(['key-b', 'sys']);
     expect(closeSessions).toHaveBeenCalledWith('alice', undefined);
   });

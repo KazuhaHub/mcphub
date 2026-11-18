@@ -25,7 +25,7 @@ Shutdown is handled in `AppServer.shutdown()`: stop the HTTP server, close all u
 | ---- | ------- |
 | `src/server.ts` | `AppServer` class — process lifecycle, MCP route registration. |
 | `src/index.ts` | CLI entrypoint that constructs and starts `AppServer`. |
-| `src/routes/index.ts` | All HTTP route definitions (single file). |
+| `src/routes/index.ts` / `src/routes/serverRoutes.ts` | HTTP route definitions; `serverRoutes.ts` holds the server-config PATCH routes mounted after the main API router. |
 | `src/middlewares/` | Auth (`auth.ts`), user context (`userContext.ts`), i18n, common middleware. |
 | `src/controllers/` | One controller per resource (servers, groups, users, tools, prompts, resources, logs, activities, OAuth, bearer keys, templates, market, cloud, registry, MCPB upload, health, config). |
 | `src/services/` | Long-lived domain services — see the table below. |
@@ -45,6 +45,7 @@ The services in `src/services/` are the core domain layer. Notable members:
 | Service | Responsibility |
 | ------- | -------------- |
 | `mcpService.ts` | Lifecycle of all upstream MCP clients (connect, reconnect, capability cache, tool/prompt/resource registries). |
+| `fileStaging/` | Optional staged-file support for stdio servers: per-principal child cwd, `mcpfile://` rewrite, output leases, file/DB ledger, one-time download tokens. |
 | `sseService.ts` | Handles HTTP requests on `/sse/*` and `/mcp/*` and proxies them to the right upstream client / group / smart route. |
 | `smartRoutingService.ts` | Vector-search-based tool discovery. Requires Postgres + pgvector and an OpenAI-compatible embedding endpoint. |
 | `vectorSearchService.ts` | Embedding store and similarity search backing smart routing. |
@@ -56,6 +57,8 @@ The services in `src/services/` are the core domain layer. Notable members:
 | `templateService.ts` | Export / import of `mcp_settings.json` snapshots and group templates. |
 | `marketService.ts` / `cloudService.ts` / `registry.ts` | Read-mostly catalogs surfaced by the dashboard. |
 | `keepAliveService.ts` | Optional periodic ping for `sse` upstream servers. |
+
+Upstream discovery follows `nextCursor` for tools, prompts, resources, and resource templates before publishing a combined list. Repeated cursors, more than 100 additional pages, or a failed page reject discovery rather than publish a truncated list. Combined multi-page lists do not advertise a cache TTL.
 
 ## Data layer
 
@@ -78,6 +81,9 @@ When enabled, MCPHub uses TypeORM against PostgreSQL. The schema is defined by e
 - `BuiltinPrompt`, `BuiltinResource`
 - `Activity` — request/response logging (only populated in DB mode).
 - `VectorEmbedding` — pgvector-backed table used by smart routing.
+- `FileStagingRef`, `FileStagingToken` — staged-file ledger and one-time download tokens (only populated when file staging is enabled).
+
+Deployments that run with `DB_SYNCHRONIZE=false` apply `docs/migrations/0006-file-staging.sql` before enabling staging.
 
 The DAO factory in `src/dao/DaoFactory.ts` swaps in the `*DaoDbImpl.ts` variants when database mode is on. A one-time migration script `src/scripts/migrate-to-database.ts` copies an existing `mcp_settings.json` into the database; the helper in `src/utils/migration.ts` runs the same path on first start.
 
@@ -85,11 +91,12 @@ See [Database Configuration](/configuration/database-configuration) for setup de
 
 ## Request paths
 
-There are three classes of HTTP route, all defined in `src/routes/index.ts` and mounted by `AppServer`:
+There are three classes of HTTP route, defined in `src/routes/index.ts` and `src/routes/serverRoutes.ts` and mounted by `AppServer`:
 
 1. **Public endpoints** (no auth):
    - `GET /health`
    - `GET ${basePath}/config`, `GET ${basePath}/public-config`
+   - `GET ${basePath}/staging/download/:token` — one-time staged file download; the token is the capability, so it is mounted outside the `/api` auth middleware.
    - All `/oauth/*` and `/.well-known/oauth-*` endpoints (the OAuth flow itself).
    - All `${basePath}/api/openapi*` and `${basePath}/api/tools/...` OpenAPI endpoints.
    - `POST /api/auth/login`, `POST /api/auth/register`.
@@ -100,7 +107,7 @@ There are three classes of HTTP route, all defined in `src/routes/index.ts` and 
    - A Better Auth session cookie (when enabled).
    - An `x-auth-token` JWT issued by `/api/auth/login`, or the same value as a `?token=` query.
    - If `systemConfig.routing.skipAuth` is `true`, unauthenticated dashboard API calls receive a synthetic `guest` user with admin privileges.
-3. **MCP transport routes**: `${basePath}/mcp/:group?`, `${basePath}/sse/:group?`, plus their user-scoped variants `${basePath}/:user/mcp/...` and `${basePath}/:user/sse/...`. These are rate-limited via `mcpConnectionRateLimiter` and pass through `sseUserContextMiddleware` before being dispatched by `sseService.ts`. Forward-auth JWTs are checked first, with the same no-fallback rule as the dashboard API. System-level key scopes are enforced inside `sseService.ts`; user-level keys restore their owner's live user context so server visibility filtering applies.
+3. **MCP transport routes**: `${basePath}/mcp/:group?`, `${basePath}/sse/:group?`, plus their user-scoped variants `${basePath}/:user/mcp/...` and `${basePath}/:user/sse/...`. These are rate-limited via `mcpConnectionRateLimiter` and pass through `sseUserContextMiddleware` before being dispatched by `sseService.ts`. Forward-auth JWTs are checked first, with the same no-fallback rule as the dashboard API. Key scopes are enforced inside `sseService.ts`; user-level keys support unrestricted or allowed-group scopes and restore their owner's live user context so group/server visibility filtering also applies.
 
 ## Observability
 

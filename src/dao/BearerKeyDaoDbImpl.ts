@@ -41,6 +41,8 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
       allowedServers: entity.allowedServers ?? [],
       createdAt: entity.createdAt ? new Date(entity.createdAt).toISOString() : undefined,
       lastUsedAt: entity.lastUsedAt ? new Date(entity.lastUsedAt).toISOString() : undefined,
+      excludedGroups: entity.excludedGroups ?? [],
+      excludedServers: entity.excludedServers ?? [],
     };
   }
 
@@ -87,6 +89,8 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
       accessType: data.accessType,
       allowedGroups: data.allowedGroups ?? [],
       allowedServers: data.allowedServers ?? [],
+      excludedGroups: data.excludedGroups ?? [],
+      excludedServers: data.excludedServers ?? [],
       ...(data.createdAt ? { createdAt: new Date(data.createdAt) } : {}),
       lastUsedAt: data.lastUsedAt ? new Date(data.lastUsedAt) : undefined,
     } as any);
@@ -100,13 +104,19 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
   ): Promise<BearerKeyModel | null> {
     const entity = await this.repository.update(id, {
       name: data.name,
-      ...(data.token ? { token: null, ...describeBearerToken(data.token) } : {}),
+      ...(data.token
+        ? { token: null, ...describeBearerToken(data.token) }
+        : data.tokenHash !== undefined
+          ? { token: null, tokenHash: data.tokenHash, tokenPrefix: data.tokenPrefix }
+          : {}),
       enabled: data.enabled,
       kind: data.kind,
       owner: data.owner,
       accessType: data.accessType,
       allowedGroups: data.allowedGroups,
       allowedServers: data.allowedServers,
+      excludedGroups: data.excludedGroups,
+      excludedServers: data.excludedServers,
     } as any);
     return entity ? this.toModel(entity as any) : null;
   }
@@ -143,8 +153,11 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
     for (const key of allKeys) {
       let updated = false;
 
-      if (key.allowedServers && key.allowedServers.length > 0) {
-        const newServers = key.allowedServers.map((server) => {
+      for (const field of ['allowedServers', 'excludedServers'] as const) {
+        const servers = key[field];
+        if (!servers || servers.length === 0) continue;
+
+        const newServers = servers.map((server) => {
           if (server === oldName) {
             updated = true;
             return newName;
@@ -152,10 +165,13 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
           return server;
         });
 
-        if (updated) {
-          await this.repository.update(key.id, { allowedServers: newServers });
-          updatedCount++;
+        if (newServers.some((server, index) => server !== servers[index])) {
+          await this.repository.update(key.id, { [field]: newServers });
         }
+      }
+
+      if (updated) {
+        updatedCount++;
       }
     }
 

@@ -13,7 +13,7 @@ import {
   hasPersonalAuthentication,
 } from '../utils/credentialTemplate.js';
 import type { CapabilityScope } from './capabilitySnapshotService.js';
-import type { ServerConfig, ServerInfo } from '../types/index.js';
+import type { ServerConfig, ServerInfo, Tool } from '../types/index.js';
 
 export const MAX_KNOWN_TOOL_ENTRIES = 2000;
 
@@ -38,6 +38,32 @@ export class PrincipalRuntimeService {
   // The last tool list each principal saw, kept past idle shutdown. Entries carry the
   // revision they were listed under and are dropped when credentials or the server change.
   private readonly knownTools = new Map<string, { revision: string; tools: KnownTool[] }>();
+  // The full catalog a principal's snapshot discovery returned, for synchronous preflight
+  // reads (tool policy). Dropped by invalidate().
+  private readonly toolCatalogs = new Map<
+    string,
+    { serverName: string; username: string; tools: Tool[] }
+  >();
+
+  /**
+   * By username: the live or last discovered full catalog, read synchronously (tool-policy
+   * preflight). By principal: the remembered name/annotation list, revalidated against the
+   * current credentials and server definition (workspace summary).
+   */
+  peekTools(serverName: string, username: string): Tool[] | undefined;
+  peekTools(serverName: string, principal: RequestPrincipal): Promise<KnownTool[] | undefined>;
+  peekTools(
+    serverName: string,
+    who: string | RequestPrincipal,
+  ): Tool[] | undefined | Promise<KnownTool[] | undefined> {
+    if (typeof who === 'string') {
+      const entry = this.entries.get(JSON.stringify([serverName, who]));
+      return entry?.valid && entry.info
+        ? entry.info.tools
+        : this.toolCatalogs.get(JSON.stringify([serverName, who]))?.tools;
+    }
+    return this.peekKnownTools(serverName, who);
+  }
 
   constructor(
     private readonly connect: (
@@ -62,6 +88,11 @@ export class PrincipalRuntimeService {
       if (filter.username !== undefined && user !== filter.username) continue;
       this.knownTools.delete(key);
     }
+    for (const [key, catalog] of this.toolCatalogs) {
+      if (filter.serverName !== undefined && catalog.serverName !== filter.serverName) continue;
+      if (filter.username !== undefined && catalog.username !== filter.username) continue;
+      this.toolCatalogs.delete(key);
+    }
     this.close_(filter);
   }
 
@@ -83,7 +114,7 @@ export class PrincipalRuntimeService {
    * not a change to the credentials or the server definition it was listed under. Undefined
    * when nothing valid is remembered. Never consults another principal's list.
    */
-  async peekTools(
+  private async peekKnownTools(
     serverName: string,
     principal: RequestPrincipal,
   ): Promise<KnownTool[] | undefined> {
@@ -179,6 +210,11 @@ export class PrincipalRuntimeService {
           JSON.stringify([definitionSnapshot, resolved.revision]),
           cached.tools,
         );
+        this.toolCatalogs.set(JSON.stringify([serverName, principal.username]), {
+          serverName,
+          username: principal.username,
+          tools: cached.tools,
+        });
         return { info: cached, release: () => {} };
       }
     }

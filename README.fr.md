@@ -29,12 +29,13 @@ MCPHub offre une manière unifiée de connecter et de gérer plusieurs serveurs 
 - **Passerelle MCP unifiée** - Exposez tous les serveurs connectés via des points de terminaison MCP stables, avec des routes pour les groupes et les serveurs individuels
 - **Alias et routage des serveurs** - Définissez des alias et routez les clients vers tous les serveurs, des groupes, un serveur individuel ou le routage intelligent
 - **Prise en charge SSE / Streamable HTTP / stdio** - Connectez des serveurs MCP locaux et distants via les transports pris en charge
+- **Mise en attente de fichiers** - Permet aux outils stdio de recevoir une copie téléversée d'un fichier client ou d'écrire un résultat que le hub sert en téléchargement à usage unique ([En savoir plus](docs/features/file-staging.mdx))
 - **Configuration à chaud** - Ajoutez, supprimez ou mettez à jour les serveurs sans temps d'arrêt
 
 ### Contrôler les accès et les identifiants
 
 - **Identifiants personnels** ⭐ - Associez une clé par utilisateur à un serveur partagé, avec stockage chiffré et processus stdio isolés ([En savoir plus](docs/features/per-user-credentials.mdx))
-- **Authentification et contrôle d'accès** - Utilisez OAuth 2.0, des bearer keys et la visibilité des serveurs ou groupes pour gérer les accès
+- **Authentification et contrôle d'accès** - Utilisez OAuth 2.0, des bearer keys, des clés d'accès (passkeys) et la visibilité des serveurs ou groupes pour gérer les accès
 - **Support OAuth 2.0** ⭐ - Modes client et serveur pour une authentification sécurisée ([En savoir plus](https://docs.mcphub.app/features/oauth))
 - **Connexion sociale** - Support de connexion GitHub et Google via Better Auth (nécessite le mode Base de données)
 - **Gestion des serveurs et des groupes** - Organisez les serveurs en groupes, gérez leur visibilité et contrôlez l'exposition des Tools, Prompts et Resources
@@ -46,6 +47,7 @@ MCPHub offre une manière unifiée de connecter et de gérer plusieurs serveurs 
 - **Tableau de bord Web** - Gérez la configuration et le fonctionnement des serveurs depuis un navigateur
 - **Compression des résultats d'outils** - Réduisez automatiquement les grands résultats texte avant qu'ils n'atteignent les clients
 - **Mode Base de données** - Stockez la configuration dans PostgreSQL pour les environnements de production ([En savoir plus](https://docs.mcphub.app/configuration/database-configuration))
+- **Plusieurs réplicas** - Partagez la configuration PostgreSQL avec affinité des sessions et reconnexion après panne ([Guide](https://docs.mcphub.app/configuration/replicas))
 - **Prêt pour Docker** - Déployez instantanément avec la configuration conteneurisée
 
 ## 🔧 Démarrage rapide
@@ -162,7 +164,7 @@ Le développement local utilise `admin` / `admin123` et stocke sa copie de confi
 - **Backend** : Node.js, Express, TypeScript (ESM)
 - **Frontend** : React, Vite, Tailwind CSS
 - **Stockage** : `mcp_settings.json` (par défaut) ; PostgreSQL via TypeORM avec pgvector pour le Smart Routing
-- **Authentification** : JWT + bcrypt pour les comptes locaux ; bearer keys ; serveur OAuth 2.0 intégré (`@node-oauth/oauth2-server`) ; Better Auth optionnel pour GitHub/Google
+- **Authentification** : JWT + bcrypt pour les comptes locaux, avec clés d'accès (WebAuthn) optionnelles ; bearer keys ; serveur OAuth 2.0 intégré (`@node-oauth/oauth2-server`) ; Better Auth optionnel pour GitHub/Google
 - **Protocole** : Model Context Protocol SDK
 
 ## 👥 Contribuer

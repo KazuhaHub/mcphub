@@ -34,6 +34,9 @@ const ActivityHistoryIndex = (name: string, columns: string[]): ClassDecorator =
 @ActivityHistoryIndex('IDX_activities_username_timestamp', ['username', 'timestamp'])
 @ActivityHistoryIndex('IDX_activities_username_status_code', ['username', 'statusCode'])
 export class Activity {
+  @Column({ type: 'simple-json', nullable: true })
+  policy?: import('../../types/index.js').ToolPolicyAudit;
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
