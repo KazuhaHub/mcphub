@@ -7,7 +7,13 @@ import {
   SystemConfig,
 } from '../types/index.js';
 import { resolveInstallBaseUrl } from '../utils/installBaseUrl.js';
-import { DEFAULT_LOGIN_MODE, isLoginMode, OIDC_DISPLAY_NAME_MAX_LENGTH } from '../utils/loginMode.js';
+import {
+  DEFAULT_LOGIN_MODE,
+  isLoginMode,
+  isValidOidcDisplayName,
+  parseLoginModeEnv,
+} from '../utils/loginMode.js';
+import { logger } from '../utils/logger.js';
 import {
   normalizeOptionalString,
   normalizeStringArray,
@@ -124,15 +130,27 @@ const resolvePromptSetting = (
   return normalizePrompt(settingsValue);
 };
 
-const resolveLoginModeSetting = (envValue: string | undefined, settingsValue: unknown): LoginMode => {
-  const envOverride = normalizeOptionalString(envValue);
-  if (isLoginMode(envOverride)) return envOverride;
-  return isLoginMode(settingsValue) ? settingsValue : DEFAULT_LOGIN_MODE;
+// Each invalid value is reported once per process, not on every resolve
+const warnedLoginModeEnvValues = new Set<string>();
+
+/** The valid `BETTER_AUTH_LOGIN_MODE` override, if any. An invalid value is ignored with a warning. */
+export const getLoginModeEnvOverride = (): LoginMode | undefined => {
+  const { mode, invalid } = parseLoginModeEnv(process.env.BETTER_AUTH_LOGIN_MODE);
+  if (invalid !== undefined && !warnedLoginModeEnvValues.has(invalid)) {
+    warnedLoginModeEnvValues.add(invalid);
+    logger.warn(
+      `Ignoring BETTER_AUTH_LOGIN_MODE=${JSON.stringify(invalid)}: expected dual, sso_first or sso_redirect`,
+    );
+  }
+  return mode;
 };
+
+const resolveLoginModeSetting = (settingsValue: unknown): LoginMode =>
+  getLoginModeEnvOverride() ?? (isLoginMode(settingsValue) ? settingsValue : DEFAULT_LOGIN_MODE);
 
 const normalizeDisplayName = (value: unknown): string | undefined => {
   const normalized = normalizeOptionalString(value);
-  return normalized && normalized.length <= OIDC_DISPLAY_NAME_MAX_LENGTH ? normalized : undefined;
+  return normalized && isValidOidcDisplayName(normalized) ? normalized : undefined;
 };
 
 export const resolveBetterAuthRuntimeConfig = (
@@ -253,10 +271,7 @@ export const resolveBetterAuthRuntimeConfig = (
 
   // Presentation follows the same availability rule, so an SSO-first or redirecting page is never
   // shown without a working provider behind it. Auto-redirect needs exactly one target.
-  const configuredLoginMode = resolveLoginModeSetting(
-    process.env.BETTER_AUTH_LOGIN_MODE,
-    betterAuthSettings.loginMode,
-  );
+  const configuredLoginMode = resolveLoginModeSetting(betterAuthSettings.loginMode);
   const loginMode: LoginMode = !ssoSignInAvailable
     ? 'dual'
     : configuredLoginMode === 'sso_redirect' && ssoSignInCount > 1

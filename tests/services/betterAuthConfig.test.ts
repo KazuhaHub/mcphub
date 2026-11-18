@@ -216,6 +216,37 @@ describe('betterAuthConfig', () => {
       expect((await resolve()).loginMode).toBe('sso_redirect');
     });
 
+    it('reads the environment variable case-insensitively', async () => {
+      getSystemConfigMock.mockResolvedValue(settings({ loginMode: 'dual' }));
+      process.env.BETTER_AUTH_LOGIN_MODE = ' SSO_FIRST ';
+      expect((await resolve()).loginMode).toBe('sso_first');
+    });
+
+    it('warns once about an invalid environment value', async () => {
+      const { logger } = await import('../../src/utils/logger.js');
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      try {
+        getSystemConfigMock.mockResolvedValue(settings());
+        process.env.BETTER_AUTH_LOGIN_MODE = 'popup';
+        await resolve();
+        const { getBetterAuthRuntimeConfig } = await import('../../src/services/betterAuthConfig.js');
+        await getBetterAuthRuntimeConfig();
+        await getBetterAuthRuntimeConfig();
+        const calls = warn.mock.calls.filter((args) => String(args[0]).includes('BETTER_AUTH_LOGIN_MODE'));
+        expect(calls).toHaveLength(1);
+        expect(String(calls[0][0])).toContain('"popup"');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('drops a stored display name with hidden characters', async () => {
+      const hidden = settings();
+      hidden.auth.betterAuth.providers.oidc.displayName = 'Entra\u202eDI';
+      getSystemConfigMock.mockResolvedValue(hidden);
+      expect((await resolve()).providers.oidc.displayName).toBeUndefined();
+    });
+
     it('publishes the OIDC display name, dropping one that is too long', async () => {
       getSystemConfigMock.mockResolvedValue(settings());
       expect((await resolve()).providers.oidc.displayName).toBe('Microsoft Entra ID');

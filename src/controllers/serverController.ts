@@ -51,6 +51,7 @@ import {
   BatchServerResult,
   ExternalResource,
   ServerConfig,
+  SystemConfig,
   ServerInfo,
   ToolRiskLevel,
 } from '../types/index.js';
@@ -131,6 +132,10 @@ import { isValidEnabledAt } from '../services/connectedClientService.js';
 import { logger } from '../utils/logger.js';
 import { mergeBranding, validateBrandingUpdate, withBrandingUrls } from '../utils/brandingImage.js';
 import { validateLoginPresentationUpdate } from '../utils/loginMode.js';
+import {
+  getLoginModeEnvOverride,
+  resolveBetterAuthRuntimeConfig,
+} from '../services/betterAuthConfig.js';
 import { maskedBearerToken } from '../utils/bearerKeyHash.js';
 import { findToolConfigKey, resolveRuntimeToolName } from '../utils/toolConfig.js';
 
@@ -610,6 +615,18 @@ export const getAllSettings = async (req: Request, res: Response): Promise<void>
               },
             }
           : {}),
+        // Response-only as well: the layout the login page really uses, and whether
+        // BETTER_AUTH_LOGIN_MODE overrides the stored value, so Settings can say so
+        auth: {
+          ...systemConfig.auth,
+          betterAuth: {
+            ...systemConfig.auth?.betterAuth,
+            loginModeStatus: {
+              effective: resolveBetterAuthRuntimeConfig(systemConfig).loginMode,
+              envOverride: getLoginModeEnvOverride() ?? null,
+            },
+          } as NonNullable<SystemConfig['auth']>['betterAuth'],
+        },
       },
       getDefaultInstallBaseUrl({
         requestOrigin: req.get?.('host') ? `${req.protocol}://${req.get('host')}` : undefined,

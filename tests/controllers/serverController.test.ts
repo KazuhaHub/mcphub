@@ -753,6 +753,40 @@ describe('serverController - getAllSettings', () => {
     ]);
   });
 
+  describe('login mode status', () => {
+    const originalEnv = process.env.BETTER_AUTH_LOGIN_MODE;
+    afterEach(() => {
+      if (originalEnv === undefined) delete process.env.BETTER_AUTH_LOGIN_MODE;
+      else process.env.BETTER_AUTH_LOGIN_MODE = originalEnv;
+    });
+    const adminSettings = async () => {
+      mockSystemConfigDao.get.mockResolvedValue({ auth: { betterAuth: { loginMode: 'sso_first' } } });
+      const res = { json: jest.fn(), status: jest.fn().mockReturnThis() } as unknown as Response;
+      await getAllSettings({ user: { username: 'admin', isAdmin: true } } as unknown as Request, res);
+      return (res.json as jest.Mock).mock.calls[0][0].data.systemConfig.auth.betterAuth;
+    };
+
+    it('reports the effective mode next to the stored one, without an env override', async () => {
+      delete process.env.BETTER_AUTH_LOGIN_MODE;
+      const betterAuth = await adminSettings();
+      expect(betterAuth.loginMode).toBe('sso_first');
+      // No provider can sign in here, so the page falls back to the original layout
+      expect(betterAuth.loginModeStatus).toEqual({ effective: 'dual', envOverride: null });
+    });
+
+    it('reports a BETTER_AUTH_LOGIN_MODE override, matched case-insensitively', async () => {
+      process.env.BETTER_AUTH_LOGIN_MODE = ' SSO_Redirect ';
+      expect((await adminSettings()).loginModeStatus.envOverride).toBe('sso_redirect');
+    });
+
+    it('does not persist the status', async () => {
+      delete process.env.BETTER_AUTH_LOGIN_MODE;
+      await adminSettings();
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+      expect(JSON.stringify(mockSystemConfigDao.get.mock.results[0].value)).not.toContain('loginModeStatus');
+    });
+  });
+
   it('returns only the current user keys to non-admin users', async () => {
     const req = {
       user: {
@@ -2082,7 +2116,17 @@ describe('serverController - updateSystemConfig', () => {
       expect(storedBetterAuth().providers.oidc).toEqual({ enabled: true });
     });
 
-    it.each(['x'.repeat(61), 'Entra\nID', 42])('rejects OIDC display name %p', async (displayName) => {
+    it.each([
+      'x'.repeat(61),
+      'Entra\nID',
+      42,
+      // Bidi override/isolate and zero-width characters can disguise the label
+      'Entra‮DI',
+      'Entra⁦ID⁩',
+      '​Entra',
+      'Entra‏ID',
+      '﻿Entra',
+    ])('rejects OIDC display name %p', async (displayName) => {
       await update({ providers: { oidc: { displayName } } });
       expect(mockStatus).toHaveBeenCalledWith(400);
       expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
