@@ -1779,21 +1779,10 @@
       "noneUsable_many": "Ninguno de tus {{count}} servicios seleccionados está disponible ahora."
     },
     "endpoint": {
-      "title": "Mi endpoint",
-      "description": "Una sola URL para todos los servicios que selecciones. No cambia al modificar tu selección.",
-      "direct": "Endpoint directo",
-      "smart": "Endpoint de enrutamiento inteligente",
       "smartHint": "El enrutamiento inteligente expone unas pocas herramientas de búsqueda y llamada en lugar de todas las herramientas, lo que mantiene pequeño el contexto de tu cliente.",
-      "smartDisabled": "El enrutamiento inteligente no está activado en este servidor; consulta a un administrador.",
-      "snippets": "Configuración del cliente",
       "mode": "Tipo de endpoint",
       "mode_direct": "Directo",
-      "mode_smart": "Enrutamiento inteligente",
-      "client": "Cliente",
-      "clientGeneric": "JSON MCP genérico",
-      "clientClaude": "Claude Desktop / Claude Code",
-      "clientCursor": "Cursor",
-      "authNote": "Los fragmentos solo contienen la URL. Tu cliente inicia sesión mediante OAuth la primera vez que se conecta."
+      "mode_smart": "Enrutamiento inteligente"
     },
     "tools": {
       "warning": "Tu selección expone {{count}} herramientas. Las listas largas de herramientas pueden saturar el contexto de tu cliente.",

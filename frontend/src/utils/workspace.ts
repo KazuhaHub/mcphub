@@ -6,11 +6,6 @@ import type {
   WorkspaceStatusCode,
   WorkspaceSummary,
 } from '../types';
-import {
-  buildClientSnippetBlocks,
-  type ClientSnippetBlock,
-  type ClientSnippetId,
-} from './mcpClientSnippets';
 
 /** More tools than this starts to crowd a model's context. */
 export const TOOL_COUNT_WARN = 40;
@@ -124,19 +119,6 @@ export const toggleServerSelection = async (
 /** Smart-routing variant of the personal endpoint. */
 export const buildSmartEndpoint = (aggregate: string, smartPath = '$smart'): string =>
   `${aggregate.replace(/\/+$/, '')}/${smartPath}`;
-
-export const WORKSPACE_SNIPPET_CLIENTS: readonly ClientSnippetId[] = [
-  'generic-mcp-servers',
-  'claude-code',
-  'cursor',
-];
-
-/** URL-only snippets; authentication happens through OAuth the first time a client connects. */
-export const buildWorkspaceSnippets = (
-  id: ClientSnippetId,
-  url: string,
-  name = 'mcphub',
-): ClientSnippetBlock[] => buildClientSnippetBlocks(id, { name, url, type: 'streamable-http' });
 
 export type StatusTone = 'ok' | 'warn' | 'err' | 'muted';
 

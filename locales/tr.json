@@ -1773,21 +1773,10 @@
       "noneUsable_other": "Seçtiğiniz {{count}} hizmetin hiçbiri şu anda kullanılabilir değil."
     },
     "endpoint": {
-      "title": "Uç noktam",
-      "description": "Seçtiğiniz tüm hizmetler için tek bir URL. Seçiminizi değiştirseniz de aynı kalır.",
-      "direct": "Doğrudan uç nokta",
-      "smart": "Akıllı yönlendirme uç noktası",
       "smartHint": "Akıllı yönlendirme, tüm araçlar yerine az sayıda arama ve çağırma aracı sunar; bu da istemcinizin bağlamını küçük tutar.",
-      "smartDisabled": "Bu sunucuda akıllı yönlendirme etkin değil; bir yöneticiye danışın.",
-      "snippets": "İstemci yapılandırması",
       "mode": "Uç nokta türü",
       "mode_direct": "Doğrudan",
-      "mode_smart": "Akıllı yönlendirme",
-      "client": "İstemci",
-      "clientGeneric": "Genel MCP JSON",
-      "clientClaude": "Claude Desktop / Claude Code",
-      "clientCursor": "Cursor",
-      "authNote": "Parçalar yalnızca URL içerir. İstemciniz ilk bağlandığında OAuth ile oturum açar."
+      "mode_smart": "Akıllı yönlendirme"
     },
     "tools": {
       "warning": "Seçiminiz {{count}} araç sunuyor. Uzun araç listeleri istemcinizin bağlamını doldurabilir.",

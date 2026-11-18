@@ -29,7 +29,6 @@ import {
   type ServiceAction,
 } from '@/utils/workspace';
 import ConnectDialog from '@/components/connect/ConnectDialog';
-import MyEndpointCard from './MyEndpointCard';
 import ToolCountIndicator from './ToolCountIndicator';
 import WorkspaceServiceRow from './WorkspaceServiceRow';
 
@@ -269,15 +268,7 @@ const WorkspaceServicesView: React.FC = () => {
     <div className="space-y-4">
       {summary && <SummaryBannerView summary={summary} />}
 
-      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,280px)]">
-        {endpoints && (
-          <MyEndpointCard
-            aggregate={endpoints.aggregate}
-            smartRoutingEnabled={smartRoutingConfig.enabled}
-          />
-        )}
-        <ToolCountIndicator total={countExposedTools(servers)} />
-      </div>
+      <ToolCountIndicator total={countExposedTools(servers)} />
 
       {hiddenTools > 0 && (
         <div className="hub-callout warn" role="status" data-banner="risk">

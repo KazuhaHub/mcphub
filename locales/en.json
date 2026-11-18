@@ -1779,21 +1779,10 @@
       "noneUsable_other": "None of your {{count}} selected services are available right now."
     },
     "endpoint": {
-      "title": "My endpoint",
-      "description": "One URL for every service you select. It stays the same when you change your selection.",
-      "direct": "Direct endpoint",
-      "smart": "Smart routing endpoint",
       "smartHint": "Smart routing exposes a small set of search and call tools instead of every tool, which keeps your client's context small.",
-      "smartDisabled": "Smart routing is not enabled on this server; ask an administrator.",
-      "snippets": "Client configuration",
       "mode": "Endpoint type",
       "mode_direct": "Direct",
-      "mode_smart": "Smart routing",
-      "client": "Client",
-      "clientGeneric": "Generic MCP JSON",
-      "clientClaude": "Claude Desktop / Claude Code",
-      "clientCursor": "Cursor",
-      "authNote": "Snippets contain only the URL. Your client signs in through OAuth the first time it connects."
+      "mode_smart": "Smart routing"
     },
     "tools": {
       "warning": "Your selection exposes {{count}} tools. Large tool lists can crowd your client's context.",

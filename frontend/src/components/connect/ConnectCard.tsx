@@ -64,7 +64,9 @@ const ConnectCard: React.FC = () => {
   const [endpoints, setEndpoints] = useState<WorkspaceEndpoints | null>(null);
   const [failed, setFailed] = useState(false);
   const [smart, setSmart] = useState(false);
-  const [dialog, setDialog] = useState<{ nonce: number; initial: ConnectDialogInitial } | null>(null);
+  const [dialog, setDialog] = useState<{ nonce: number; initial: ConnectDialogInitial } | null>(
+    null,
+  );
   const [width, setWidth] = useState(0);
   const tilesRef = useRef<HTMLDivElement>(null);
 
@@ -150,18 +152,23 @@ const ConnectCard: React.FC = () => {
           ariaLabel={t('connect.endpoint')}
         />
         {smartRoutingConfig.enabled && (
-          <div className="hub-seg" role="group" aria-label={t('workspacePage.endpoint.mode')}>
-            {(['direct', 'smart'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={smart === (value === 'smart')}
-                onClick={() => setSmart(value === 'smart')}
-              >
-                {t(`workspacePage.endpoint.mode_${value}`)}
-              </button>
-            ))}
-          </div>
+          <>
+            <div className="hub-seg" role="group" aria-label={t('workspacePage.endpoint.mode')}>
+              {(['direct', 'smart'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={smart === (value === 'smart')}
+                  onClick={() => setSmart(value === 'smart')}
+                >
+                  {t(`workspacePage.endpoint.mode_${value}`)}
+                </button>
+              ))}
+            </div>
+            <p className="text-[12px] leading-[1.625]" style={{ color: 'var(--hub-ink-3)' }}>
+              {t('workspacePage.endpoint.smartHint')}
+            </p>
+          </>
         )}
       </div>
 

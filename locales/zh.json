@@ -1778,21 +1778,10 @@
       "noneUsable_other": "你已选的 {{count}} 个服务目前都不可用。"
     },
     "endpoint": {
-      "title": "我的端点",
-      "description": "所选的所有服务共用一个 URL，调整选择后该 URL 不变。",
-      "direct": "直连端点",
-      "smart": "智能路由端点",
       "smartHint": "智能路由只暴露少量搜索与调用工具，而不是全部工具，可以让客户端的上下文保持精简。",
-      "smartDisabled": "此服务器尚未启用智能路由，请联系管理员。",
-      "snippets": "客户端配置",
       "mode": "端点类型",
       "mode_direct": "直连",
-      "mode_smart": "智能路由",
-      "client": "客户端",
-      "clientGeneric": "通用 MCP JSON",
-      "clientClaude": "Claude Desktop / Claude Code",
-      "clientCursor": "Cursor",
-      "authNote": "配置片段只包含 URL。客户端首次连接时会通过 OAuth 登录。"
+      "mode_smart": "智能路由"
     },
     "tools": {
       "warning": "你的选择共暴露 {{count}} 个工具，工具过多会挤占客户端的上下文。",

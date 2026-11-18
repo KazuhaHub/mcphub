@@ -1777,21 +1777,10 @@
       "noneUsable_many": "Aucun de vos {{count}} services sélectionnés n'est disponible pour le moment."
     },
     "endpoint": {
-      "title": "Mon endpoint",
-      "description": "Une seule URL pour tous les services sélectionnés. Elle reste la même quand vous modifiez votre sélection.",
-      "direct": "Endpoint direct",
-      "smart": "Endpoint de routage intelligent",
       "smartHint": "Le routage intelligent expose quelques outils de recherche et d'appel au lieu de tous les outils, ce qui garde le contexte de votre client réduit.",
-      "smartDisabled": "Le routage intelligent n'est pas activé sur ce serveur ; demandez à un administrateur.",
-      "snippets": "Configuration du client",
       "mode": "Type d'endpoint",
       "mode_direct": "Direct",
-      "mode_smart": "Routage intelligent",
-      "client": "Client",
-      "clientGeneric": "JSON MCP générique",
-      "clientClaude": "Claude Desktop / Claude Code",
-      "clientCursor": "Cursor",
-      "authNote": "Les extraits contiennent uniquement l'URL. Votre client se connecte via OAuth lors de sa première connexion."
+      "mode_smart": "Routage intelligent"
     },
     "tools": {
       "warning": "Votre sélection expose {{count}} outils. Une longue liste d'outils peut saturer le contexte de votre client.",

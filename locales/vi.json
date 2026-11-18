@@ -1773,21 +1773,10 @@
       "noneUsable_other": "Hiện không có dịch vụ nào trong {{count}} dịch vụ bạn đã chọn khả dụng."
     },
     "endpoint": {
-      "title": "Endpoint của tôi",
-      "description": "Một URL cho mọi dịch vụ bạn chọn. URL không đổi khi bạn thay đổi lựa chọn.",
-      "direct": "Endpoint trực tiếp",
-      "smart": "Endpoint định tuyến thông minh",
       "smartHint": "Định tuyến thông minh chỉ cung cấp một số ít công cụ tìm kiếm và gọi thay vì mọi công cụ, giúp ngữ cảnh của ứng dụng khách gọn nhẹ.",
-      "smartDisabled": "Máy chủ này chưa bật định tuyến thông minh; hãy hỏi quản trị viên.",
-      "snippets": "Cấu hình ứng dụng khách",
       "mode": "Loại endpoint",
       "mode_direct": "Trực tiếp",
-      "mode_smart": "Định tuyến thông minh",
-      "client": "Ứng dụng khách",
-      "clientGeneric": "JSON MCP chung",
-      "clientClaude": "Claude Desktop / Claude Code",
-      "clientCursor": "Cursor",
-      "authNote": "Đoạn cấu hình chỉ chứa URL. Ứng dụng khách sẽ đăng nhập qua OAuth ở lần kết nối đầu tiên."
+      "mode_smart": "Định tuyến thông minh"
     },
     "tools": {
       "warning": "Lựa chọn của bạn cung cấp {{count}} công cụ. Danh sách công cụ dài có thể làm đầy ngữ cảnh của ứng dụng khách.",
