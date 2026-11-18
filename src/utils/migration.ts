@@ -236,6 +236,7 @@ export async function migrateToDatabase(seedServersAndGroups = true): Promise<bo
       logger.log('Migrating system configuration...');
       const systemConfig = {
         dashboardName: settings.systemConfig.dashboardName,
+        dashboardBranding: settings.systemConfig.dashboardBranding,
         normalizeToolNames: settings.systemConfig.normalizeToolNames,
         toolPolicies: settings.systemConfig.toolPolicies,
         network: settings.systemConfig.network || {},

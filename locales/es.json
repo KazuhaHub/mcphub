@@ -954,6 +954,34 @@
     "dashboardName": "Nombre del panel",
     "dashboardNameDescription": "Se muestra en la barra lateral, la cabecera, el inicio de sesión y la pestaña. Déjelo vacío para restaurar el nombre predeterminado.",
     "dashboardNameSaveFailed": "No se pudo guardar el nombre del panel",
+    "branding": {
+      "title": "Marca",
+      "description": "Personalice el nombre y las imágenes que se muestran en el panel. Las imágenes se guardan en el servidor y solo se muestran mediante una etiqueta de imagen.",
+      "upload": "Subir",
+      "replace": "Reemplazar",
+      "remove": "Quitar",
+      "notSet": "Sin definir",
+      "saved": "Imagen guardada",
+      "removed": "Imagen eliminada",
+      "saveFailed": "No se pudo guardar la imagen",
+      "error": {
+        "type": "Use una imagen PNG, JPEG, WebP o SVG.",
+        "size": "La imagen debe pesar 256 KB o menos.",
+        "read": "No se pudo leer la imagen."
+      },
+      "icon": {
+        "label": "Icono",
+        "hint": "Marca cuadrada que se muestra en la barra lateral contraída, la pestaña del navegador, la página de autorización y, sin logotipo, en la barra lateral expandida. Recomendado: cuadrada, al menos 128 px."
+      },
+      "logoLight": {
+        "label": "Logotipo (tema claro)",
+        "hint": "Logotipo ancho para la barra lateral expandida y el inicio de sesión en tema claro; sustituye al icono y al nombre. Recomendado: aprox. 4:1, al menos 64 px de alto."
+      },
+      "logoDark": {
+        "label": "Logotipo (tema oscuro)",
+        "hint": "Logotipo ancho para el tema oscuro en los mismos lugares. Usa el logotipo claro si no se define. Recomendado: aprox. 4:1, al menos 64 px de alto."
+      }
+    },
     "resetBearerKey": "Restablecer clave Bearer",
     "resetBearerKeyConfirm": "¿Restablecer esta clave Bearer? El token anterior dejará de funcionar inmediatamente. Los permisos y el estado no cambiarán.",
     "resetBearerKeySuccess": "Clave restablecida. Copia y guarda el nuevo token antes de cerrar; no volverá a mostrarse.",

@@ -243,10 +243,7 @@ import { createOAuthProvider, MCPHubOAuthProvider } from './mcpOAuthProvider.js'
 import { initSmartRoutingService, isSmartRoutingGroup } from './smartRoutingService.js';
 import { getActivityLoggingService } from './activityLoggingService.js';
 import { filterHostedTools } from './hostedAuthService.js';
-import {
-  formatErrorForLogging,
-  summarizeErrorForLogging,
-} from '../utils/serialization.js';
+import { formatErrorForLogging, summarizeErrorForLogging } from '../utils/serialization.js';
 import { addStdioErrorContext, observeStdioStderr } from '../utils/stdioDiagnostics.js';
 import {
   MCP_APPS_CAPABILITIES,
@@ -2472,7 +2469,8 @@ export const callToolWithReconnect = async (
   dispatchStagingCall(
     serverInfo,
     toolParams,
-    (params) => callToolWithReconnectInner(serverInfo, params, options, maxRetries, isolated, extra),
+    (params) =>
+      callToolWithReconnectInner(serverInfo, params, options, maxRetries, isolated, extra),
     stagingAskUsername(extra),
   );
 
@@ -2503,6 +2501,32 @@ const setupServerKeepAlive = (serverInfo: ServerInfo, serverConfig: ServerConfig
 };
 
 // Initialize MCP server clients
+/**
+ * Entry for a server whose declaration cannot be used (an invalid credential slot, a variable
+ * that fails to expand). It is listed with its error and never started, so one bad declaration
+ * does not stop every other server from starting.
+ */
+const invalidServerInfo = (conf: ServerConfigWithName, error: unknown): ServerInfo => {
+  const message = error instanceof Error ? error.message : String(error);
+  logger.error(
+    `Server '${conf.name}' has an invalid configuration and was not started: ${message}`,
+  );
+  return {
+    name: conf.name,
+    owner: conf.owner,
+    visibility: conf.visibility,
+    sharedWithUserGroups: conf.sharedWithUserGroups,
+    sharedWithUsers: conf.sharedWithUsers,
+    enabled: conf.enabled !== false,
+    status: 'disconnected',
+    error: `Invalid configuration: ${message}`,
+    tools: [],
+    prompts: [],
+    resources: [],
+    createTime: Date.now(),
+  };
+};
+
 export const initializeClientsFromSettings = async (
   isInit: boolean,
   serverName?: string,
@@ -2544,7 +2568,13 @@ export const initializeClientsFromSettings = async (
       }
 
       // Expand environment variables in all configuration values
-      const expandedConf = await expandServerConfig(conf);
+      let expandedConf: ServerConfigWithName;
+      try {
+        expandedConf = await expandServerConfig(conf);
+      } catch (error) {
+        nextServerInfos.push(invalidServerInfo(conf, error));
+        continue;
+      }
 
       if (options?.preserveExisting) {
         const existing = existingServerInfos.find((info) => info.name === name);
@@ -2575,7 +2605,12 @@ export const initializeClientsFromSettings = async (
       }
 
       if (hasPersonalAuthentication(expandedConf)) {
-        validateCredentialTemplate(expandedConf);
+        try {
+          validateCredentialTemplate(expandedConf);
+        } catch (error) {
+          nextServerInfos.push(invalidServerInfo(expandedConf, error));
+          continue;
+        }
         nextServerInfos.push({
           name,
           owner: expandedConf.owner,
@@ -4043,7 +4078,8 @@ const resolveStagingTargets = async (group: string | undefined): Promise<Staging
     // Cheap pre-check: most routes have no staging server and must not pay a
     // config read per server on every tools/list.
     if (!serverInfo.config?.staging && !hasStagedTools(serverInfo.config ?? {})) continue;
-    const config = serverInfo.config ?? (await getServerDao().findById(serverInfo.name)) ?? undefined;
+    const config =
+      serverInfo.config ?? (await getServerDao().findById(serverInfo.name)) ?? undefined;
     if (!config || !hasStagedTools(config)) continue;
     const validation = validateSshServerConfig(config);
     if (!validation.ok) {
@@ -4075,10 +4111,11 @@ const resolveStagingTargets = async (group: string | undefined): Promise<Staging
         ? new Set(groupConfig.tools)
         : undefined;
       const staged: StagingToolTarget[] = Object.entries(config.tools ?? {})
-        .filter(([toolName, toolConfig]) =>
-          (!selectedTools || selectedTools.has(toolName)) &&
-          toolConfig?.enabled !== false &&
-          toolConfig.fileStaging?.enabled,
+        .filter(
+          ([toolName, toolConfig]) =>
+            (!selectedTools || selectedTools.has(toolName)) &&
+            toolConfig?.enabled !== false &&
+            toolConfig.fileStaging?.enabled,
         )
         .map(([toolName, toolConfig]) => ({
           toolName,

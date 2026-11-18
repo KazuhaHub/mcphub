@@ -953,6 +953,34 @@
     "dashboardName": "Pano adı",
     "dashboardNameDescription": "Kenar çubuğu, başlık, giriş sayfası ve tarayıcı sekmesinde gösterilir. Varsayılan ad için boş bırakın.",
     "dashboardNameSaveFailed": "Pano adı kaydedilemedi",
+    "branding": {
+      "title": "Marka",
+      "description": "Panoda gösterilen adı ve görselleri özelleştirin. Görseller sunucuda saklanır ve yalnızca görsel etiketiyle gösterilir.",
+      "upload": "Yükle",
+      "replace": "Değiştir",
+      "remove": "Kaldır",
+      "notSet": "Ayarlanmadı",
+      "saved": "Görsel kaydedildi",
+      "removed": "Görsel kaldırıldı",
+      "saveFailed": "Görsel kaydedilemedi",
+      "error": {
+        "type": "PNG, JPEG, WebP veya SVG görseli kullanın.",
+        "size": "Görsel 256 KB veya daha küçük olmalıdır.",
+        "read": "Görsel okunamadı."
+      },
+      "icon": {
+        "label": "Simge",
+        "hint": "Daraltılmış kenar çubuğunda, tarayıcı sekmesinde, yetkilendirme sayfasında ve logo yoksa genişletilmiş kenar çubuğunda gösterilen kare işaret. Önerilen: kare, en az 128 px."
+      },
+      "logoLight": {
+        "label": "Logo (açık tema)",
+        "hint": "Açık temada genişletilmiş kenar çubuğu ve giriş sayfası için geniş logo; simgenin ve adın yerine geçer. Önerilen: yaklaşık 4:1, en az 64 px yükseklik."
+      },
+      "logoDark": {
+        "label": "Logo (koyu tema)",
+        "hint": "Koyu temada aynı yerler için geniş logo. Ayarlanmazsa açık tema logosu kullanılır. Önerilen: yaklaşık 4:1, en az 64 px yükseklik."
+      }
+    },
     "resetBearerKey": "Bearer anahtarını sıfırla",
     "resetBearerKeyConfirm": "Bu Bearer anahtarı sıfırlansın mı? Eski belirteç hemen geçersiz olacaktır. İzinler ve etkinlik durumu değişmeyecek.",
     "resetBearerKeySuccess": "Anahtar sıfırlandı. Kapatmadan önce yeni belirteci kopyalayıp kaydedin; tekrar gösterilmeyecek.",

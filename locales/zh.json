@@ -779,6 +779,7 @@
     "resourceServer": "MCP 服务器：{{name}}",
     "resourceGroup": "MCP 分组：{{name}}",
     "clientId": "客户端 ID",
+    "clientHost": "请求方",
     "willRedirectTo": "将重定向到：",
     "policy": "隐私政策",
     "terms": "服务条款",
@@ -956,6 +957,34 @@
     "dashboardName": "控制台名称",
     "dashboardNameDescription": "显示在侧栏、页头、登录页和浏览器标签中。留空恢复默认名称。",
     "dashboardNameSaveFailed": "保存控制台名称失败",
+    "branding": {
+      "title": "品牌",
+      "description": "自定义整个控制台显示的名称和图片。图片保存在服务端，仅通过图片标签显示。",
+      "upload": "上传",
+      "replace": "更换",
+      "remove": "移除",
+      "notSet": "未设置",
+      "saved": "图片已保存",
+      "removed": "图片已移除",
+      "saveFailed": "保存图片失败",
+      "error": {
+        "type": "请使用 PNG、JPEG、WebP 或 SVG 图片。",
+        "size": "图片不能超过 256 KB。",
+        "read": "无法读取该图片。"
+      },
+      "icon": {
+        "label": "图标",
+        "hint": "方形标志，显示在折叠侧栏、浏览器标签页、授权确认页；未设置 Logo 时也显示在展开的侧栏中。建议：正方形，至少 128 px。"
+      },
+      "logoLight": {
+        "label": "Logo（浅色主题）",
+        "hint": "宽幅 Logo，用于浅色主题下展开的侧栏和登录页，会替代图标和名称。建议：约 4:1，高度至少 64 px。"
+      },
+      "logoDark": {
+        "label": "Logo（深色主题）",
+        "hint": "深色主题下用于相同位置的宽幅 Logo；未设置时使用浅色主题 Logo。建议：约 4:1，高度至少 64 px。"
+      }
+    },
     "resetBearerKey": "重置 Bearer key",
     "resetBearerKeyConfirm": "确认重置此 Bearer key？原 token 将立即失效，权限和启用状态保持不变。",
     "resetBearerKeySuccess": "Bearer key 已重置。请在关闭前复制并保存新 token，之后将不再显示。",
@@ -1213,6 +1242,8 @@
     "allowedScopes": "允许的作用域",
     "allowedScopesDescription": "使用逗号分隔的作用域列表，在授权时展示给用户",
     "allowedScopesPlaceholder": "例如：read, write",
+    "enableClientIdMetadata": "启用客户端 ID 元数据文档",
+    "clientIdMetadataDescription": "接受以 HTTPS URL 作为客户端 ID，并从该 URL 获取客户端元数据（MCP 推荐的注册方式）。在元数据中以 client_id_metadata_document_supported 声明。",
     "enableDynamicRegistration": "启用动态客户端注册",
     "dynamicRegistrationDescription": "允许遵循 RFC 7591 的客户端通过公共端点自行注册",
     "dynamicRegistrationAllowedGrantTypes": "允许的授权类型",

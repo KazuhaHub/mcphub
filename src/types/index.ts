@@ -298,8 +298,19 @@ export interface FileStagingSettings {
   cleanupIntervalMinutes: number;
 }
 
+/** Optional dashboard images, each a base64 data: URL (see utils/brandingImage.ts). */
+export interface DashboardBranding {
+  /** Square mark: collapsed sidebar, favicon, consent page. */
+  icon?: string;
+  /** Wide wordmark for light theme. */
+  logoLight?: string;
+  /** Wide wordmark for dark theme; falls back to logoLight. */
+  logoDark?: string;
+}
+
 export interface SystemConfig {
   dashboardName?: string;
+  dashboardBranding?: DashboardBranding;
   toolPolicies?: ToolPolicyRule[];
   network?: {
     allowedCidrs?: string[]; // Admin-managed ranges reachable by non-admin-owned upstreams.
@@ -484,7 +495,7 @@ export interface IOAuthToken {
 export interface ExternalResource {
   resource: string; // Absolute https URL (http only on loopback); matched exactly against the `resource` parameter
   name: string; // Display name, shown on the consent screen and in connected clients
-  allowedClients?: string[]; // OAuth client ids allowed to request it; empty or absent = any registered client
+  allowedClients?: string[]; // OAuth client ids allowed to request it; empty or absent = any registered client (a URL-shaped CIMD client id is never implied: list it by URL)
   scopes?: string[]; // Scopes the service needs; only these are granted for it (absent = none), copied into the JWT `scope` claim
 }
 
@@ -511,7 +522,8 @@ export interface OAuthServerConfig {
   clientIdMetadata?: {
     // Client ID Metadata Documents (CIMD, draft-ietf-oauth-client-id-metadata-document):
     // accept HTTPS-URL-shaped client_ids whose metadata is fetched from the URL itself.
-    // Opt-in (default false) because it makes the authorize endpoint fetch attacker-chosen URLs.
+    // On by default (MCP 2026-07-28 recommends it over dynamic registration). Fetches are
+    // SSRF-guarded, size- and time-limited, never follow redirects, and are cached.
     enabled?: boolean;
     cacheTtlMs?: number; // Metadata document cache TTL in milliseconds (default: 3600000)
   };

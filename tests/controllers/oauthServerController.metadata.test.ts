@@ -71,6 +71,7 @@ describe('oauthServerController metadata endpoints', () => {
 
     expect(mockJson).toHaveBeenCalledWith({
       issuer: 'https://mcp.example.com/hub',
+      authorization_response_iss_parameter_supported: true,
       jwks_uri: 'https://mcp.example.com/hub/.well-known/jwks.json',
       authorization_endpoint: 'https://mcp.example.com/hub/oauth/authorize',
       token_endpoint: 'https://mcp.example.com/hub/oauth/token',
@@ -80,6 +81,8 @@ describe('oauthServerController metadata endpoints', () => {
       grant_types_supported: ['authorization_code', 'refresh_token'],
       token_endpoint_auth_methods_supported: ['none'],
       code_challenge_methods_supported: ['S256'],
+      // CIMD is on by default alongside dynamic registration.
+      client_id_metadata_document_supported: true,
       registration_endpoint: 'https://mcp.example.com/hub/oauth/register',
     });
   });

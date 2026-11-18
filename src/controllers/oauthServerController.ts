@@ -1,3 +1,4 @@
+import { getResourceScopes } from '../utils/bearerChallenge.js';
 import { findReusableApproval, resolveConsentScopes } from '../services/oauthApprovalService.js';
 import { getUserSessionVersion, resolveJwtUser } from '../utils/userSession.js';
 import { Request, Response } from 'express';
@@ -19,7 +20,13 @@ import {
   type ResourceClassification,
 } from '../utils/externalResources.js';
 import type { ExternalResource, SystemConfig } from '../types/index.js';
-import { findOAuthClientIncludingCimd, isCimdClientId } from '../services/cimdClientService.js';
+import { allowsLoopbackPortFlexibility, redirectUriMatches } from '../utils/redirectUriMatch.js';
+import {
+  findOAuthClientIncludingCimd,
+  getCimdClientHost,
+  isCimdClientId,
+  validateCimdClientIdUrl,
+} from '../services/cimdClientService.js';
 import { getSystemConfigDao, getGroupDao, getServerDao } from '../dao/index.js';
 import {
   isQueryTokenAllowed,
@@ -28,7 +35,7 @@ import {
 } from '../utils/queryCredentials.js';
 import OAuth2Server from '@node-oauth/oauth2-server';
 import { resolveBetterAuthUser } from '../services/betterAuthSession.js';
-import { cloneDefaultOAuthServerConfig } from '../constants/oauthServerDefaults.js';
+import { cloneDefaultOAuthServerConfig, isCimdEnabled } from '../constants/oauthServerDefaults.js';
 import {
   getPublicInstallBaseUrl,
   getProtectedResourceUrlFromMetadataRequest,
@@ -137,6 +144,17 @@ function validateQueryParam(value: any, name: string, pattern?: RegExp): string 
   return value;
 }
 
+/**
+ * A malformed URL-shaped client_id (draft-ietf-oauth-client-id-metadata-document
+ * section 3) is refused up front with invalid_request, before any fetch.
+ */
+function rejectInvalidCimdClientId(res: Response, clientId: string): boolean {
+  const problem = isCimdClientId(clientId) ? validateCimdClientIdUrl(clientId) : undefined;
+  if (!problem) return false;
+  res.status(400).json({ error: 'invalid_request', error_description: problem });
+  return true;
+}
+
 async function validateClientRedirectUri(
   res: Response,
   clientId: unknown,
@@ -158,13 +176,19 @@ async function validateClientRedirectUri(
     return null;
   }
 
+  if (rejectInvalidCimdClientId(res, clientId)) {
+    return null;
+  }
+
   const client = await findOAuthClientIncludingCimd(clientId);
   if (!client) {
     res.status(400).json({ error: 'invalid_client', error_description: 'Client not found' });
     return null;
   }
 
-  if (!client.redirectUris.includes(redirectUri)) {
+  if (
+    !redirectUriMatches(client.redirectUris, redirectUri, allowsLoopbackPortFlexibility(client))
+  ) {
     res.status(400).json({
       error: 'invalid_request',
       error_description: 'Invalid redirect_uri',
@@ -252,6 +276,8 @@ const generateAuthorizeHtml = (
   message: string,
   options: {
     clientName: string;
+    // Host of a CIMD client_id URL, shown on its own line: client_name is self-asserted.
+    clientHost?: string;
     scopes: { name: string; description: string }[];
     approveLabel: string;
     denyLabel: string;
@@ -285,6 +311,7 @@ const generateAuthorizeHtml = (
           .client-box { margin: 16px 0 20px; padding: 14px 16px; background: #eef2ff; border-radius: 10px; border: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 4px; }
           .client-box-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; }
           .client-box-name { font-weight: 600; color: #111827; }
+          .client-box-host { font-family: ui-monospace, monospace; font-size: 13px; color: #111827; }
           .scopes { margin: 22px 0 16px; }
           .scopes-title { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 8px; }
           .scope-item { padding: 8px 0; border-bottom: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 2px; }
@@ -309,6 +336,7 @@ const generateAuthorizeHtml = (
           <div class="client-box">
             <span class="client-box-label">${escapeHtml(options.clientName ? 'Application' : 'Client')}</span>
             <span class="client-box-name">${escapeHtml(options.clientName || '')}</span>
+            ${options.clientHost ? `<span class="client-box-label">Requested by</span><span class="client-box-host">${escapeHtml(options.clientHost)}</span>` : ''}
           </div>
           ${
             options.resourceNotice
@@ -521,6 +549,10 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
+    if (rejectInvalidCimdClientId(res, client_id as string)) {
+      return;
+    }
+
     // Verify client
     const client = await findOAuthClientIncludingCimd(client_id as string);
     if (!client) {
@@ -529,7 +561,13 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
     }
 
     // Verify redirect URI
-    if (!client.redirectUris.includes(redirect_uri as string)) {
+    if (
+      !redirectUriMatches(
+        client.redirectUris,
+        redirect_uri as string,
+        allowsLoopbackPortFlexibility(client),
+      )
+    ) {
       res.status(400).json({ error: 'invalid_request', error_description: 'Invalid redirect_uri' });
       return;
     }
@@ -716,6 +754,11 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
       // once the visitor is signed in.
       contacts: needsSession ? undefined : client.metadata?.contacts,
       applicationType: client.metadata?.application_type,
+      // A CIMD client is identified by its client_id URL: show who is asking (its host), since
+      // client_name is self-asserted. The logo is not shown: it would be fetched from the
+      // client's server by the user's browser, and the draft requires it be prefetched first.
+      clientHost: getCimdClientHost(client_id),
+      ...(isCimdClientId(client_id) ? { logoUri: undefined } : {}),
     };
     const consentContext: OAuthConsentContext = {
       clientName: client.name || '',
@@ -773,6 +816,7 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
           'Allow this application to access your MCPHub account.',
         {
           clientName: client.name,
+          clientHost: getCimdClientHost(client_id),
           scopes,
           resourceNotice: externalResource
             ? `${externalResource.name} (${externalResource.resource})`
@@ -1028,9 +1072,14 @@ export const getUserInfo = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
+const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
+
 /**
- * GET /.well-known/oauth-authorization-server
- * OAuth 2.0 Authorization Server Metadata (RFC 8414)
+ * GET /.well-known/oauth-authorization-server[/<issuer-path>]
+ * OAuth 2.0 Authorization Server Metadata (RFC 8414). When the issuer has a path
+ * (a public base URL with a prefix), RFC 8414 section 3.1 inserts the well-known
+ * segment between host and path, so the document is also served there, and only
+ * there for that issuer: any other suffix is a different issuer and answers 404.
  */
 export const getMetadata = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1045,10 +1094,22 @@ export const getMetadata = async (req: Request, res: Response): Promise<void> =>
     }
 
     const baseUrl = normalizeIssuer(getPublicInstallBaseUrl(req, systemConfig));
+
+    if (req.params?.issuerPath !== undefined) {
+      const issuerPath = baseUrl ? new URL(baseUrl).pathname.replace(/\/+$/, '') : '';
+      const requestedPath = req.path.slice(AS_METADATA_PATH.length).replace(/\/+$/, '');
+      if (!issuerPath || requestedPath !== issuerPath) {
+        res.status(404).json({ error: 'not_found' });
+        return;
+      }
+    }
+
     const allowedScopes = oauthConfig.allowedScopes || ['read', 'write'];
 
     const metadata: any = {
       issuer: baseUrl,
+      // RFC 9207: every authorization response, errors included, carries `iss`.
+      authorization_response_iss_parameter_supported: true,
       authorization_endpoint: `${baseUrl}/oauth/authorize`,
       token_endpoint: `${baseUrl}/oauth/token`,
       userinfo_endpoint: `${baseUrl}/oauth/userinfo`,
@@ -1064,6 +1125,12 @@ export const getMetadata = async (req: Request, res: Response): Promise<void> =>
       // Only S256 is supported; the library rejects plain (GHSA-3m7m).
       code_challenge_methods_supported: ['S256'],
     };
+
+    // Client ID Metadata Documents (draft-ietf-oauth-client-id-metadata-document, section 8):
+    // advertised exactly when URL-shaped client_ids are resolved.
+    if (isCimdEnabled(oauthConfig)) {
+      metadata.client_id_metadata_document_supported = true;
+    }
 
     // Add dynamic registration endpoint if enabled
     if (oauthConfig.dynamicRegistration?.enabled) {
@@ -1148,13 +1215,12 @@ export const getProtectedResourceMetadata = async (req: Request, res: Response):
       res.status(404).json({ error: 'Protected resource not found' });
       return;
     }
-    const allowedScopes = oauthConfig.allowedScopes || ['read', 'write'];
-
     // Return protected resource metadata according to RFC 9728
     res.json({
       resource,
       authorization_servers: [baseUrl],
-      scopes_supported: allowedScopes,
+      // Same set the 401 challenge advertises (see getResourceScopes).
+      scopes_supported: getResourceScopes(systemConfig),
       bearer_methods_supported: ['header'],
     });
   } catch (error) {

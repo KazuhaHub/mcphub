@@ -15,6 +15,7 @@ import { auth } from '../middlewares/auth.js';
 import { parseBearerAuthorization } from '../utils/bearerAuth.js';
 import { resolveInstallBaseUrl } from '../utils/installBaseUrl.js';
 import { logger } from '../utils/logger.js';
+import { cloneDefaultOAuthServerConfig } from '../constants/oauthServerDefaults.js';
 
 /**
  * POST /oauth/register
@@ -24,10 +25,12 @@ import { logger } from '../utils/logger.js';
 export const registerClient = async (req: Request, res: Response): Promise<void> => {
   try {
     const systemConfig = await getSystemConfigDao().get();
-    const oauthConfig = systemConfig?.oauthServer;
+    // Same merge as the metadata endpoint, so registration is open exactly when
+    // `registration_endpoint` is advertised, even with a partial `oauthServer` block.
+    const oauthConfig = { ...cloneDefaultOAuthServerConfig(), ...systemConfig?.oauthServer };
 
     // Check if dynamic registration is enabled
-    if (!oauthConfig?.dynamicRegistration?.enabled) {
+    if (!oauthConfig.enabled || !oauthConfig.dynamicRegistration?.enabled) {
       res.status(403).json({
         error: 'invalid_request',
         error_description: 'Dynamic client registration is not enabled',
@@ -348,7 +351,7 @@ export const updateClientConfiguration = async (req: Request, res: Response): Pr
     } = req.body;
 
     const systemConfig = await getSystemConfigDao().get();
-    const oauthConfig = systemConfig?.oauthServer;
+    const oauthConfig = { ...cloneDefaultOAuthServerConfig(), ...systemConfig?.oauthServer };
 
     // Validate redirect URIs if provided
     if (redirect_uris) {

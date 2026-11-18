@@ -50,13 +50,16 @@ import { sseUserContextMiddleware } from '../../src/middlewares/userContext.js';
 const createResponse = () => {
   const status = jest.fn().mockReturnThis();
   const json = jest.fn();
+  const setHeader = jest.fn();
 
   return {
     status,
     json,
+    setHeader,
     response: {
       status,
       json,
+      setHeader,
     } as unknown as Response,
   };
 };
@@ -112,7 +115,8 @@ describe('sseUserContextMiddleware', () => {
       params: { user: 'ghost' },
       header: (name: string) => (name === 'x-auth-token' ? token : undefined),
       query: {},
-      headers: {},
+      headers: { host: 'hub.example' },
+      originalUrl: '/alice/mcp',
     } as unknown as Request;
 
     await sseUserContextMiddleware(req, response, next);
@@ -146,7 +150,8 @@ describe('sseUserContextMiddleware', () => {
       params: { user: 'alice' },
       header: (name: string) => (name === 'x-auth-token' ? token : undefined),
       query: {},
-      headers: {},
+      headers: { host: 'hub.example' },
+      originalUrl: '/alice/mcp',
     } as unknown as Request;
 
     await sseUserContextMiddleware(req, response, next);
@@ -174,7 +179,8 @@ describe('sseUserContextMiddleware', () => {
       params: { user: 'bob' },
       header: (name: string) => (name === 'x-auth-token' ? token : undefined),
       query: {},
-      headers: {},
+      headers: { host: 'hub.example' },
+      originalUrl: '/alice/mcp',
     } as unknown as Request;
 
     await sseUserContextMiddleware(req, response, next);
@@ -210,7 +216,8 @@ describe('sseUserContextMiddleware', () => {
       params: { user: 'alice' },
       header: (name: string) => (name === 'x-auth-token' ? token : undefined),
       query: {},
-      headers: {},
+      headers: { host: 'hub.example' },
+      originalUrl: '/alice/mcp',
     } as unknown as Request;
 
     await sseUserContextMiddleware(req, response, next);
@@ -284,7 +291,8 @@ describe('sseUserContextMiddleware', () => {
       params: { user: 'alice' },
       header: () => undefined,
       query: {},
-      headers: { 'cf-access-jwt-assertion': 'gateway.jwt.token' },
+      headers: { 'cf-access-jwt-assertion': 'gateway.jwt.token', host: 'hub.example' },
+      originalUrl: '/alice/mcp',
     } as unknown as Request;
 
     await sseUserContextMiddleware(req, response, next);

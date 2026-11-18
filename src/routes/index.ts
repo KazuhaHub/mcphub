@@ -1,4 +1,7 @@
-import { listMyOAuthApprovals, revokeMyOAuthApproval } from '../controllers/oauthApprovalController.js';
+import {
+  listMyOAuthApprovals,
+  revokeMyOAuthApproval,
+} from '../controllers/oauthApprovalController.js';
 import {
   createPasskeyLoginOptions,
   createPasskeyRegistrationOptions,
@@ -137,6 +140,7 @@ import {
   getPublicConfig,
   getMcpSettingsJson,
 } from '../controllers/configController.js';
+import { getBrandingImage } from '../controllers/brandingController.js';
 import { callTool } from '../controllers/toolController.js';
 import { getPrompt } from '../controllers/promptController.js';
 import {
@@ -299,7 +303,14 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
     postToken,
   ); // Public endpoint for token exchange
   app.get('/oauth/userinfo', mcpConnectionRateLimiter, getUserInfo); // Validates OAuth token
-  app.get('/.well-known/oauth-authorization-server', mcpConnectionRateLimiter, getMetadata); // Public metadata endpoint
+  app.get(
+    [
+      '/.well-known/oauth-authorization-server',
+      '/.well-known/oauth-authorization-server/:issuerPath(*)',
+    ],
+    mcpConnectionRateLimiter,
+    getMetadata,
+  ); // Public metadata endpoint (RFC 8414, path-inserted form for issuers with a path)
   app.get('/.well-known/jwks.json', mcpConnectionRateLimiter, getJwks); // Public keys for external-resource JWTs
   app.get(
     [
@@ -318,7 +329,10 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
 
   authenticatedRouter.use(authenticatedRouteRateLimiter);
   authenticatedRouter.get('/cluster', requireAdminMiddleware, (_req, res) => {
-    if (!isReplicaMode()) { res.sendStatus(404); return; }
+    if (!isReplicaMode()) {
+      res.sendStatus(404);
+      return;
+    }
     res.json({ success: true, data: replicaStatus() });
   });
   authenticatedRouter.use(replicaConfiguration);
@@ -595,8 +609,6 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
 
   router.get('/auth/user', authenticatedRouteRateLimiter, auth, getCurrentUser);
 
-
-
   // Add change password route
   router.post(
     '/auth/change-password',
@@ -614,6 +626,11 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
 
   // Public configuration endpoint (no auth required to check skipAuth setting)
   app.get(`${config.basePath}/public-config`, getPublicConfig);
+
+  // Public dashboard branding images (icon and logos); the public config links to these.
+  // The slot names are fixed so other /api/branding/... paths (for example a group named
+  // "branding" with its OpenAPI routes) still fall through to their own handlers.
+  app.get(`${config.basePath}/api/branding/:slot(icon|logoLight|logoDark)`, getBrandingImage);
 
   // Public marketplace discovery API (issue #809). Off by default; enable via
   // systemConfig.discovery.enabled. When disabled, all of these return 404 to
@@ -647,6 +664,22 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
   router.use(authenticatedRouter);
 
   app.use(`${config.basePath}/api`, router);
+
+  // Every other well-known URL (OpenID Connect discovery, path-appended variants, anything a
+  // client probes) is an honest JSON 404. MCPHub is not an OpenID Provider (it issues no
+  // id_token), so it publishes RFC 8414 metadata only. Registered after every
+  // real well-known route and before the SPA fallback that server.ts adds later, so a probe
+  // never receives index.html.
+  app.use((req, res, next) => {
+    if (
+      (req.method === 'GET' || req.method === 'HEAD') &&
+      /(^|\/)\.well-known(\/|$)/.test(req.path)
+    ) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+    next();
+  });
 };
 
 export default router;

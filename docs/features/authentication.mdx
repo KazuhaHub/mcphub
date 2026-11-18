@@ -170,6 +170,15 @@ When `systemConfig.oauthServer.enabled` is `true`, MCPHub exposes an OAuth 2.0 /
 
 OAuth access tokens issued here authenticate MCP transport requests and `/oauth/userinfo`. They are not dashboard API credentials and are rejected on `/api/*`; use a dashboard JWT, Better Auth session, configured forward auth, or a system all-access bearer key for management.
 
+### Challenges on MCP and SSE routes
+
+Every MCP and SSE route (`/mcp`, `/sse`, `/messages`, their `/:user/...` and group forms, and the smart-routing alias) answers an unauthenticated or unauthorized request with `401` and a `WWW-Authenticate: Bearer` challenge that carries `resource_metadata` and `scope` (RFC 6750 section 3, RFC 9728):
+
+- No credentials: `Bearer resource_metadata="...", scope="read write"`, with no `error` code, because the request lacked authentication. The JSON body keeps its `error: "invalid_token"` shape for older clients.
+- An invalid, expired or revoked token: the same challenge plus `error="invalid_token"` and `error_description`.
+- `scope` lists the scopes a client should request for the resource: the OAuth server's `allowedScopes` without `offline_access` and without `credentials:write:<server>` scopes. It is the same list as `scopes_supported` in the protected resource metadata, and is left out when the OAuth server is disabled.
+- MCPHub does not enforce a particular scope on MCP routes today (a valid token opens them whatever scopes it carries), so it never answers `403 insufficient_scope`. The `403` returned when a bearer key or token belongs to a different user than the `/:user/...` route carries no challenge: the credential is valid and requesting other scopes would not help.
+
 ## Better Auth (GitHub / Google / local OIDC)
 
 <Warning>

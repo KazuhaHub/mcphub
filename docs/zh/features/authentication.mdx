@@ -25,6 +25,15 @@ Dashboard JWT、[通行密钥](#通行密钥passkey) 和 MCPHub 内置 OAuth 授
 
 内置 OAuth token 可用于 MCP 传输接口及 `/oauth/userinfo`，不能访问 `/api/*` 管理接口。管理操作请使用 Dashboard JWT、Better Auth session、已配置的 forward auth 或系统级全访问 bearer key。
 
+### MCP 与 SSE 路由的认证质询
+
+所有 MCP 与 SSE 路由（`/mcp`、`/sse`、`/messages`，以及它们的 `/:user/...`、分组形式和智能路由别名）在请求未认证或认证失败时返回 `401`，并带有包含 `resource_metadata` 与 `scope` 的 `WWW-Authenticate: Bearer` 质询（RFC 6750 第 3 节、RFC 9728）：
+
+- 未携带凭证：`Bearer resource_metadata="...", scope="read write"`，不带 `error` 码，因为请求缺少认证信息。为兼容旧客户端，JSON 响应体仍保留 `error: "invalid_token"`。
+- 令牌无效、过期或已撤销：在上述质询基础上增加 `error="invalid_token"` 与 `error_description`。
+- `scope` 是客户端访问该资源应申请的 scope：OAuth 服务的 `allowedScopes`，去掉 `offline_access` 和 `credentials:write:<server>`。它与受保护资源元数据中的 `scopes_supported` 一致；OAuth 服务被禁用时不返回该参数。
+- MCPHub 目前不对 MCP 路由要求特定 scope（有效令牌无论携带什么 scope 都可访问），因此不会返回 `403 insufficient_scope`。当 Bearer 密钥或令牌所属用户与 `/:user/...` 路由不一致时返回的 `403` 不带质询：凭证有效，申请其他 scope 也无济于事。
+
 ## 通行密钥（Passkey）
 
 本地账户可以使用通行密钥（WebAuthn）代替密码登录。通行密钥是保存在用户设备、密码管理器或安全密钥中的可发现凭据，因此登录页无需输入用户名：点击 **使用通行密钥登录**，再通过设备的指纹、面容、屏幕锁或 PIN 确认即可。

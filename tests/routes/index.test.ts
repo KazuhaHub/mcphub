@@ -1,11 +1,14 @@
 import express from 'express';
 import { jest } from '@jest/globals';
+import request from 'supertest';
 
 const routeHandler = jest.fn();
 const uploadMiddleware = jest.fn();
 const authMiddleware = jest.fn((_req, _res, next) => next());
 
-jest.mock('../../src/controllers/personalOAuthController.js', () => ({ managePersonalOAuth: routeHandler }));
+jest.mock('../../src/controllers/personalOAuthController.js', () => ({
+  managePersonalOAuth: routeHandler,
+}));
 
 jest.mock('../../src/controllers/serverController.js', () => ({
   getAllServers: routeHandler,
@@ -339,7 +342,9 @@ describe('initRoutes authenticated API rate limiting', () => {
       true,
     );
     expect(routerContainsRoute(protectedRouter!, 'get', '/servers/:name')).toBe(true);
-    expect(routerContainsRoute(protectedRouter!, 'post', '/servers/:serverName/tools/toggle')).toBe(true);
+    expect(routerContainsRoute(protectedRouter!, 'post', '/servers/:serverName/tools/toggle')).toBe(
+      true,
+    );
     expect(routerContainsRoute(protectedRouter!, 'post', '/servers/:name/oauth/disconnect')).toBe(
       true,
     );
@@ -474,6 +479,37 @@ it('registers root and path-aware resource metadata before the dashboard', async
   ).toBeDefined();
 });
 
+describe('well-known fallback', () => {
+  const buildApp = async () => {
+    const app = express();
+    await initRoutes(app);
+    // The dashboard fallback server.ts registers after initRoutes.
+    app.get('/*', (_req, res) => res.type('html').send('<!doctype html><title>spa</title>'));
+    return app;
+  };
+
+  it.each([
+    '/.well-known/openid-configuration',
+    '/.well-known/openid-configuration/hub',
+    '/hub/.well-known/openid-configuration',
+    '/.well-known/anything-else',
+  ])('answers JSON 404, never the SPA shell, for %s', async (path) => {
+    const response = await request(await buildApp())
+      .get(path)
+      .expect(404)
+      .expect('Content-Type', /application\/json/);
+    expect(response.body).toEqual({ error: 'not_found' });
+  });
+
+  it('does not shadow served well-known routes or the dashboard', async () => {
+    const app = await buildApp();
+    expect(findAppRoute(app, 'get', '/.well-known/mcp-marketplace')).toBeDefined();
+    expect(
+      findAppRoute(app, 'get', '/.well-known/oauth-authorization-server/:issuerPath(*)'),
+    ).toBeDefined();
+    await request(app).get('/dashboard').expect(200).expect('Content-Type', /html/);
+  });
+});
 
 it('registers metrics at the root independently of dashboard API authentication', async () => {
   const app = express();

@@ -917,6 +917,20 @@ ls -la /path/to/server
 
 管理员可以在 **设置 → 系统设置 → 控制台名称** 中自定义名称，也可以在 `mcp_settings.json` 中设置 `systemConfig.dashboardName`（例如 `"dashboardName": "Team MCP"`）。名称会显示在侧栏、页头、登录页和浏览器标签中，首尾空格会被去除，长度上限为 100 个字符。保存空值可恢复默认名称。文件和数据库存储模式均支持持久化此设置。
 
+#### 控制台图片
+
+**设置 → 系统设置 → 品牌** 还支持三张可选图片，保存为 `systemConfig.dashboardBranding`（`icon`、`logoLight`、`logoDark`）：
+
+| 槽位 | 显示位置 | 建议尺寸 |
+| --- | --- | --- |
+| `icon` | 折叠的侧栏、浏览器标签页图标、OAuth 授权页；未设置 Logo 时也显示在展开的侧栏中（位于名称和版本旁） | 正方形，至少 128 px |
+| `logoLight` | 浅色主题下展开的侧栏和登录页。会替代图标和名称；侧栏中版本号仍显示在其下方 | 约 4:1，高度至少 64 px |
+| `logoDark` | 深色主题下的相同位置；未设置时使用 `logoLight` | 约 4:1，高度至少 64 px |
+
+未设置任何图片时，仍显示默认的 “M” 图块和控制台名称。只设置 Logo 时，折叠侧栏和浏览器标签页仍使用 “M” 图块。只设置图标时，所有位置均显示图标和名称。
+
+每个值都是 base64 `data:` URL，类型为 `image/png`、`image/jpeg`、`image/webp` 或 `image/svg+xml`，解码后不超过 256 KB。不接受远程 URL，因此控制台不会让浏览器访问其他主机。图片通过 `GET /api/branding/<slot>`（`icon`、`logoLight`、`logoDark`）无需登录即可获取，带有正确的 `Content-Type`、`nosniff`、基于内容哈希的 `ETag` 和一年的 immutable 缓存；SVG 还会带有沙箱化的 `Content-Security-Policy`。公共配置只列出带版本号的 URL（`...?v=<哈希前缀>`），不包含图片数据，替换图片后 URL 会随之变化。图片仅通过 `<img>` 元素显示，SVG 中的脚本不会执行。较大的位图会在上传前由控制台缩小。移除图片即清空该槽位，图片也会包含在设置导出中。文件和数据库存储模式均支持持久化；若关闭了数据库结构同步，升级前请先执行 `docs/migrations/0009-dashboard-branding.sql`（或在启用同步的情况下运行 `pnpm db:setup`）。
+
 
 ## 用户组共享
 

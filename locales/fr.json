@@ -953,6 +953,34 @@
     "dashboardName": "Nom du tableau de bord",
     "dashboardNameDescription": "Affiché dans la barre latérale, l’en-tête, la connexion et l’onglet. Laissez vide pour rétablir le nom par défaut.",
     "dashboardNameSaveFailed": "Échec de l’enregistrement du nom",
+    "branding": {
+      "title": "Image de marque",
+      "description": "Personnalisez le nom et les images affichés dans le tableau de bord. Les images sont stockées sur le serveur et affichées uniquement via une balise image.",
+      "upload": "Téléverser",
+      "replace": "Remplacer",
+      "remove": "Supprimer",
+      "notSet": "Non défini",
+      "saved": "Image enregistrée",
+      "removed": "Image supprimée",
+      "saveFailed": "Échec de l’enregistrement de l’image",
+      "error": {
+        "type": "Utilisez une image PNG, JPEG, WebP ou SVG.",
+        "size": "L’image doit faire 256 Ko ou moins.",
+        "read": "Impossible de lire l’image."
+      },
+      "icon": {
+        "label": "Icône",
+        "hint": "Pictogramme carré affiché dans la barre latérale réduite, l’onglet du navigateur, la page d’autorisation et, sans logo, dans la barre latérale développée. Recommandé : carré, au moins 128 px."
+      },
+      "logoLight": {
+        "label": "Logo (thème clair)",
+        "hint": "Logo large pour la barre latérale développée et la page de connexion en thème clair ; il remplace l’icône et le nom. Recommandé : environ 4:1, au moins 64 px de haut."
+      },
+      "logoDark": {
+        "label": "Logo (thème sombre)",
+        "hint": "Logo large pour le thème sombre aux mêmes endroits. Utilise le logo clair s’il n’est pas défini. Recommandé : environ 4:1, au moins 64 px de haut."
+      }
+    },
     "resetBearerKey": "Réinitialiser la clé Bearer",
     "resetBearerKeyConfirm": "Réinitialiser cette clé Bearer ? L’ancien jeton cessera immédiatement de fonctionner. Les autorisations et l’état resteront identiques.",
     "resetBearerKeySuccess": "Clé réinitialisée. Copiez et conservez le nouveau jeton avant de fermer ; il ne sera plus affiché.",

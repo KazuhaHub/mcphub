@@ -777,6 +777,7 @@
     "resourceServer": "MCP server: {{name}}",
     "resourceGroup": "MCP group: {{name}}",
     "clientId": "Client ID",
+    "clientHost": "Requested by",
     "willRedirectTo": "Will redirect to:",
     "policy": "Privacy policy",
     "terms": "Terms",
@@ -954,6 +955,34 @@
     "dashboardName": "Dashboard name",
     "dashboardNameDescription": "Shown in the sidebar, header, login page and browser tab. Leave blank to restore the default name.",
     "dashboardNameSaveFailed": "Failed to save dashboard name",
+    "branding": {
+      "title": "Branding",
+      "description": "Customize the name and images shown across the dashboard. Images are stored in the hub and shown only through an image tag.",
+      "upload": "Upload",
+      "replace": "Replace",
+      "remove": "Remove",
+      "notSet": "Not set",
+      "saved": "Image saved",
+      "removed": "Image removed",
+      "saveFailed": "Failed to save image",
+      "error": {
+        "type": "Use a PNG, JPEG, WebP or SVG image.",
+        "size": "The image must be 256 KB or smaller.",
+        "read": "The image could not be read."
+      },
+      "icon": {
+        "label": "Icon",
+        "hint": "Square mark shown in the collapsed sidebar, the browser tab, the sign-in approval page and, without a logo, the expanded sidebar. Recommended: square, at least 128 px."
+      },
+      "logoLight": {
+        "label": "Logo (light theme)",
+        "hint": "Wide logo for the expanded sidebar and the login page in light theme; it replaces the icon and name. Recommended: about 4:1, at least 64 px tall."
+      },
+      "logoDark": {
+        "label": "Logo (dark theme)",
+        "hint": "Wide logo for dark theme in the same places. Uses the light logo when not set. Recommended: about 4:1, at least 64 px tall."
+      }
+    },
     "resetBearerKey": "Reset Bearer key",
     "resetBearerKeyConfirm": "Reset this Bearer key? The old token will stop working immediately. Permissions and enabled status will stay the same.",
     "resetBearerKeySuccess": "Bearer key reset. Copy and save the new token before closing; it will not be shown again.",
@@ -1210,6 +1239,8 @@
     "allowedScopes": "Allowed Scopes",
     "allowedScopesDescription": "Comma-separated list of scopes users can approve during authorization",
     "allowedScopesPlaceholder": "e.g. read, write",
+    "enableClientIdMetadata": "Enable Client ID Metadata Documents",
+    "clientIdMetadataDescription": "Accept HTTPS-URL client IDs and fetch the client's metadata from that URL (the recommended registration method in MCP). Advertised as client_id_metadata_document_supported.",
     "enableDynamicRegistration": "Enable Dynamic Client Registration",
     "dynamicRegistrationDescription": "Allow RFC 7591 compliant clients to self-register using the public endpoint",
     "dynamicRegistrationAllowedGrantTypes": "Allowed Grant Types",

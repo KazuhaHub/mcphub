@@ -2,6 +2,7 @@ import { resolveUserSession } from './userSession.js';
 import { isOAuthServerEnabled } from '../services/oauthServerService.js';
 import { getToken as getOAuthStoredToken } from '../models/OAuth.js';
 import { IUser, SystemConfig } from '../types/index.js';
+import { getCimdSettings, isCimdClientId } from '../services/cimdClientService.js';
 import { safeCompare } from './safeCompare.js';
 import { getCachedSystemConfig } from './systemConfigCache.js';
 import { isOAuthTokenIdle } from '../services/connectedClientService.js';
@@ -28,6 +29,12 @@ export const resolveOAuthGrantFromToken = async (
 
   const oauthToken = await getOAuthStoredToken(token);
   if (!oauthToken || !safeCompare(oauthToken.accessToken, token)) {
+    return null;
+  }
+
+  // A Client ID Metadata Document client's grants stop working with the feature: disabling CIMD
+  // must not leave its existing access tokens usable on MCP routes until they expire.
+  if (isCimdClientId(oauthToken.clientId) && !(await getCimdSettings()).enabled) {
     return null;
   }
 

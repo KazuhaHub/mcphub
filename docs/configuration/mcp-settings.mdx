@@ -1015,3 +1015,17 @@ The editor warns about IDs absent from the loaded servers, keys or groups. Start
 
 
 Administrators can customize the dashboard name in **Settings → System Settings → Dashboard name**, or set `systemConfig.dashboardName` in `mcp_settings.json` (for example, `"dashboardName": "Team MCP"`). The name appears in the sidebar, header, login page, and browser tab. Names are trimmed and limited to 100 characters. Save an empty value to restore the default branding. This setting persists in both file and database storage modes.
+
+#### Dashboard images
+
+**Settings → System Settings → Branding** also accepts three optional images, stored as `systemConfig.dashboardBranding` (`icon`, `logoLight`, `logoDark`):
+
+| Slot | Where it appears | Recommended size |
+| --- | --- | --- |
+| `icon` | Collapsed sidebar, browser tab icon, OAuth authorization page, and the expanded sidebar (next to the name and version) when no logo is set | Square, at least 128 px |
+| `logoLight` | Expanded sidebar and login page in light theme. Replaces the icon and name; the sidebar keeps the version line under it | About 4:1, at least 64 px tall |
+| `logoDark` | Same places in dark theme. Falls back to `logoLight` when unset | About 4:1, at least 64 px tall |
+
+With no image set, the default "M" tile and the dashboard name stay as before. With only logos set, the collapsed sidebar and the browser tab keep the "M" tile. With only an icon set, the icon is shown with the name everywhere.
+
+Each value is a base64 `data:` URL of type `image/png`, `image/jpeg`, `image/webp` or `image/svg+xml`, at most 256 KB after decoding. Remote URLs are rejected, so the dashboard never points browsers at another host. The images are served without authentication from `GET /api/branding/<slot>` (`icon`, `logoLight`, `logoDark`), with the correct `Content-Type`, `nosniff`, a content-hash `ETag` and a one-year immutable cache; SVGs also carry a sandboxing `Content-Security-Policy`. The public configuration lists only versioned URLs (`...?v=<hash prefix>`), not image data, so a replaced image gets a new URL. Images are shown only through `<img>` elements, so scripts inside an SVG do not run. Large raster images are scaled down in the dashboard before upload. Removing an image clears the slot, and the images are included in settings exports. Both file and database storage modes persist them; with database schema synchronization disabled, apply `docs/migrations/0009-dashboard-branding.sql` before upgrading (or run `pnpm db:setup` with synchronization enabled).

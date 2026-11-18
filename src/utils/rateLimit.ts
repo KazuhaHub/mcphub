@@ -115,7 +115,7 @@ export const apiAuthGateRateLimiter = createStandardRateLimiter({
       '../services/betterAuthConfig.js'
     );
     const betterAuthConfig = await getBetterAuthRuntimeConfig();
-    return isApiAuthExemptPath(req.path, betterAuthConfig);
+    return isApiAuthExemptPath(req.path, betterAuthConfig, req.method);
   },
 });
 

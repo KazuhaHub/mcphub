@@ -17,9 +17,20 @@ export const DEFAULT_OAUTH_SERVER_CONFIG: OAuthServerConfig = {
     clientTtl: 2592000, // 30 days: reap idle dynamically-registered clients with no live tokens
   },
   clientIdMetadata: {
-    enabled: false,
+    enabled: true,
     cacheTtlMs: 3_600_000,
   },
+};
+
+/**
+ * Whether Client ID Metadata Documents are resolved. An explicit boolean in the stored
+ * config wins; otherwise the default applies (also when clientIdMetadata only sets cacheTtlMs).
+ */
+export const isCimdEnabled = (oauthServer?: Partial<OAuthServerConfig> | null): boolean => {
+  const enabled = oauthServer?.clientIdMetadata?.enabled;
+  return typeof enabled === 'boolean'
+    ? enabled
+    : DEFAULT_OAUTH_SERVER_CONFIG.clientIdMetadata?.enabled === true;
 };
 
 export const cloneDefaultOAuthServerConfig = (): OAuthServerConfig => {
