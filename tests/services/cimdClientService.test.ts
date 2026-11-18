@@ -2,6 +2,7 @@ import { getSystemConfigDao } from '../../src/dao/index.js';
 import {
   clearCimdCacheForTesting,
   computeCimdCacheTtlMs,
+  findCimdClientStub,
   getCimdClientHost,
   validateCimdClientIdUrl,
   getCimdSettings,
@@ -390,5 +391,21 @@ describe('computeCimdCacheTtlMs', () => {
     const headers = new Headers({ 'cache-control': 'max-age=600', age: '500' });
     expect(computeCimdCacheTtlMs(headers, 3_600_000)).toBe(100_000);
     expect(computeCimdCacheTtlMs(h(), 10 * 24 * 3_600_000)).toBe(24 * 3_600_000);
+  });
+});
+
+describe('findCimdClientStub', () => {
+  it('yields a fetch-free client only while CIMD is enabled and the id is valid', async () => {
+    configureCimd(true);
+    const fetchMock = jest.fn();
+    setCimdFetchImplForTesting(fetchMock as unknown as typeof fetch);
+    expect((await findCimdClientStub('https://a.example.com/c.json'))?.clientId).toBe(
+      'https://a.example.com/c.json',
+    );
+    expect(await findCimdClientStub('https://a.example.com/')).toBeUndefined();
+    expect(await findCimdClientStub('plain-client')).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+    configureCimd(false);
+    expect(await findCimdClientStub('https://a.example.com/c.json')).toBeUndefined();
   });
 });

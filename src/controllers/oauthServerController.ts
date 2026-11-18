@@ -19,6 +19,7 @@ import {
   type ResourceClassification,
 } from '../utils/externalResources.js';
 import type { ExternalResource, SystemConfig } from '../types/index.js';
+import { allowsLoopbackPortFlexibility, redirectUriMatches } from '../utils/redirectUriMatch.js';
 import {
   findOAuthClientIncludingCimd,
   getCimdClientHost,
@@ -184,7 +185,9 @@ async function validateClientRedirectUri(
     return null;
   }
 
-  if (!client.redirectUris.includes(redirectUri)) {
+  if (
+    !redirectUriMatches(client.redirectUris, redirectUri, allowsLoopbackPortFlexibility(client))
+  ) {
     res.status(400).json({
       error: 'invalid_request',
       error_description: 'Invalid redirect_uri',
@@ -553,7 +556,13 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
     }
 
     // Verify redirect URI
-    if (!client.redirectUris.includes(redirect_uri as string)) {
+    if (
+      !redirectUriMatches(
+        client.redirectUris,
+        redirect_uri as string,
+        allowsLoopbackPortFlexibility(client),
+      )
+    ) {
       res.status(400).json({ error: 'invalid_request', error_description: 'Invalid redirect_uri' });
       return;
     }

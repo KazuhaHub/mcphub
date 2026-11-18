@@ -20,7 +20,12 @@ import {
 import crypto from 'crypto';
 import { safeCompare } from '../utils/safeCompare.js';
 import { cloneDefaultOAuthServerConfig } from '../constants/oauthServerDefaults.js';
-import { findOAuthClientIncludingCimd, resolveCimdClient } from './cimdClientService.js';
+import { allowsLoopbackPortFlexibility, redirectUriMatches } from '../utils/redirectUriMatch.js';
+import {
+  findCimdClientStub,
+  findOAuthClientIncludingCimd,
+  resolveCimdClient,
+} from './cimdClientService.js';
 import { logger } from '../utils/logger.js';
 import { getCachedSystemConfig } from '../utils/systemConfigCache.js';
 import { isOAuthTokenIdle, oauthGrantCreatedAt } from './connectedClientService.js';
@@ -118,8 +123,22 @@ const oauthModel: OAuth2Server.AuthorizationCodeModel & OAuth2Server.RefreshToke
       clientSecret: client.clientSecret,
       redirectUris: client.redirectUris,
       grants: client.grants,
+      loopbackPortFlexible: allowsLoopbackPortFlexibility(client),
     };
   },
+
+  /**
+   * Authorization-request redirect_uri check (RFC 8252 section 7.3 loopback port
+   * flexibility for native/CIMD clients). The token endpoint's redirect_uri
+   * equality check is separate and stays exact: the stored code carries the
+   * runtime URI, port included.
+   */
+  validateRedirectUri: async (redirectUri: string, client: OAuth2Server.Client) =>
+    redirectUriMatches(
+      ([] as string[]).concat(client.redirectUris ?? []),
+      redirectUri,
+      (client as { loopbackPortFlexible?: boolean }).loopbackPortFlexible === true,
+    ),
 
   /**
    * Save authorization code
@@ -211,7 +230,7 @@ const oauthModel: OAuth2Server.AuthorizationCodeModel & OAuth2Server.RefreshToke
       return false;
     }
 
-    const client = await findOAuthClientById(code.clientId);
+    const client = await findOAuthClientIncludingCimd(code.clientId);
     if (!client) {
       return false;
     }
@@ -406,7 +425,8 @@ const oauthModel: OAuth2Server.AuthorizationCodeModel & OAuth2Server.RefreshToke
       return false;
     }
 
-    const client = await findOAuthClientById(token.clientId);
+    const client =
+      (await findOAuthClientById(token.clientId)) ?? (await findCimdClientStub(token.clientId));
     if (!client) {
       return false;
     }
@@ -473,7 +493,7 @@ const oauthModel: OAuth2Server.AuthorizationCodeModel & OAuth2Server.RefreshToke
       }
     }
 
-    const client = await findOAuthClientById(token.clientId);
+    const client = await findOAuthClientIncludingCimd(token.clientId);
     if (!client) {
       return false;
     }

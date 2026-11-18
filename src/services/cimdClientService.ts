@@ -465,3 +465,22 @@ export const findOAuthClientIncludingCimd = async (
   }
   return resolveCimdClient(clientId);
 };
+
+/**
+ * Minimal client record for validating an already-issued access token of a CIMD
+ * client. No document is fetched: a bearer check on every MCP request must not
+ * depend on the client's server being reachable (draft section 6.1: transient
+ * failures must not invalidate trust). The token stays valid only while CIMD
+ * resolution is enabled and the identifier is still well-formed.
+ */
+export const findCimdClientStub = async (clientId: string): Promise<IOAuthClient | undefined> => {
+  if (!isCimdClientId(clientId) || validateCimdClientIdUrl(clientId)) return undefined;
+  const settings = await getCimdSettings();
+  if (!settings.enabled) return undefined;
+  return {
+    clientId,
+    name: clientId,
+    redirectUris: [],
+    grants: SUPPORTED_GRANT_TYPES,
+  };
+};
