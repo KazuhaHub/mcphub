@@ -129,6 +129,7 @@ import { TOOL_DEFINITION_FIELDS } from '../constants/smartRoutingDefaults.js';
 import { previewOpenApiToolStats } from '../services/openApiToolStatsService.js';
 import { isValidEnabledAt } from '../services/connectedClientService.js';
 import { logger } from '../utils/logger.js';
+import { mergeBranding, validateBrandingUpdate, withBrandingUrls } from '../utils/brandingImage.js';
 import { maskedBearerToken } from '../utils/bearerKeyHash.js';
 import { findToolConfigKey, resolveRuntimeToolName } from '../utils/toolConfig.js';
 
@@ -595,7 +596,7 @@ export const getAllSettings = async (req: Request, res: Response): Promise<void>
 
     const systemConfigForResponse = withResolvedInstallBaseUrl(
       {
-        ...systemConfig,
+        ...withBrandingUrls(systemConfig, appConfig.basePath),
         // Response-only copy: `envOverriddenFields` is display metadata, not part
         // of the persisted schema. The file-backed DAO returns its cached settings
         // object by reference, so attaching the field to systemConfig.smartRouting
@@ -2600,6 +2601,7 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       nameSeparator,
       normalizeToolNames,
       dashboardName,
+      dashboardBranding,
       enableSessionRebuild,
       oauthServer,
       auth,
@@ -2640,6 +2642,13 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
           message: 'dashboardName must be a string of at most 100 characters',
         });
       return;
+    }
+    if (dashboardBranding !== undefined) {
+      const brandingError = validateBrandingUpdate(dashboardBranding);
+      if (brandingError) {
+        res.status(400).json({ success: false, message: brandingError });
+        return;
+      }
     }
     if (
       routing?.allowAuthorizationPassthrough !== undefined &&
@@ -2874,6 +2883,7 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       !hasNameSeparatorUpdate &&
       normalizeToolNames === undefined &&
       dashboardName === undefined &&
+      dashboardBranding === undefined &&
       !hasSessionRebuildUpdate &&
       !hasOAuthServerUpdate &&
       !hasBetterAuthUpdate &&
@@ -3561,6 +3571,10 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       systemConfig.dashboardName = dashboardName.trim();
     }
 
+    if (dashboardBranding !== undefined) {
+      systemConfig.dashboardBranding = mergeBranding(systemConfig.dashboardBranding, dashboardBranding);
+    }
+
     if (typeof normalizeToolNames === 'boolean') {
       systemConfig.normalizeToolNames = normalizeToolNames;
     }
@@ -3643,7 +3657,7 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       setCachedSystemConfig(systemConfig);
       res.json({
         success: true,
-        data: systemConfig,
+        data: withBrandingUrls(systemConfig, appConfig.basePath),
         message: 'System configuration updated successfully',
       });
 

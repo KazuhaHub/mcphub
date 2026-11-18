@@ -1,4 +1,4 @@
-import { useBranding } from '@/contexts/BrandingContext';
+import BrandingSettings from '@/components/BrandingSettings';
 import { getRuntimeConfig, getSmartRoutingPath } from '@/utils/runtime';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -722,28 +722,6 @@ const SettingsPage: React.FC = () => {
     oidcScopes: DEFAULT_OIDC_SCOPES.join(', '),
     oidcPrompt: '',
   });
-
-  const { dashboardName, setDashboardName } = useBranding();
-  const [tempDashboardName, setTempDashboardName] = useState(dashboardName);
-  const [savingDashboardName, setSavingDashboardName] = useState(false);
-  useEffect(() => {
-    setTempDashboardName(dashboardName);
-  }, [dashboardName]);
-  const saveDashboardName = async () => {
-    setSavingDashboardName(true);
-    try {
-      const name = tempDashboardName.trim();
-      const result = await apiPut('/system-config', { dashboardName: name });
-      if (!result.success) throw new Error(result.message || result.error);
-      setDashboardName(name);
-      setTempDashboardName(name);
-      showToast(t('settings.systemConfigUpdated'));
-    } catch {
-      showToast(t('settings.dashboardNameSaveFailed'), 'error');
-    } finally {
-      setSavingDashboardName(false);
-    }
-  };
 
   const [tempNameSeparator, setTempNameSeparator] = useState<string>('-');
   const [showAddBearerKeyForm, setShowAddBearerKeyForm] = useState(false);
@@ -4257,33 +4235,7 @@ const SettingsPage: React.FC = () => {
 
           {sectionsVisible.nameSeparator && (
             <div className="hub-reveal space-y-4 pb-4 px-4 pt-4 border-t border-[var(--hub-line-2)]">
-              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
-                <label htmlFor="dashboard-name" className="block font-medium text-gray-700">
-                  {t('settings.dashboardName')}
-                </label>
-                <p id="dashboard-name-description" className="text-sm text-gray-500 mb-2">
-                  {t('settings.dashboardNameDescription')}
-                </p>
-                <div className="flex items-center gap-3">
-                  <input
-                    id="dashboard-name"
-                    aria-describedby="dashboard-name-description"
-                    value={tempDashboardName}
-                    onChange={(e) => setTempDashboardName(e.target.value)}
-                    maxLength={100}
-                    placeholder={t('app.title')}
-                    disabled={savingDashboardName}
-                    className="flex-1 min-w-0 py-2 px-3 border border-gray-300 rounded-md form-input"
-                  />
-                  <button
-                    onClick={saveDashboardName}
-                    disabled={savingDashboardName}
-                    className="hub-btn primary"
-                  >
-                    {t('common.save')}
-                  </button>
-                </div>
-              </div>
+              <BrandingSettings />
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
                 <div className="mb-2">
                   <h3 className="font-medium text-gray-700">{t('settings.nameSeparatorLabel')}</h3>

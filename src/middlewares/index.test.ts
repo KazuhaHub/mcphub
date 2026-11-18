@@ -192,9 +192,13 @@ describe('initMiddlewares', () => {
     const authMiddleware = app.use.mock.calls[3][1];
     const next = jest.fn();
 
-    await authMiddleware({ path: '/auth/login' }, {}, next);
+    await authMiddleware({ path: '/auth/login', method: 'POST' }, {}, next);
 
-    expect(isApiAuthExemptPath).toHaveBeenCalledWith('/auth/login', { basePath: '/better-auth' });
+    expect(isApiAuthExemptPath).toHaveBeenCalledWith(
+      '/auth/login',
+      { basePath: '/better-auth' },
+      'POST',
+    );
     expect(auth).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
   });
@@ -211,9 +215,9 @@ describe('initMiddlewares', () => {
     const authMiddleware = app.use.mock.calls[3][1];
     const next = jest.fn();
 
-    await authMiddleware({ path: '/servers' }, {}, next);
+    await authMiddleware({ path: '/servers', method: 'GET' }, {}, next);
 
-    expect(isApiAuthExemptPath).toHaveBeenCalledWith('/servers', { basePath: '/better-auth' });
+    expect(isApiAuthExemptPath).toHaveBeenCalledWith('/servers', { basePath: '/better-auth' }, 'GET');
     expect(auth).toHaveBeenCalled();
     expect(userContextMiddleware).toHaveBeenCalled();
   });

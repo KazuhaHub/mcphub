@@ -881,6 +881,34 @@
     "dashboardName": "Tên bảng điều khiển",
     "dashboardNameDescription": "Hiển thị ở thanh bên, tiêu đề, trang đăng nhập và thẻ trình duyệt. Để trống để khôi phục tên mặc định.",
     "dashboardNameSaveFailed": "Không thể lưu tên bảng điều khiển",
+    "branding": {
+      "title": "Thương hiệu",
+      "description": "Tùy chỉnh tên và hình ảnh hiển thị trên bảng điều khiển. Hình ảnh được lưu trên máy chủ và chỉ hiển thị qua thẻ ảnh.",
+      "upload": "Tải lên",
+      "replace": "Thay thế",
+      "remove": "Xóa",
+      "notSet": "Chưa đặt",
+      "saved": "Đã lưu hình ảnh",
+      "removed": "Đã xóa hình ảnh",
+      "saveFailed": "Không thể lưu hình ảnh",
+      "error": {
+        "type": "Hãy dùng ảnh PNG, JPEG, WebP hoặc SVG.",
+        "size": "Ảnh phải có dung lượng từ 256 KB trở xuống.",
+        "read": "Không thể đọc ảnh."
+      },
+      "icon": {
+        "label": "Biểu tượng",
+        "hint": "Dấu hiệu vuông hiển thị ở thanh bên thu gọn, thẻ trình duyệt, trang cấp quyền và, khi chưa có logo, ở thanh bên mở rộng. Khuyến nghị: hình vuông, tối thiểu 128 px."
+      },
+      "logoLight": {
+        "label": "Logo (giao diện sáng)",
+        "hint": "Logo ngang cho thanh bên mở rộng và trang đăng nhập ở giao diện sáng; thay thế biểu tượng và tên. Khuyến nghị: khoảng 4:1, cao tối thiểu 64 px."
+      },
+      "logoDark": {
+        "label": "Logo (giao diện tối)",
+        "hint": "Logo ngang cho giao diện tối ở cùng vị trí. Dùng logo giao diện sáng nếu chưa đặt. Khuyến nghị: khoảng 4:1, cao tối thiểu 64 px."
+      }
+    },
     "resetBearerKey": "Đặt lại khóa Bearer",
     "resetBearerKeyConfirm": "Đặt lại khóa Bearer này? Token cũ sẽ mất hiệu lực ngay. Quyền và trạng thái kích hoạt không thay đổi.",
     "resetBearerKeySuccess": "Đã đặt lại khóa. Sao chép và lưu token mới trước khi đóng; token sẽ không được hiển thị lại.",

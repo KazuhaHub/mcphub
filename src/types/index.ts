@@ -298,8 +298,19 @@ export interface FileStagingSettings {
   cleanupIntervalMinutes: number;
 }
 
+/** Optional dashboard images, each a base64 data: URL (see utils/brandingImage.ts). */
+export interface DashboardBranding {
+  /** Square mark: collapsed sidebar, favicon, consent page. */
+  icon?: string;
+  /** Wide wordmark for light theme. */
+  logoLight?: string;
+  /** Wide wordmark for dark theme; falls back to logoLight. */
+  logoDark?: string;
+}
+
 export interface SystemConfig {
   dashboardName?: string;
+  dashboardBranding?: DashboardBranding;
   toolPolicies?: ToolPolicyRule[];
   network?: {
     allowedCidrs?: string[]; // Admin-managed ranges reachable by non-admin-owned upstreams.

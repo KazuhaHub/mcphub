@@ -22,8 +22,15 @@ jest.mock('@/contexts/AuthContext', () => ({
 }));
 jest.mock('@/contexts/SettingsContext', () => ({ useSettings: () => mockSettings }));
 jest.mock('@/contexts/BrandingContext', () => ({
-  useBranding: () => ({ dashboardName: '', dashboardTitle: 'app.title', setDashboardName: jest.fn() }),
+  useBranding: () => ({
+    dashboardName: '',
+    dashboardTitle: 'app.title',
+    setDashboardName: jest.fn(),
+    branding: { icon: '', logoLight: '', logoDark: '' },
+    setBranding: jest.fn(),
+  }),
 }));
+jest.mock('@/contexts/ThemeContext', () => ({ useTheme: () => ({ resolvedTheme: 'light' }) }));
 jest.mock('@/contexts/ServerContext', () => ({ useServerContext: () => ({ allServers: [] }) }));
 jest.mock('@/hooks/useGroupData', () => ({ useGroupData: () => ({ groups: [] }) }));
 jest.mock('@/services/activityService', () => ({

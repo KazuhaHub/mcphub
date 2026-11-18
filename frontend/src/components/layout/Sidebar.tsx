@@ -1,4 +1,5 @@
 import { useBranding } from '@/contexts/BrandingContext';
+import { BrandMark, useBrandLogo } from '@/components/BrandMark';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
@@ -45,6 +46,7 @@ interface MenuItem {
 const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
   const { t } = useTranslation();
   const { dashboardTitle } = useBranding();
+  const brandLogo = useBrandLogo();
   const { auth } = useAuth();
   const { allServers } = useServerContext();
   const { groups } = useGroupData();
@@ -176,34 +178,37 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
           (collapsed ? 'justify-center' : 'px-3.5')
         }
       >
-        <div
-          className="relative grid h-7 w-7 shrink-0 place-items-center rounded-md text-white hub-mono text-[12px] font-semibold"
-          style={{
-            background:
-              'linear-gradient(135deg, var(--hub-accent), oklch(0.62 0.18 285))',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14)',
-          }}
-        >
-          <span>M</span>
-          <span
-            className="absolute -right-0.5 -bottom-0.5 w-[6px] h-[6px] rounded-full"
-            style={{
-              background: 'var(--hub-ok)',
-              boxShadow: '0 0 0 2px oklch(0.66 0.15 145 / 0.18)',
-            }}
-          />
-        </div>
-        {!collapsed && (
-          <div className="hub-sidebar-label flex min-w-0 flex-col leading-tight">
-            <span className="truncate text-[14px] font-semibold tracking-tight text-[var(--hub-ink)]">
-              {dashboardTitle}
-            </span>
+        {!collapsed && brandLogo ? (
+          <div className="hub-sidebar-label flex min-w-0 flex-col justify-center gap-0.5">
+            <img
+              src={brandLogo}
+              alt={dashboardTitle}
+              data-brand-logo
+              className="block max-h-[26px] max-w-full self-start object-contain object-left"
+              draggable={false}
+            />
             {appVersion && (
-              <span className="hub-mono truncate text-[11px] text-[var(--hub-ink-3)]">
+              <span className="hub-mono truncate text-[10px] leading-none text-[var(--hub-ink-3)]">
                 {appVersion === 'dev' ? appVersion : `v${appVersion}`}
               </span>
             )}
           </div>
+        ) : (
+          <>
+            <BrandMark variant="gradient" />
+            {!collapsed && (
+              <div className="hub-sidebar-label flex min-w-0 flex-col leading-tight">
+                <span className="truncate text-[14px] font-semibold tracking-tight text-[var(--hub-ink)]">
+                  {dashboardTitle}
+                </span>
+                {appVersion && (
+                  <span className="hub-mono truncate text-[11px] text-[var(--hub-ink-3)]">
+                    {appVersion === 'dev' ? appVersion : `v${appVersion}`}
+                  </span>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 

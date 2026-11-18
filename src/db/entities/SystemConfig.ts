@@ -10,6 +10,9 @@ export class SystemConfig {
   dashboardName?: string;
 
   @Column({ type: 'simple-json', nullable: true })
+  dashboardBranding?: import('../../types/index.js').DashboardBranding;
+
+  @Column({ type: 'simple-json', nullable: true })
   toolPolicies?: import('../../types/index.js').ToolPolicyRule[];
 
   @PrimaryColumn({ type: 'varchar', length: 50, default: 'default' })

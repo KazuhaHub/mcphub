@@ -18,7 +18,23 @@ Updates various parts of the system configuration. You only need to provide the 
 
 - **Endpoint**: `/api/system-config`
 - **Method**: `PUT`
-- **Body**: A JSON object containing one or more of the following top-level keys: `routing`, `install`, `smartRouting`, `toolResultCompression`, `mcpRouter`.
+- **Body**: A JSON object containing one or more of the following top-level keys: `routing`, `install`, `smartRouting`, `toolResultCompression`, `mcpRouter`, `dashboardName`, `dashboardBranding`.
+
+#### Dashboard Branding (`dashboardName`, `dashboardBranding`)
+
+Administrator only.
+
+- `dashboardName` (string): Name shown in the sidebar, login page and browser tab, at most 100 characters after trimming. An empty string restores the default.
+- `dashboardBranding` (object): Optional images. Send only the slots you want to change; slots you omit keep their value and an empty string clears a slot.
+  - `icon` (string): Square mark for the collapsed sidebar, favicon and OAuth authorization page.
+  - `logoLight` (string): Wide logo for light theme (expanded sidebar, login page).
+  - `logoDark` (string): Wide logo for dark theme; falls back to `logoLight`.
+
+Each image must be a base64 `data:` URL of type `image/png`, `image/jpeg`, `image/webp` or `image/svg+xml`, at most 256 KB decoded, whose content matches its declared type. `PUT /api/system-config` and `GET /api/settings` return the slots as these same versioned URLs rather than the image data; a settings export keeps the data so it can be restored. Anything else (remote URLs, other types, invalid base64, oversize images, unknown slots) is rejected with HTTP 400 and a message naming the slot, for example `dashboardBranding.icon must be at most 256 KB`.
+
+```json
+{ "dashboardBranding": { "icon": "data:image/png;base64,iVBORw0KGgo...", "logoDark": "" } }
+```
 
 #### Routing Configuration (`routing`)
 
@@ -137,11 +153,21 @@ Retrieves public configuration, primarily to check if authentication is skipped.
   {
     "success": true,
     "data": {
+      "dashboardName": "",
+      "dashboardBranding": { "icon": "/api/branding/icon?v=3f9a1c0d2b7e", "logoLight": "", "logoDark": "" },
       "skipAuth": false,
       "permissions": {}
     }
   }
   ```
+
+`dashboardName` and `dashboardBranding` let the login page show the configured branding before sign-in. Unset images are empty strings; set ones are same-origin URLs (prefixed with `BASE_PATH`) with a `v` query derived from the image bytes.
+
+#### Get Branding Image
+
+- **Endpoint**: `/api/branding/{slot}` where `slot` is `icon`, `logoLight` or `logoDark`
+- **Method**: `GET` (no authentication)
+- **Response**: the raw image with its `Content-Type`, `X-Content-Type-Options: nosniff`, a strong `ETag` (SHA-256 of the bytes), `Cache-Control: public, max-age=31536000, immutable` only when the `v` query matches the served bytes (`no-cache` without `v`, `no-store` for a version that is not current), and for SVG `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`. A matching `If-None-Match` returns `304`. An unknown or unset slot returns a JSON `404`.
 
 ## Session rebuild
 

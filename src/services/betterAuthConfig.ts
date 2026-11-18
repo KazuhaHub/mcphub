@@ -278,6 +278,7 @@ export const getBetterAuthRuntimeConfig = async (
 export const isApiAuthExemptPath = (
   reqPath: string,
   betterAuthConfig: Pick<BetterAuthRuntimeConfig, 'basePath'>,
+  method?: string,
 ): boolean => {
   const betterAuthApiPath = betterAuthConfig.basePath.startsWith('/api')
     ? betterAuthConfig.basePath.replace(/^\/api/, '') || '/'
@@ -287,6 +288,9 @@ export const isApiAuthExemptPath = (
     reqPath === '/auth/register' ||
     reqPath === '/auth/passkey/options' ||
     reqPath === '/auth/passkey/login' ||
+    // Public branding images: read-only, and only the three slot names.
+    ((method === 'GET' || method === 'HEAD') &&
+      /^\/branding\/(?:icon|logoLight|logoDark)$/.test(reqPath)) ||
     (betterAuthApiPath !== null && reqPath.startsWith(betterAuthApiPath)) ||
     reqPath.startsWith('/better-auth')
   );

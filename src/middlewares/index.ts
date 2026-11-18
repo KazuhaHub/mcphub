@@ -93,7 +93,7 @@ export const initMiddlewares = (app: express.Application): void => {
       const betterAuthConfig = await getBetterAuthRuntimeConfig();
 
       // Skip authentication for login endpoint
-      if (isApiAuthExemptPath(req.path, betterAuthConfig)) {
+      if (isApiAuthExemptPath(req.path, betterAuthConfig, req.method)) {
         next();
         return;
       }

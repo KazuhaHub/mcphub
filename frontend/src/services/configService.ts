@@ -1,8 +1,10 @@
 import { apiGet, fetchWithInterceptors } from '../utils/fetchInterceptor';
 import { getBasePath } from '../utils/runtime';
+import { EMPTY_BRANDING, type BrandingImages } from '../utils/brandingImage';
 
 export interface SystemConfig {
   dashboardName?: string;
+  dashboardBranding?: Partial<BrandingImages>;
   toolPolicies?: import('../../../src/types/toolPolicy.js').ToolPolicyRule[];
   routing?: {
     enableGlobalRoute?: boolean;
@@ -101,6 +103,7 @@ export interface PublicConfigResponse {
   success: boolean;
   data?: {
     dashboardName?: string;
+    dashboardBranding?: Partial<BrandingImages>;
     skipAuth?: boolean;
     allowTokenInQuery?: boolean;
     allowRegistration?: boolean;
@@ -123,6 +126,7 @@ export interface SystemConfigResponse {
  */
 export const getPublicConfig = async (): Promise<{
   dashboardName?: string;
+  dashboardBranding?: BrandingImages;
   skipAuth: boolean;
   allowTokenInQuery?: boolean;
   allowRegistration?: boolean;
@@ -142,6 +146,7 @@ export const getPublicConfig = async (): Promise<{
       const data: PublicConfigResponse = await response.json();
       return {
         dashboardName: data.data?.dashboardName,
+        dashboardBranding: { ...EMPTY_BRANDING, ...data.data?.dashboardBranding },
         skipAuth: data.data?.skipAuth === true,
         allowTokenInQuery: data.data?.allowTokenInQuery !== false,
         allowRegistration: data.data?.allowRegistration === true,

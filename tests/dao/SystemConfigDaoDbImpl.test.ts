@@ -55,6 +55,8 @@ it('round-trips dashboard branding through database reads, updates and resets', 
   expect((await dao.update({ dashboardName: '' })).dashboardName).toBe('');
   expect(mockUpdate).toHaveBeenLastCalledWith({ dashboardName: '' });
   expect((await dao.reset()).dashboardName).toBeUndefined();
+  mockGet.mockResolvedValue({ dashboardBranding: { icon: 'data:image/png;base64,AAAA' } });
+  expect((await dao.get()).dashboardBranding).toEqual({ icon: 'data:image/png;base64,AAAA' });
 });
 
 it('round-trips tool-name compatibility in database mode', async () => {
