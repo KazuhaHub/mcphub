@@ -1,0 +1,4 @@
+# Second environment: the mcp 2.x SDK line (langchain-mcp-adapters cannot be installed next to it).
+#   python3 -m venv <dir> && <dir>/bin/pip install -r scripts/compat/runners/requirements-mcp2.txt
+mcp==2.3.0
+openai-agents==0.25.0
