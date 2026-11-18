@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Info, RefreshCw } from 'lucide-react';
-import { useSettings } from '@/contexts/SettingsContext';
 import { useToast } from '@/contexts/ToastContext';
 import {
   fetchCredentialServerNames,
@@ -60,7 +59,6 @@ const WorkspaceServicesView: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { smartRoutingConfig } = useSettings();
 
   const [servers, setServers] = useState<WorkspaceServer[]>([]);
   const [summary, setSummary] = useState<WorkspaceSummary | null>(null);

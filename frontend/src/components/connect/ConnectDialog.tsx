@@ -359,9 +359,9 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
                   {t(key)}
                 </p>
               ))}
-              {client === 'other' && auth === 'oauth' && (
+              {client === 'other' && (
                 <p className="text-[12px] leading-[1.625]" style={{ color: 'var(--hub-ink-3)' }}>
-                  {t('connect.notes.oauthUnverified')}
+                  {t(auth === 'oauth' ? 'connect.notes.oauthUnverified' : 'connect.notes.keyPlaceholder')}
                 </p>
               )}
             </>

@@ -7,7 +7,8 @@ import { fetchWorkspaceEndpoints, fetchWorkspaceServers } from '@/services/works
 import type { WorkspaceEndpoints, WorkspaceServer } from '@/types';
 import {
   CONNECT_CLIENTS,
-  computeTileLayout,
+  CONNECT_TILE_GAP,
+  computeConnectTileLayout,
   type ConnectClientId,
   type TileLayout,
 } from '@/utils/connectClients';
@@ -16,13 +17,7 @@ import { buildSmartEndpoint } from '@/utils/workspace';
 import ConnectDialog, { type ConnectDialogInitial } from './ConnectDialog';
 import ConnectTile from './ConnectTile';
 
-// Tile width floors and gap in px. Wide containers keep roomy tiles; a phone's row (about 250px
-// once the sidebar rail and padding are out of the way) drops to the narrow floor so that three
-// clients still fit beside More instead of two.
-const MIN_TILE_WIDTH = 76;
-const NARROW_MIN_TILE_WIDTH = 58;
-const NARROW_ROW_WIDTH = 320;
-const TILE_GAP = 6;
+const STALE_AFTER_MS = 60_000;
 
 interface ConnectTilesProps {
   layout: TileLayout;
@@ -41,7 +36,7 @@ export const ConnectTiles = React.forwardRef<HTMLDivElement, ConnectTilesProps>(
         ref={ref}
         className="grid"
         style={{
-          gap: TILE_GAP,
+          gap: CONNECT_TILE_GAP,
           gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
         }}
         data-testid="connect-tiles"
@@ -74,6 +69,11 @@ const ConnectCard: React.FC = () => {
   const [width, setWidth] = useState(0);
   const tilesRef = useRef<HTMLDivElement>(null);
 
+  // Data is loaded once and only refreshed when the dialog opens after it has gone stale, so
+  // tile clicks do not refetch. A failed refresh keeps the last good data (and any open dialog).
+  const loadedAtRef = useRef(0);
+  const hasDataRef = useRef(false);
+
   const load = useCallback(async () => {
     try {
       const [nextServers, nextEndpoints] = await Promise.all([
@@ -83,9 +83,11 @@ const ConnectCard: React.FC = () => {
       setServers(nextServers);
       setEndpoints(nextEndpoints);
       setFailed(false);
+      hasDataRef.current = true;
+      loadedAtRef.current = Date.now();
     } catch {
-      // The services tab reports a failing or disabled workspace; the card just stays away.
-      setFailed(true);
+      // The services tab reports a failing or disabled workspace; without data the card stays away.
+      if (!hasDataRef.current) setFailed(true);
     }
   }, []);
 
@@ -108,16 +110,7 @@ const ConnectCard: React.FC = () => {
     return () => observer.disconnect();
   }, [endpoints]);
 
-  const layout = useMemo(
-    () =>
-      computeTileLayout(
-        width,
-        CONNECT_CLIENTS.length,
-        width < NARROW_ROW_WIDTH ? NARROW_MIN_TILE_WIDTH : MIN_TILE_WIDTH,
-        TILE_GAP,
-      ),
-    [width],
-  );
+  const layout = useMemo(() => computeConnectTileLayout(width, CONNECT_CLIENTS.length), [width]);
 
   if (failed || !endpoints) return null;
 
@@ -125,7 +118,7 @@ const ConnectCard: React.FC = () => {
   const activeUrl = smart ? smartUrl : endpoints.aggregate;
   const open = (initial: ConnectDialogInitial) => {
     // Selection may have changed on the services tab since this card loaded.
-    void load();
+    if (Date.now() - loadedAtRef.current > STALE_AFTER_MS) void load();
     setDialog({ nonce: Date.now(), initial });
   };
 

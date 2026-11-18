@@ -274,7 +274,11 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
         className="hub-btn sm"
         disabled={!endpoint?.url}
         onClick={() => onConnectToAi(server.name)}
-        title={endpoint?.url ? undefined : t('connect.serviceNotReady')}
+        title={
+          endpoint?.url
+            ? undefined
+            : t(endpoint?.conflict ? 'connect.serviceConflict' : 'connect.serviceNotReady')
+        }
         aria-label={t('connect.rowActionFor', { name: server.name })}
       >
         <Plug size={12} /> {t('connect.rowAction')}

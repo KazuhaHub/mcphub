@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { ConnectTiles } from '../../frontend/src/components/connect/ConnectCard';
 import ConnectDialog from '../../frontend/src/components/connect/ConnectDialog';
-import { CONNECT_CLIENTS, computeTileLayout } from '../../frontend/src/utils/connectClients';
+import { CONNECT_CLIENTS, computeConnectTileLayout } from '../../frontend/src/utils/connectClients';
 import type { WorkspaceEndpoints, WorkspaceServer } from '../../frontend/src/types';
 
 jest.mock('react-i18next', () => ({
@@ -22,7 +22,7 @@ const noop = () => undefined;
 const tiles = (width: number) =>
   renderToStaticMarkup(
     createElement(ConnectTiles, {
-      layout: computeTileLayout(width, CONNECT_CLIENTS.length, 76, 8),
+      layout: computeConnectTileLayout(width, CONNECT_CLIENTS.length),
       onSelectClient: noop,
       onMore: noop,
     }),

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 /**
  * Brand marks for the "Connect your AI" tiles.
@@ -49,6 +49,8 @@ interface ClientIconProps {
 
 /** Brand mark on a light plate, so dark marks stay legible in the dark theme too. */
 export const ClientIcon: React.FC<ClientIconProps> = ({ icon, letter, size = 40 }) => {
+  // The mark's ids are made unique per instance: several icons render on one page.
+  const idPrefix = `vscb${useId().replace(/[^A-Za-z0-9_-]/g, '')}-`;
   const inner = Math.round(size * 0.58);
   const path = icon ? PATH_ICONS[icon] : undefined;
   return (
@@ -79,7 +81,7 @@ export const ClientIcon: React.FC<ClientIconProps> = ({ icon, letter, size = 40 
           viewBox="0 0 100 100"
           fill="none"
           focusable="false"
-          dangerouslySetInnerHTML={{ __html: VSCODE_MARKUP }}
+          dangerouslySetInnerHTML={{ __html: VSCODE_MARKUP.replaceAll('vscb-', idPrefix) }}
         />
       ) : (
         letter

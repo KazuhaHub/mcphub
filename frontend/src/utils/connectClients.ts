@@ -232,9 +232,25 @@ export interface ConnectTarget {
   url: string;
 }
 
-/** Name for a client's entry: the service's own name, or `mcphub` for the aggregate endpoint. */
+/**
+ * Entry name that every client accepts. MCPHub service names may contain `.` (and start with `-`),
+ * but the CLIs are stricter:
+ * - Codex validates `codex mcp add <name>` as ASCII letters, digits and `- _ : @ / .`; the name is a
+ *   plain positional, so a leading `-` is read as a flag. Source:
+ *   https://raw.githubusercontent.com/openai/codex/main/codex-rs/cli/src/mcp_cmd.rs
+ *   (`validate_server_name`), checked 2026-11-18.
+ * - Claude Code documents server names as letters, numbers, hyphens and underscores only (other
+ *   characters are to be replaced): https://code.claude.com/docs/en/mcp, checked 2026-11-18. It does
+ *   not document a `--` form for the name, so a dash-led name is not passed through.
+ * The safe name is the intersection: other characters become `-`, leading dashes are dropped, and an
+ * empty result falls back to `mcphub`. The same name is used in add, login and auth commands.
+ */
+export const safeEntryName = (name: string): string =>
+  name.trim().replace(/[^A-Za-z0-9_-]/g, '-').replace(/^-+/, '') || 'mcphub';
+
+/** Name for a client's entry: the service's own name made safe, or `mcphub` for the aggregate endpoint. */
 export const connectEntryName = (service: string | null | undefined): string =>
-  service && service.trim() ? service.trim() : 'mcphub';
+  service && service.trim() ? safeEntryName(service) : 'mcphub';
 
 /** Authorization header form used by the "API key" toggle; the key itself stays a placeholder. */
 export const keyHeaders = (): Record<string, string> => ({
@@ -286,8 +302,7 @@ const SHELL_SAFE = /^[A-Za-z0-9._:@/=-]+$/;
 export const shellArg = (value: string): string =>
   SHELL_SAFE.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
 
-const dashLeading = (target: ConnectTarget): boolean =>
-  target.name.startsWith('-') || target.url.startsWith('-');
+const dashLeading = (target: ConnectTarget): boolean => target.url.startsWith('-');
 
 /** `claude mcp add --transport http <name> <url> [--header ...]`; undefined when a dash-led value would be misparsed. */
 export const buildClaudeCodeCommand = (
@@ -295,7 +310,7 @@ export const buildClaudeCodeCommand = (
   headers?: Record<string, string>,
 ): string | undefined => {
   if (dashLeading(target)) return undefined;
-  const parts = ['claude', 'mcp', 'add', '--transport', 'http', shellArg(target.name), shellArg(target.url)];
+  const parts = ['claude', 'mcp', 'add', '--transport', 'http', shellArg(safeEntryName(target.name)), shellArg(target.url)];
   for (const [name, value] of Object.entries(headers ?? {})) {
     parts.push('--header', shellArg(`${name}: ${value}`));
   }
@@ -304,10 +319,10 @@ export const buildClaudeCodeCommand = (
 
 /** `codex mcp add <name> --url <url>`; headers are not an option of this command. */
 export const buildCodexCommand = (target: ConnectTarget): string | undefined =>
-  dashLeading(target) ? undefined : `codex mcp add ${shellArg(target.name)} --url ${shellArg(target.url)}`;
+  dashLeading(target) ? undefined : `codex mcp add ${shellArg(safeEntryName(target.name))} --url ${shellArg(target.url)}`;
 
 export const buildCodexLoginCommand = (target: ConnectTarget): string =>
-  `codex mcp login ${shellArg(target.name)}`;
+  `codex mcp login ${shellArg(safeEntryName(target.name))}`;
 
 /** `gemini mcp add --transport http <name> <url> [--header ...]`. */
 export const buildGeminiCommand = (
@@ -319,7 +334,7 @@ export const buildGeminiCommand = (
   for (const [name, value] of Object.entries(headers ?? {})) {
     parts.push('--header', shellArg(`${name}: ${value}`));
   }
-  parts.push(shellArg(target.name), shellArg(target.url));
+  parts.push(shellArg(safeEntryName(target.name)), shellArg(target.url));
   return parts.join(' ');
 };
 
@@ -468,7 +483,7 @@ export const buildConnectPlan = (
         stepKeys: auth === 'key' ? ['connect.steps.cli.run'] : ['connect.steps.cli.run', 'connect.steps.gemini.auth'],
         blocks: [
           ...commandBlock(buildGeminiCommand(target, headers)),
-          ...(auth === 'oauth' ? [{ kind: 'command' as const, text: `/mcp auth ${target.name}` }] : []),
+          ...(auth === 'oauth' ? [{ kind: 'command' as const, text: `/mcp auth ${safeEntryName(target.name)}` }] : []),
         ],
         noteKeys,
       };
@@ -539,5 +554,31 @@ export const computeTileLayout = (
       ? Math.floor((containerWidth + gap) / (minTileWidth + gap))
       : needed;
   const columns = Math.max(2, Math.min(needed, fits));
+  return { columns, visible: Math.min(clientCount, columns - 1) };
+};
+
+/** Tile width floor and gap in px for the Connect card's tile row. */
+export const CONNECT_TILE_MIN_WIDTH = 76;
+export const CONNECT_TILE_GAP = 6;
+/** Narrower floor that is only used to reach `CONNECT_NARROW_COLUMNS`, never to add more. */
+export const CONNECT_TILE_NARROW_MIN_WIDTH = 58;
+/** Three clients plus More, which a 375px phone (a row of about 250px) must show. */
+export const CONNECT_NARROW_COLUMNS = 4;
+
+/**
+ * The card's layout for a measured row width. Roomy tiles are preferred, but a phone-width row may
+ * use the narrow floor to reach four columns. Taking the larger of the two keeps the column count
+ * non-decreasing as the width grows (switching floors at a threshold would make it go backwards).
+ */
+export const computeConnectTileLayout = (containerWidth: number, clientCount: number): TileLayout => {
+  const roomy = computeTileLayout(containerWidth, clientCount, CONNECT_TILE_MIN_WIDTH, CONNECT_TILE_GAP);
+  if (!(containerWidth > 0)) return roomy;
+  const narrow = computeTileLayout(
+    containerWidth,
+    clientCount,
+    CONNECT_TILE_NARROW_MIN_WIDTH,
+    CONNECT_TILE_GAP,
+  );
+  const columns = Math.max(roomy.columns, Math.min(CONNECT_NARROW_COLUMNS, narrow.columns));
   return { columns, visible: Math.min(clientCount, columns - 1) };
 };

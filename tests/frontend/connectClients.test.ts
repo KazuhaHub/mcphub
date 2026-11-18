@@ -9,6 +9,11 @@ import {
   buildVsCodeDeepLink,
   canChooseAuth,
   computeTileLayout,
+  computeConnectTileLayout,
+  CONNECT_TILE_GAP,
+  CONNECT_TILE_MIN_WIDTH,
+  connectEntryName,
+  safeEntryName,
   connectEntryName,
   effectiveAuth,
   getConnectClient,
@@ -62,9 +67,9 @@ describe('commands', () => {
     );
   });
 
-  it('quotes unusual names and refuses dash-led values', () => {
-    expect(buildClaudeCodeCommand({ name: 'my svc', url: target.url })).toContain("'my svc'");
-    expect(buildClaudeCodeCommand({ name: '-x', url: target.url })).toBeUndefined();
+  it('sanitises unusual names and refuses dash-led values', () => {
+    expect(buildClaudeCodeCommand({ name: 'my svc', url: target.url })).toContain(' my-svc ');
+    expect(buildClaudeCodeCommand({ name: '-x', url: target.url })).toContain(' x https://');
     expect(buildCodexCommand({ name: 'a', url: '-bad' })).toBeUndefined();
     expect(shellArg("it's")).toBe("'it'\\''s'");
   });
@@ -203,5 +208,61 @@ describe('computeTileLayout', () => {
 
   it('shows everything before the width is known', () => {
     expect(computeTileLayout(0, 16, MIN, GAP)).toEqual({ columns: 17, visible: 16 });
+  });
+});
+
+describe('safe entry names', () => {
+  const url = 'https://hub.example.com/alice/mcp/io.github.user-weather';
+
+  it('replaces characters the CLIs reject and drops leading dashes', () => {
+    expect(safeEntryName('io.github.user-weather')).toBe('io-github-user-weather');
+    expect(safeEntryName('-foo')).toBe('foo');
+    expect(safeEntryName('--')).toBe('mcphub');
+    expect(connectEntryName('io.github.user-weather')).toBe('io-github-user-weather');
+    expect(connectEntryName(null)).toBe('mcphub');
+  });
+
+  it('uses one name in the Codex add and login commands', () => {
+    const plan = buildConnectPlan(getConnectClient('codex')!, { name: connectEntryName('io.github.user-weather'), url }, { auth: 'oauth' });
+    const texts = plan.blocks.map((block) => block.text);
+    expect(texts).toEqual([
+      `codex mcp add io-github-user-weather --url ${url}`,
+      'codex mcp login io-github-user-weather',
+    ]);
+  });
+
+  it('never leaves a step without a command or a login without its add for dash-led names', () => {
+    for (const id of ['claude-code', 'codex', 'gemini-cli'] as const) {
+      const plan = buildConnectPlan(getConnectClient(id)!, { name: connectEntryName('-foo'), url }, { auth: 'oauth' });
+      const texts = plan.blocks.map((block) => block.text);
+      expect(texts.length).toBeGreaterThan(0);
+      expect(texts[0]).toMatch(/mcp add/);
+      expect(texts.join('\n')).not.toMatch(/ -foo\b/);
+    }
+    // Even a raw dash-led name given straight to a builder is sanitised.
+    expect(buildCodexCommand({ name: '-foo', url })).toBe(`codex mcp add foo --url ${url}`);
+    expect(buildClaudeCodeCommand({ name: 'a.b', url })).toContain(' a-b ');
+  });
+});
+
+describe('computeConnectTileLayout', () => {
+  it('shows three clients plus More on a phone row of about 250px', () => {
+    expect(computeConnectTileLayout(253, 16)).toEqual({ columns: 4, visible: 3 });
+  });
+
+  it('never shows fewer columns as the width grows', () => {
+    let previous = 0;
+    for (let width = 0; width <= 2000; width += 1) {
+      const { columns } = computeConnectTileLayout(width, 16);
+      if (width > 0) expect(columns).toBeGreaterThanOrEqual(previous);
+      if (width > 0) previous = columns;
+    }
+  });
+
+  it('keeps roomy tiles on wide screens', () => {
+    const width = 1110;
+    expect(computeConnectTileLayout(width, 16)).toEqual(
+      computeTileLayout(width, 16, CONNECT_TILE_MIN_WIDTH, CONNECT_TILE_GAP),
+    );
   });
 });
