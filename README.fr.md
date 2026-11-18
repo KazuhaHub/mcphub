@@ -11,7 +11,7 @@
 
 [English](README.md) | Français | [中文版](README.zh.md)
 
-MCPHub offre une manière unifiée de connecter et de gérer plusieurs serveurs MCP, de les organiser en groupes, de contrôler les accès et d'exposer des points de terminaison MCP stables aux clients MCP. Son flux OAuth a été testé de bout en bout avec les SDK MCP officiels TypeScript et Python, le Vercel AI SDK, MCP Inspector (CLI), le SDK OpenAI Agents et `langchain-mcp-adapters`. Les clients hébergés ou de bureau tels que Claude, ChatGPT, Cursor et VS Code n'ont pas encore été vérifiés. Voir [Compatibilité des clients](https://docs.mcphub.app/features/client-compatibility) pour les versions, les dates et la façon de tester un client vous-même.
+MCPHub offre une manière unifiée de connecter et de gérer plusieurs serveurs MCP, de les organiser en groupes, de contrôler les accès et d'exposer des points de terminaison MCP stables aux clients MCP. Son flux OAuth a été testé de bout en bout avec les SDK MCP officiels TypeScript et Python, le Vercel AI SDK, MCP Inspector (CLI), le SDK OpenAI Agents et `langchain-mcp-adapters`. Les clients hébergés ou de bureau tels que Claude, ChatGPT, Cursor et VS Code n'ont pas encore été vérifiés. Voir [Compatibilité des clients](https://github.com/KazuhaHub/mcphub/blob/main/docs/features/client-compatibility.mdx) pour les versions, les dates et la façon de tester un client vous-même.
 
 ![Aperçu du tableau de bord](assets/dashboard.fr.png)
 
@@ -116,7 +116,7 @@ docker run -p 3000:3000 -v ./data:/app/data -e ADMIN_PASSWORD=your-secure-passwo
 
 ### Connecter les clients IA
 
-Pointez un client MCP compatible Streamable HTTP vers l'un de ces points de terminaison (voir [Compatibilité des clients](https://docs.mcphub.app/features/client-compatibility) pour ce qui a été testé) :
+Pointez un client MCP compatible Streamable HTTP vers l'un de ces points de terminaison (voir [Compatibilité des clients](https://github.com/KazuhaHub/mcphub/blob/main/docs/features/client-compatibility.mdx) pour ce qui a été testé) :
 
 ```
 http://localhost:3000/mcp           # Tous les serveurs
@@ -140,7 +140,7 @@ Définissez `SMART_ROUTING_PATH=my_smart` pour utiliser `/mcp/my_smart` et `/mcp
 | [Configuration](https://docs.mcphub.app/configuration/mcp-settings)                  | Options de configuration du serveur MCP     |
 | [Mode Base de données](https://docs.mcphub.app/configuration/database-configuration) | Configuration PostgreSQL pour la production |
 | [OAuth](https://docs.mcphub.app/features/oauth)                                      | Configuration client et serveur OAuth 2.0   |
-| [Compatibilité des clients](https://docs.mcphub.app/features/client-compatibility)   | Clients testés et clients non encore vérifiés |
+| [Compatibilité des clients](https://github.com/KazuhaHub/mcphub/blob/main/docs/features/client-compatibility.mdx)   | Clients testés et clients non encore vérifiés |
 | [Routage intelligent](https://docs.mcphub.app/features/smart-routing)                | Découverte d'outils propulsée par IA        |
 | [Guide CLI](https://docs.mcphub.app/features/cli)                                 | Gérer et appeler le hub depuis un terminal  |
 | [Configuration Docker](https://docs.mcphub.app/configuration/docker-setup)           | Guide de déploiement Docker                 |
