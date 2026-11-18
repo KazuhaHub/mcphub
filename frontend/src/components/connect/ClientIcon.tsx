@@ -81,7 +81,7 @@ export const ClientIcon: React.FC<ClientIconProps> = ({ icon, letter, size = 40 
           viewBox="0 0 100 100"
           fill="none"
           focusable="false"
-          dangerouslySetInnerHTML={{ __html: VSCODE_MARKUP.replaceAll('vscb-', idPrefix) }}
+          dangerouslySetInnerHTML={{ __html: VSCODE_MARKUP.split('vscb-').join(idPrefix) }}
         />
       ) : (
         letter
