@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertCircle, ExternalLink } from 'lucide-react';
 import { getBasePath } from '../utils/runtime';
 import { getToken } from '../services/authService';
+import { BrandMark } from '@/components/BrandMark';
 import ThemeSwitch from '@/components/ui/ThemeSwitch';
 import LanguageSwitch from '@/components/ui/LanguageSwitch';
 import type { OAuthConsentContext, ResourceTarget } from '../types/runtime';
@@ -219,20 +220,7 @@ const OAuthConsentPage: React.FC = () => {
         <div className="w-full space-y-6">
           {/* Brand */}
           <div className="flex flex-col items-center gap-3">
-            <div
-              className="relative grid place-items-center"
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 10,
-                background: 'var(--hub-ink)',
-                color: 'var(--hub-bg)',
-              }}
-            >
-              <span className="hub-mono font-semibold" style={{ fontSize: 18 }}>
-                M
-              </span>
-            </div>
+            <BrandMark variant="ink" statusDot={false} />
             <div className="text-center">
               <h1
                 style={{

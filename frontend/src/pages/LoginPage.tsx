@@ -1,4 +1,5 @@
 import { useBranding } from '@/contexts/BrandingContext';
+import { BrandMark, useBrandLogo } from '@/components/BrandMark';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -35,6 +36,7 @@ const sanitizeReturnUrl = (value: string | null): string | null => {
 const LoginPage: React.FC = () => {
   const { t } = useTranslation();
   const { dashboardTitle } = useBranding();
+  const brandLogo = useBrandLogo();
   const [allowRegistration, setAllowRegistration] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -281,34 +283,21 @@ const LoginPage: React.FC = () => {
         <div className="w-full space-y-8">
           {/* Brand */}
           <div className="flex flex-col items-center gap-3">
-            <div
-              className="relative grid place-items-center"
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 10,
-                background: 'var(--hub-ink)',
-                color: 'var(--hub-bg)',
-              }}
-            >
-              <span className="hub-mono font-semibold" style={{ fontSize: 18 }}>
-                M
-              </span>
-              <span
-                className="absolute"
-                style={{
-                  right: -2,
-                  bottom: -2,
-                  width: 8,
-                  height: 8,
-                  borderRadius: 50,
-                  background: 'var(--hub-ok)',
-                  boxShadow: '0 0 0 3px var(--hub-bg)',
-                }}
+            {brandLogo ? (
+              <img
+                src={brandLogo}
+                alt={dashboardTitle}
+                data-brand-logo
+                className="block max-w-full object-contain"
+                style={{ maxHeight: 56 }}
+                draggable={false}
               />
-            </div>
+            ) : (
+              <BrandMark variant="ink" />
+            )}
             <div className="text-center">
               <h1
+                className={brandLogo ? 'sr-only' : undefined}
                 style={{
                   fontSize: 20,
                   fontWeight: 600,
