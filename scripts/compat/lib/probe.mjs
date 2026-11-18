@@ -86,21 +86,26 @@ export const runDiscoveryProbe = async ({ hubUrl, mcpUrl }) => {
   const oidcAppended = `${asUrl.replace(/\/+$/, '')}/.well-known/openid-configuration`;
   const as = await get(rfc8414);
   add('as-rfc8414', `AS metadata at ${new URL(rfc8414).pathname}`, as.status === 200 && Boolean(as.json), `HTTP ${as.status}`);
+  // The spec requires one of RFC 8414 or OIDC discovery and has clients try both, so a hub that
+  // offers only RFC 8414 must answer the OIDC URLs with JSON (a document, or a 404), never with
+  // the dashboard's HTML, which a client would try to parse as metadata.
+  const oidcAnswersJson = (r) =>
+    (r.status === 200 || (r.status === 404 && as.status === 200)) && Boolean(r.json);
   const oidc1 = await get(oidcInserted);
   add(
     'as-oidc',
-    `OIDC discovery document at ${new URL(oidcInserted).pathname} (clients that only try OIDC)`,
-    oidc1.status === 200 && Boolean(oidc1.json),
-    `HTTP ${oidc1.status}`,
+    `OIDC discovery URL ${new URL(oidcInserted).pathname} answers JSON (a document, or a 404 when only RFC 8414 is offered)`,
+    oidcAnswersJson(oidc1),
+    `HTTP ${oidc1.status}${oidc1.json ? ' JSON' : ' non-JSON'}`,
     'discovery-endpoints',
   );
   if (oidcAppended !== oidcInserted) {
     const oidc2 = await get(oidcAppended);
     add(
       'as-oidc-appended',
-      `OIDC discovery document at ${new URL(oidcAppended).pathname}`,
-      oidc2.status === 200 && Boolean(oidc2.json),
-      `HTTP ${oidc2.status}`,
+      `OIDC discovery URL ${new URL(oidcAppended).pathname} answers JSON`,
+      oidcAnswersJson(oidc2),
+      `HTTP ${oidc2.status}${oidc2.json ? ' JSON' : ' non-JSON'}`,
       'discovery-endpoints',
     );
   }
