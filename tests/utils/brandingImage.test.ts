@@ -1,5 +1,6 @@
 import {
   BRANDING_MAX_BYTES,
+  getBrandingAsset,
   mergeBranding,
   publicBranding,
   validateBrandingImage,
@@ -88,13 +89,27 @@ describe('mergeBranding and publicBranding', () => {
     expect(branding).toEqual({ logoLight: logo, logoDark: logo });
   });
 
-  it('publishes empty strings for unset or invalid stored values', () => {
+  it('publishes versioned URLs, empty strings for unset or invalid values, and never the bytes', () => {
     const icon = url('image/png', png);
-    expect(publicBranding(undefined)).toEqual({ icon: '', logoLight: '', logoDark: '' });
-    expect(publicBranding({ icon, logoLight: 'https://x.test/a.png' })).toEqual({
-      icon,
-      logoLight: '',
-      logoDark: '',
-    });
+    const out = publicBranding({ icon, logoLight: 'https://x.test/a.png' }, '/hub');
+    expect(out.icon).toMatch(/^\/hub\/api\/branding\/icon\?v=[0-9a-f]{12}$/);
+    expect(out.logoLight).toBe('');
+    expect(out.logoDark).toBe('');
+    expect(JSON.stringify(out)).not.toContain('data:');
+    expect(publicBranding(undefined, '')).toEqual({ icon: '', logoLight: '', logoDark: '' });
+  });
+
+  it('changes the version when the image changes and not otherwise', () => {
+    const a = publicBranding({ icon: url('image/png', png) }, '').icon;
+    expect(publicBranding({ icon: url('image/png', png) }, '').icon).toBe(a);
+    const other = Buffer.concat([png, Buffer.from('more')]);
+    expect(publicBranding({ icon: url('image/png', other) }, '').icon).not.toBe(a);
+  });
+
+  it('decodes the stored image', () => {
+    const asset = getBrandingAsset({ logoDark: url('image/svg+xml', svg) }, 'logoDark');
+    expect(asset?.mime).toBe('image/svg+xml');
+    expect(asset?.bytes.equals(svg)).toBe(true);
+    expect(getBrandingAsset({}, 'icon')).toBeNull();
   });
 });

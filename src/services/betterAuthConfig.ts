@@ -287,6 +287,8 @@ export const isApiAuthExemptPath = (
     reqPath === '/auth/register' ||
     reqPath === '/auth/passkey/options' ||
     reqPath === '/auth/passkey/login' ||
+    // Public branding images; the handler answers 404 for unknown slots.
+    /^\/branding\/[^/]+$/.test(reqPath) ||
     (betterAuthApiPath !== null && reqPath.startsWith(betterAuthApiPath)) ||
     reqPath.startsWith('/better-auth')
   );

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { DashboardBranding } from '../types/index.js';
 
 export const BRANDING_SLOTS = ['icon', 'logoLight', 'logoDark'] as const;
@@ -101,14 +102,50 @@ export const mergeBranding = (
   return next;
 };
 
-/** The branding slots that are currently set and valid, for the public config. */
-export const publicBranding = (branding: DashboardBranding | undefined): Required<DashboardBranding> => {
+export interface BrandingAsset {
+  mime: string;
+  bytes: Buffer;
+  /** Hex SHA-256 of the decoded bytes. */
+  sha256: string;
+}
+
+// One decoded entry per slot, reused while the stored value is unchanged, so serving the
+// image and building the public config do not decode and hash it on every request.
+const assetCache = new Map<BrandingSlot, { source: string; asset: BrandingAsset | null }>();
+
+/** Decodes a stored slot value, or returns null when it is unset or invalid. */
+export const getBrandingAsset = (
+  branding: DashboardBranding | undefined,
+  slot: BrandingSlot,
+): BrandingAsset | null => {
+  const source = branding?.[slot];
+  if (typeof source !== 'string' || source === '') return null;
+  const cached = assetCache.get(slot);
+  if (cached && cached.source === source) return cached.asset;
+  let asset: BrandingAsset | null = null;
+  if (validateBrandingImage(source) === null) {
+    const match = DATA_URL.exec(source);
+    if (match) {
+      const bytes = Buffer.from(match[2], 'base64');
+      asset = { mime: match[1], bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
+    }
+  }
+  assetCache.set(slot, { source, asset });
+  return asset;
+};
+
+/**
+ * The public branding URLs, one per slot ('' when unset). The `v` query is derived from the
+ * image bytes, so a replaced image gets a new URL and the long cache lifetime stays safe.
+ */
+export const publicBranding = (
+  branding: DashboardBranding | undefined,
+  basePath: string,
+): Required<DashboardBranding> => {
   const out: Required<DashboardBranding> = { icon: '', logoLight: '', logoDark: '' };
   for (const slot of BRANDING_SLOTS) {
-    const value = branding?.[slot];
-    if (typeof value === 'string' && value !== '' && validateBrandingImage(value) === null) {
-      out[slot] = value;
-    }
+    const asset = getBrandingAsset(branding, slot);
+    if (asset) out[slot] = `${basePath}/api/branding/${slot}?v=${asset.sha256.slice(0, 12)}`;
   }
   return out;
 };

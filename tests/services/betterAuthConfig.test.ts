@@ -593,6 +593,16 @@ describe('betterAuthConfig', () => {
       expect(isApiAuthExemptPath('/auth/better', { basePath: '/api/auth/better' })).toBe(true);
     });
 
+    it('exempts the public branding image endpoint only', async () => {
+      const isApiAuthExemptPath = await loadHelper();
+      const config = { basePath: '/api/auth/better' };
+
+      expect(isApiAuthExemptPath('/branding/icon', config)).toBe(true);
+      expect(isApiAuthExemptPath('/branding/unknown', config)).toBe(true);
+      expect(isApiAuthExemptPath('/branding', config)).toBe(false);
+      expect(isApiAuthExemptPath('/branding/icon/extra', config)).toBe(false);
+    });
+
     it('exempts the legacy /better-auth prefix', async () => {
       const isApiAuthExemptPath = await loadHelper();
 

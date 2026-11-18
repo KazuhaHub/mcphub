@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useBranding } from '@/contexts/BrandingContext';
 import { useToast } from '@/contexts/ToastContext';
 import { apiPut } from '@/utils/fetchInterceptor';
+import { getPublicConfig } from '@/services/configService';
 import {
   BRANDING_ACCEPT,
   prepareBrandingImage,
@@ -53,7 +54,9 @@ const BrandingSlotEditor: React.FC<SlotProps> = ({ slot, maxSide, backgrounds })
     try {
       const result = await apiPut('/system-config', { dashboardBranding: { [slot]: value } });
       if (!result.success) throw new Error(result.message || result.error);
-      setBranding({ [slot]: value });
+      // Re-read the public config so every brand mark switches to the new versioned URL.
+      const publicConfig = await getPublicConfig();
+      setBranding({ [slot]: publicConfig.dashboardBranding?.[slot] ?? '' });
       setPending('');
       showToast(t(successKey));
     } catch {

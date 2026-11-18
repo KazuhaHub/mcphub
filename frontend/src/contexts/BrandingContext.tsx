@@ -38,7 +38,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     document.title = dashboardName || 'MCPHub Dashboard';
   }, [dashboardName]);
 
-  // The icon becomes the favicon; clearing it restores the default one.
+  // The icon (a /api/branding URL) becomes the favicon; clearing it restores the default one.
   useEffect(() => {
     const link = document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
     if (!link) return;
@@ -48,7 +48,8 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
     if (branding.icon) {
       link.setAttribute('href', branding.icon);
-      link.setAttribute('type', branding.icon.slice(5, branding.icon.indexOf(';')));
+      // The URL has no extension, so let the browser detect the image type.
+      link.removeAttribute('type');
     } else {
       link.setAttribute('href', link.dataset.defaultHref);
       if (link.dataset.defaultType) link.setAttribute('type', link.dataset.defaultType);

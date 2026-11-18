@@ -140,6 +140,7 @@ import {
   getPublicConfig,
   getMcpSettingsJson,
 } from '../controllers/configController.js';
+import { getBrandingImage } from '../controllers/brandingController.js';
 import { callTool } from '../controllers/toolController.js';
 import { getPrompt } from '../controllers/promptController.js';
 import {
@@ -625,6 +626,9 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
 
   // Public configuration endpoint (no auth required to check skipAuth setting)
   app.get(`${config.basePath}/public-config`, getPublicConfig);
+
+  // Public dashboard branding images (icon and logos); the public config links to these.
+  app.get(`${config.basePath}/api/branding/:slot`, getBrandingImage);
 
   // Public marketplace discovery API (issue #809). Off by default; enable via
   // systemConfig.discovery.enabled. When disabled, all of these return 404 to

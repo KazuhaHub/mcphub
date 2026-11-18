@@ -89,7 +89,7 @@ export const getPublicConfig = async (req: Request, res: Response): Promise<void
       success: true,
       data: {
         dashboardName: systemConfig?.dashboardName || '',
-        dashboardBranding: publicBranding(systemConfig?.dashboardBranding),
+        dashboardBranding: publicBranding(systemConfig?.dashboardBranding, config.basePath),
         skipAuth,
         allowTokenInQuery: systemConfig?.routing?.allowTokenInQuery !== false,
         allowRegistration:
