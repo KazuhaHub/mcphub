@@ -1,0 +1,133 @@
+---
+title: '客户端兼容性'
+description: '哪些 MCP 客户端已经针对 MCPHub 测试过、如何测试，以及哪些尚未验证'
+---
+
+## 核心结论
+
+- MCPHub 的 OAuth 流程已经用 **六套客户端实现做过端到端测试**：官方 TypeScript 与 Python MCP SDK、Vercel AI SDK、MCP Inspector（CLI）、OpenAI Agents SDK 和 `langchain-mcp-adapters`。每一套都在它支持的所有注册方式下通过了下面的五个步骤。
+- **托管类和桌面类客户端尚未验证**，包括 Claude（网页版与桌面版自定义连接器）、ChatGPT 连接器、Cursor、VS Code、Anthropic API 的 MCP connector，以及 OpenAI Responses API 的远程 MCP 工具。它们需要公网 HTTPS 地址和账号，自动化测试工具无法驱动。详见[尚未验证](#尚未验证)。本页没有任何地方声称它们可以正常工作。
+- 所有结果均记录于 **2026-11-18**，版本号如实列出；客户端发布新版本后行为可能不同。
+
+## 测试内容
+
+测试使用仓库里的兼容性测试工具（[`scripts/compat/README.md`](https://github.com/KazuhaHub/mcphub/blob/main/scripts/compat/README.md)）。它会启动一个临时的 MCPHub 并开启 OAuth 服务端，再用真实的客户端库对 hub 的 `/mcp` 端点走完整个流程。客户端与 hub 之间有一个录制代理，因此每项结果都以线路上实际发生的请求为准，而不只是客户端自己的报告。
+
+每个客户端都执行相同的五个步骤：
+
+| 步骤 | 检查内容 |
+| --- | --- |
+| 1. 发现 | 客户端经过 `401` 质询、受保护资源元数据和授权服务器元数据，走到了授权端点。 |
+| 2. OAuth 登录 | 客户端标识（见下文），然后是带 PKCE 的授权码流程、用户登录与授权确认、授权码换取令牌。 |
+| 3. 列出工具 | 使用签发的访问令牌调用 `tools/list`。 |
+| 4. 调用工具 | 对上游测试工具调用 `tools/call`。 |
+| 5. 令牌刷新 | 等到访问令牌过期（测试工具中为 6 秒）后再次调用。只有同时满足以下条件才算通过：调用成功、令牌已更换、线路上有一次返回 `200` 的 `refresh_token` 授权，且用户没有被再次带到授权确认页。 |
+
+测试覆盖了客户端表明身份的两种方式：
+
+- **动态客户端注册（DCR）**：客户端先调用 `POST /oauth/register`。这是各客户端的常规行为。
+- **客户端 ID 元数据文档（CIMD）**：客户端用一个 HTTPS URL 作为 `client_id`。凡是提供 CIMD 选项的客户端都测了两次：一次由客户端根据元数据中的 `client_id_metadata_document_supported` 自行决定，一次把该 URL 当作预注册信息直接提供，这样会绕过该标志，单独检验 MCPHub 对 CIMD 的处理。
+
+测试同时记录每个客户端协商出的 MCP 协议版本。
+
+### 这些结果能说明什么，不能说明什么
+
+结果说明这些客户端库与 MCPHub 的协议流程可以正常工作。它不能说明基于某个库构建的具体产品也可以，因为产品往往带有自己的 OAuth 代码、重定向处理和限制。
+
+与真实部署的已知差异：
+
+- hub 监听 `127.0.0.1`，使用明文 HTTP；托管类客户端要求公网 HTTPS。
+- 登录与授权确认是自动化的：测试工具以测试用户身份登录，并调用授权确认页本身使用的那两个接口，服务端的认证并没有被放宽。
+- 访问令牌有效期设为 6 秒，以便快速验证第 5 步；默认值为一小时。
+- 上游只有一个进程内的 `echo` 工具。
+- 结果来自一个合并了这些 OAuth 改动（现已进入 `main`）的构建（提交 `c3d2fbe6`），并未在最终的 `main` 上重新运行。测试工具当时显式启用了 CIMD；此后 CIMD 改为默认开启，这不改变被测试到的代码路径。
+
+### 自己运行
+
+```bash
+npm install --prefix scripts/compat
+pnpm compat --out /tmp/compat-results.json
+```
+
+Python 运行器的环境准备、各项选项以及如何阅读结果矩阵，见[测试工具 README](https://github.com/KazuhaHub/mcphub/blob/main/scripts/compat/README.md)。`node scripts/compat/probe.mjs https://hub.example.com/mcp` 只对任意 hub 运行与客户端无关的发现探测。
+
+## 已测试的客户端
+
+测试日期 2026-11-18，访问令牌有效期 6 秒。“通过”表示五个步骤全部通过。
+
+| 客户端实现 | 版本 | DCR | CIMD（由客户端判断） | CIMD（强制） | MCP 协议 |
+| --- | --- | --- | --- | --- | --- |
+| MCP TypeScript SDK 客户端（`@modelcontextprotocol/client`，含仓库自带补丁） | 2.1.0 | 通过 | 通过 | 通过 | 默认 `2025-11-25`；开启版本协商后为 `2026-07-28`（DCR 测试） |
+| Vercel AI SDK 的 MCP 客户端（`@ai-sdk/mcp`，经由 `ai` 使用） | `@ai-sdk/mcp` 2.0.101，`ai` 7.0.176 | 通过 | 不适用（无 CIMD 选项） | 通过 | `2026-07-28` |
+| MCP Inspector CLI 模式（`@modelcontextprotocol/inspector`） | 2.16.0 | 通过 | 通过 | 通过 | `2025-11-25` |
+| MCP Python SDK（`mcp`）1.x | 1.30.0 | 通过 | 通过 | 通过 | `2025-11-25` |
+| MCP Python SDK（`mcp`）2.x | 2.3.0 | 通过 | 通过 | 通过 | `2026-07-28` |
+| OpenAI Agents SDK（`openai-agents`），基于 `mcp` 1.x | 0.25.0，`mcp` 1.30.0 | 通过 | 未测试 | 未测试 | `2025-11-25` |
+| OpenAI Agents SDK（`openai-agents`），基于 `mcp` 2.x | 0.25.0，`mcp` 2.3.0 | 通过 | 未测试 | 未测试 | `2026-07-28` |
+| `langchain-mcp-adapters`（要求 `mcp` 低于 2） | 0.3.2，`mcp` 1.30.0 | 通过 | 未测试 | 未测试 | `2025-11-25` |
+
+说明：
+
+- OpenAI Agents SDK 与 `langchain-mcp-adapters` 只测了列出和调用工具，没有调用模型。它们使用的是 Python SDK 的 OAuth provider。
+- 网页版 MCP Inspector 和 Claude Code 不在测试工具的驱动范围内，不属于这张矩阵。
+- TypeScript SDK 只有在开启版本协商时才会使用 `2026-07-28`，默认选项下使用 `2025-11-25` 握手。`mcp` 1.x、Inspector 和 `langchain-mcp-adapters` 同样使用 `2025-11-25`。
+- 与客户端无关的探测共 18 项检查，通过 17 项。唯一未通过的是 OpenID Connect 发现（`/.well-known/openid-configuration`），这是 MCPHub 有意不提供的，见下一节。
+
+## MCPHub 实现了什么
+
+当 MCPHub 同时作为自身 `/mcp` 和 `/sse` 端点的授权服务器与资源服务器时，实现了下列内容。每一项都对照代码核实过，发现类的几项也被上面的探测覆盖。
+
+| 功能 | 规范 | 行为 |
+| --- | --- | --- |
+| 受保护资源元数据 | [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) | 为每条 MCP 和 SSE 路由提供 `/.well-known/oauth-protected-resource/<路径>`，并有根路径回退。其中给出授权服务器和 scope。 |
+| 授权服务器元数据 | [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414) | 提供 `/.well-known/oauth-authorization-server`；当公开基础 URL 带路径时，还提供路径插入形式。不提供 OpenID Connect 发现（MCPHub 不签发 `id_token`），此类请求会得到 JSON `404`。 |
+| `401` 质询 | [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750) 与 RFC 9728 第 5.1 节 | 未认证或令牌无效的请求会得到带 `resource_metadata` 和 `scope` 的 `WWW-Authenticate: Bearer`。令牌无效或过期时带 `error="invalid_token"`，客户端据此触发刷新。 |
+| 签发者标识 | [RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207) | 每个授权响应（包括错误响应）都带 `iss`，元数据中设置了 `authorization_response_iss_parameter_supported`。 |
+| 带 PKCE 的授权码 | [RFC 7636](https://datatracker.ietf.org/doc/html/rfc7636) | 只支持 `S256`，公开客户端必须使用。 |
+| 资源指示 | [RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707) | 会校验 `resource` 参数；不属于 MCPHub 自身路由的资源会以 `invalid_target` 拒绝。 |
+| 动态客户端注册 | [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591) | 默认开启，以 `registration_endpoint` 公布。 |
+| 客户端 ID 元数据文档 | [draft-ietf-oauth-client-id-metadata-document](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/) | 默认开启，以 `client_id_metadata_document_supported` 公布，抓取时带 SSRF 防护。见 [OAuth](/zh/features/oauth)。 |
+| 刷新令牌 | [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749) 第 6 节 | 支持 `refresh_token` 授权。默认：访问令牌一小时，刷新令牌 14 天。 |
+| MCP 协议版本协商 | [MCP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) 与 [MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization) | 同一端点同时接受无状态的 `2026-07-28` 请求和基于会话的 `2025-11-25` 请求。 |
+
+详细说明与配置见 [OAuth](/zh/features/oauth) 页面。
+
+## 尚未验证
+
+下列客户端**没有**针对 MCPHub 测试过。它们需要公网 HTTPS 地址和账号，测试工具无法运行它们。在有人按下面的步骤验证并记录结果之前，请把它们都视为未验证：可能能用，也可能不能用，本页不做判断。
+
+<Warning>
+下面与厂商相关的细节（菜单名称、回调域名、请求头名称）来自对公开文档的一般了解，没有在本仓库中核实，而且厂商经常改动。请以厂商当前文档为准。任何客户端实际使用的重定向 URI，以它自己注册的为准，可在控制台的 OAuth 客户端页面查看。
+</Warning>
+
+### 开始之前
+
+1. 让 hub 可通过 HTTPS 访问，并设置公开基础 URL（`install.baseUrl` 或 `INSTALL_BASE_URL`），使签发者、资源和 `WWW-Authenticate` 中的地址都是公网地址。
+2. 对它运行探测：`node scripts/compat/probe.mjs https://hub.example.com/mcp`。
+3. 测试期间把 OAuth 访问令牌有效期设为约 60 秒，测完恢复。
+4. 测试时观察 hub 的请求日志（或反向代理的访问日志）。
+
+使用全局端点 `https://<公网主机>/mcp`（或某个分组端点）。每一步应观察到：
+
+| 步骤 | 通过时的表现 |
+| --- | --- |
+| 1. 发现 | `POST /mcp` 返回 `401`，随后是 `GET /.well-known/oauth-protected-resource/mcp`，再是 `GET /.well-known/oauth-authorization-server`。客户端不会只给出笼统的“无法连接”。 |
+| 2. OAuth 登录 | 客户端先注册（`POST /oauth/register`）或把 URL 作为 `client_id`；授权确认页显示正确的客户端；点击允许后客户端显示已连接。记下它注册的 `redirect_uris`。 |
+| 3. 列出工具 | 预期的工具出现。已连接却列表为空，通常是令牌的用户或分组范围不对，而不是 OAuth 的问题。 |
+| 4. 调用工具 | 调用一个无害的工具（如 echo 或时间工具）并得到结果。 |
+| 5. 刷新 | 等待超过令牌有效期后，出现一次返回 `200` 的 `POST /oauth/token`（`grant_type=refresh_token`），调用成功，且没有第二次授权确认页。 |
+
+同时记下协议版本：`initialize` 中为 `2025-11-25`，或出现 `server/discover` 与 `MCP-Protocol-Version: 2026-07-28`。
+
+### 各客户端
+
+| 客户端 | 连接方式 | 特别之处 |
+| --- | --- | --- |
+| Claude（网页版与桌面版自定义连接器） | 设置，连接器，添加自定义连接器，填入 `/mcp` 地址，客户端 ID 与密钥留空。 | 第 1、2 步在点击连接时发生。桌面版通过你的账号使用同一个连接器。请在已注册的 `redirect_uris` 中确认 Claude 的回调地址。 |
+| ChatGPT 连接器 | 设置，连接器，高级，开启开发者模式，创建连接器，填入 `/mcp` 地址并选择 OAuth 认证。 | 把连接器加入对话后列出工具。若在第 5 步要求重新认证，说明 ChatGPT 没有刷新令牌。 |
+| Cursor | 在 `~/.cursor/mcp.json` 的 `mcpServers` 中或 MCP 设置里添加该地址。 | 回调是 `cursor://` 深度链接，请检查已注册的 `redirect_uris`。令牌过期后出现“Needs login”表示没有刷新。 |
+| VS Code | 命令面板，“MCP: Add Server”，选择 HTTP，填入 `/mcp` 地址。 | 重定向使用回环地址和 `https://vscode.dev/redirect`，所以 hub 的回环地址重定向匹配很关键。若出现“不支持动态客户端注册”的提示，说明发现步骤没有找到 `registration_endpoint`。 |
+| Anthropic API 的 MCP connector | 在 `mcp_servers` 中传入 `/mcp` 地址和访问令牌，并按 Anthropic 当前文档添加 beta 请求头。 | 没有 OAuth 流程，也没有刷新：令牌由你提供，所以第 1、2 步由你自己完成（可用任意 OAuth 客户端，或 hub 的 Bearer 密钥）。检查令牌过期时是否返回清晰的认证错误。hub 必须能被 Anthropic 的服务器访问。 |
+| OpenAI Responses API 的远程 MCP 工具 | 把 `/mcp` 地址和访问令牌作为 `mcp` 工具的 `authorization` 传入。 | 形式相同：没有 OAuth 流程，也没有刷新。输出里会列出工具（第 3 步）并有调用记录（第 4 步）。检查令牌过期时返回的是清晰的错误而不是挂起。hub 必须能被 OpenAI 的服务器访问。 |
+
+完整流程见[测试工具 README](https://github.com/KazuhaHub/mcphub/blob/main/scripts/compat/README.md#what-cannot-be-automated-and-how-to-test-it-by-hand)。如果你测试了其中某个客户端，请附上客户端版本、日期，以及失败的步骤（如有）；有了这样一条记录，本页上的这一行才能从“未验证”变成“已测试”。
