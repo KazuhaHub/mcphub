@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Copy } from 'lucide-react';
+import { Copy, Plug } from 'lucide-react';
 import { StatusDot } from '@/components/ui/StatusDot';
 import type { ToolRiskLevel, WorkspaceServer, WorkspaceServerEndpoint } from '@/types';
 import { getSafeManageHref } from '@/utils/manageUrl';
@@ -24,6 +24,7 @@ interface WorkspaceServiceRowProps {
   onRiskChange: (name: string, riskCeiling: ToolRiskLevel) => void;
   onAction: (action: ServiceAction) => void;
   onCopyEndpoint: (url: string) => void;
+  onConnectToAi: (name: string) => void;
 }
 
 const formatUntil = (value: string): string => {
@@ -41,6 +42,7 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
   onRiskChange,
   onAction,
   onCopyEndpoint,
+  onConnectToAi,
 }) => {
   const { t } = useTranslation();
   const action = resolveServiceAction(server, credentialServers);
@@ -267,6 +269,20 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
           : t('workspacePage.services.toolCount', { count: server.toolCount })}
       </span>
       <div className="flex min-w-[96px] justify-end">{renderAction()}</div>
+      <button
+        type="button"
+        className="hub-btn sm"
+        disabled={!endpoint?.url}
+        onClick={() => onConnectToAi(server.name)}
+        title={
+          endpoint?.url
+            ? undefined
+            : t(endpoint?.conflict ? 'connect.serviceConflict' : 'connect.serviceNotReady')
+        }
+        aria-label={t('connect.rowActionFor', { name: server.name })}
+      >
+        <Plug size={12} /> {t('connect.rowAction')}
+      </button>
       <div className="flex w-8 justify-end">{renderEndpoint()}</div>
       {renderRisk()}
     </li>

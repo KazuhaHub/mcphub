@@ -37,6 +37,10 @@ jest.mock('../../frontend/src/services/workspaceService', () => ({
   fetchWorkspaceClients: jest.fn(),
   fetchWorkspaceServers: jest.fn(),
 }));
+jest.mock('@/components/connect/ConnectCard', () => ({
+  __esModule: true,
+  default: () => 'CONNECT_CARD',
+}));
 jest.mock('@/components/workspace/WorkspaceServicesView', () => ({
   __esModule: true,
   default: () => 'SERVICES_VIEW',

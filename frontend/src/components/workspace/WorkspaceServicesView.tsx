@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Info, RefreshCw } from 'lucide-react';
-import { useSettings } from '@/contexts/SettingsContext';
 import { useToast } from '@/contexts/ToastContext';
 import {
   fetchCredentialServerNames,
@@ -28,7 +27,7 @@ import {
   toggleServerSelection,
   type ServiceAction,
 } from '@/utils/workspace';
-import MyEndpointCard from './MyEndpointCard';
+import ConnectDialog from '@/components/connect/ConnectDialog';
 import ToolCountIndicator from './ToolCountIndicator';
 import WorkspaceServiceRow from './WorkspaceServiceRow';
 
@@ -60,7 +59,6 @@ const WorkspaceServicesView: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { smartRoutingConfig } = useSettings();
 
   const [servers, setServers] = useState<WorkspaceServer[]>([]);
   const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
@@ -69,6 +67,7 @@ const WorkspaceServicesView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ detail: string; disabled: boolean } | null>(null);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const [connectService, setConnectService] = useState<string | null>(null);
   const [authLinks, setAuthLinks] = useState<Record<string, string>>({});
   // Selection saves in flight, readable from event handlers without a re-render.
   const pendingRef = useRef(0);
@@ -267,15 +266,7 @@ const WorkspaceServicesView: React.FC = () => {
     <div className="space-y-4">
       {summary && <SummaryBannerView summary={summary} />}
 
-      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,280px)]">
-        {endpoints && (
-          <MyEndpointCard
-            aggregate={endpoints.aggregate}
-            smartRoutingEnabled={smartRoutingConfig.enabled}
-          />
-        )}
-        <ToolCountIndicator total={countExposedTools(servers)} />
-      </div>
+      <ToolCountIndicator total={countExposedTools(servers)} />
 
       {hiddenTools > 0 && (
         <div className="hub-callout warn" role="status" data-banner="risk">
@@ -321,11 +312,22 @@ const WorkspaceServicesView: React.FC = () => {
                 onRiskChange={(name, riskCeiling) => void onRiskChange(name, riskCeiling)}
                 onAction={(action) => onAction(server, action)}
                 onCopyEndpoint={(url) => void onCopyEndpoint(url)}
+                onConnectToAi={(name) => setConnectService(name)}
               />
             ))}
           </ul>
         )}
       </section>
+
+      {connectService && endpoints && (
+        <ConnectDialog
+          aggregateUrl={endpoints.aggregate}
+          servers={servers}
+          endpoints={endpoints}
+          initial={{ service: connectService }}
+          onClose={() => setConnectService(null)}
+        />
+      )}
     </div>
   );
 };

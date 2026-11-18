@@ -9,7 +9,6 @@ import {
   TOOL_COUNT_WARN,
   applySelection,
   buildSmartEndpoint,
-  buildWorkspaceSnippets,
   createLatestOnly,
   isHttpUrl,
   pruneAuthLinks,
@@ -210,7 +209,7 @@ describe('optimistic selection', () => {
   });
 });
 
-describe('endpoints and snippets', () => {
+describe('smart endpoint', () => {
   const aggregate = 'https://hub.example.com/alice/mcp';
 
   it('appends the smart routing segment to the personal endpoint', () => {
@@ -218,17 +217,6 @@ describe('endpoints and snippets', () => {
     expect(buildSmartEndpoint(`${aggregate}/`, 'smart')).toBe(
       'https://hub.example.com/alice/mcp/smart',
     );
-  });
-
-  it('builds URL-only snippets without credentials', () => {
-    const generic = buildWorkspaceSnippets('generic-mcp-servers', aggregate)[0].text;
-    expect(JSON.parse(generic)).toEqual({ mcpServers: { mcphub: { url: aggregate } } });
-
-    const claude = buildWorkspaceSnippets('claude-code', aggregate).map((block) => block.text);
-    expect(claude.join('\n')).toContain(aggregate);
-    expect(claude.join('\n')).not.toMatch(/Authorization|Bearer/i);
-
-    expect(buildWorkspaceSnippets('cursor', aggregate)[0].text).toContain(aggregate);
   });
 });
 
