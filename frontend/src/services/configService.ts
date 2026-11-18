@@ -64,6 +64,7 @@ export interface SystemConfig {
         oidc?: {
           enabled?: boolean;
           providerId?: string;
+          displayName?: string;
           discoveryUrl?: string;
           scopes?: string[];
           pkce?: boolean;
@@ -81,6 +82,8 @@ interface BetterAuthConfig {
   trustedOrigins?: string[];
   // Effective value: only true while an SSO provider is enabled
   disablePasswordLogin?: boolean;
+  // Effective value: 'dual' while no SSO sign-in is available
+  loginMode?: 'dual' | 'sso_first' | 'sso_redirect';
   providers?: {
     google?: {
       enabled?: boolean;
@@ -91,6 +94,7 @@ interface BetterAuthConfig {
     oidc?: {
       enabled?: boolean;
       providerId?: string;
+      displayName?: string;
       discoveryUrl?: string;
       scopes?: string[];
       pkce?: boolean;

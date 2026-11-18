@@ -7,6 +7,7 @@ import {
 import { apiPost, apiGet } from '../utils/fetchInterceptor';
 import { getToken, setToken, removeToken } from '../utils/interceptors';
 import { authClient } from './betterAuthClient';
+import { markLoggedOut } from '../utils/loginPresentation';
 
 // Export token management functions
 export { getToken, setToken, removeToken };
@@ -122,6 +123,8 @@ export const changePassword = async (
 
 // Logout user
 export const logout = (): void => {
+  // The login page that follows must not send the user straight back to the identity provider
+  markLoggedOut();
   removeToken();
   authClient.signOut().catch((error) => {
     console.debug('Better Auth sign out failed', { error });

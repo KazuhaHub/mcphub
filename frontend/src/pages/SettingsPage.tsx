@@ -22,6 +22,7 @@ import ToolPolicyPanel from '@/components/ToolPolicyPanel';
 import SmartRoutingIndexPanel from '@/components/SmartRoutingIndexPanel';
 import ActivityRetentionSetting from '@/components/ActivityRetentionSetting';
 import { useAuth } from '@/contexts/AuthContext';
+import type { LoginMode } from '@/contexts/SettingsContext';
 import { apiGet, apiPost, apiPut } from '@/utils/fetchInterceptor';
 import {
   filterBearerKeysByScopeFilter,
@@ -710,6 +711,7 @@ const SettingsPage: React.FC = () => {
     basePath: string;
     trustedOrigins: string;
     oidcProviderId: string;
+    oidcDisplayName: string;
     oidcDiscoveryUrl: string;
     oidcScopes: string;
     oidcPrompt: string;
@@ -718,6 +720,7 @@ const SettingsPage: React.FC = () => {
     basePath: '/api/auth/better',
     trustedOrigins: '',
     oidcProviderId: 'oidc',
+    oidcDisplayName: '',
     oidcDiscoveryUrl: '',
     oidcScopes: DEFAULT_OIDC_SCOPES.join(', '),
     oidcPrompt: '',
@@ -926,6 +929,7 @@ const SettingsPage: React.FC = () => {
         basePath: betterAuthConfig.basePath || '/api/auth/better',
         trustedOrigins: betterAuthConfig.trustedOrigins?.join(', ') || '',
         oidcProviderId: betterAuthConfig.providers.oidc.providerId || 'oidc',
+        oidcDisplayName: betterAuthConfig.providers.oidc.displayName || '',
         oidcDiscoveryUrl: betterAuthConfig.providers.oidc.discoveryUrl || '',
         oidcScopes: betterAuthConfig.providers.oidc.scopes?.join(', ') || DEFAULT_OIDC_SCOPES.join(', '),
         oidcPrompt: betterAuthConfig.providers.oidc.prompt || '',
@@ -1250,6 +1254,7 @@ const SettingsPage: React.FC = () => {
       | 'basePath'
       | 'trustedOrigins'
       | 'oidcProviderId'
+      | 'oidcDisplayName'
       | 'oidcDiscoveryUrl'
       | 'oidcScopes'
       | 'oidcPrompt',
@@ -1273,6 +1278,7 @@ const SettingsPage: React.FC = () => {
     const normalizedBasePath = tempBetterAuthConfig.basePath.trim() || '/api/auth/better';
     const normalizedTrustedOrigins = parseCommaSeparated(tempBetterAuthConfig.trustedOrigins) || [];
     const normalizedProviderId = tempBetterAuthConfig.oidcProviderId.trim() || 'oidc';
+    const normalizedDisplayName = tempBetterAuthConfig.oidcDisplayName.trim();
     const normalizedDiscoveryUrl = tempBetterAuthConfig.oidcDiscoveryUrl.trim();
     const normalizedScopes =
       parseCommaSeparated(tempBetterAuthConfig.oidcScopes) || [...DEFAULT_OIDC_SCOPES];
@@ -1296,6 +1302,10 @@ const SettingsPage: React.FC = () => {
 
     if (normalizedProviderId !== betterAuthConfig.providers.oidc.providerId) {
       oidcUpdates.providerId = normalizedProviderId;
+    }
+
+    if (normalizedDisplayName !== (betterAuthConfig.providers.oidc.displayName || '')) {
+      oidcUpdates.displayName = normalizedDisplayName;
     }
 
     if (normalizedDiscoveryUrl !== (betterAuthConfig.providers.oidc.discoveryUrl || '')) {
@@ -3961,6 +3971,31 @@ const SettingsPage: React.FC = () => {
 
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
                 <div className="mb-2">
+                  <label htmlFor="better-auth-login-mode" className="font-medium text-gray-700">
+                    {t('settings.loginMode')}
+                  </label>
+                  <p className="text-sm text-gray-500">{t('settings.loginModeDescription')}</p>
+                </div>
+                <select
+                  id="better-auth-login-mode"
+                  className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-select"
+                  value={betterAuthConfig.loginMode}
+                  disabled={loading}
+                  onChange={(e) =>
+                    handleBetterAuthToggle({ loginMode: e.target.value as LoginMode })
+                  }
+                >
+                  <option value="dual">{t('settings.loginModeDual')}</option>
+                  <option value="sso_first">{t('settings.loginModeSsoFirst')}</option>
+                  <option value="sso_redirect">{t('settings.loginModeSsoRedirect')}</option>
+                </select>
+                {betterAuthConfig.loginMode === 'sso_redirect' && (
+                  <p className="mt-2 text-sm text-gray-500">{t('settings.loginModeRedirectNote')}</p>
+                )}
+              </div>
+
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                <div className="mb-2">
                   <h3 className="font-medium text-gray-700">
                     {t('settings.betterAuthBaseUrl') || 'Base URL'}
                   </h3>
@@ -4113,6 +4148,32 @@ const SettingsPage: React.FC = () => {
                         handleBetterAuthTextChange('oidcProviderId', e.target.value)
                       }
                       placeholder="oidc"
+                      className="flex-1 mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-input"
+                      disabled={loading}
+                    />
+                  </div>
+
+                  <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                    <div className="mb-2">
+                      <label
+                        htmlFor="better-auth-oidc-display-name"
+                        className="font-medium text-gray-700"
+                      >
+                        {t('settings.betterAuthOidcDisplayName')}
+                      </label>
+                      <p className="text-sm text-gray-500">
+                        {t('settings.betterAuthOidcDisplayNameDescription')}
+                      </p>
+                    </div>
+                    <input
+                      id="better-auth-oidc-display-name"
+                      type="text"
+                      maxLength={60}
+                      value={tempBetterAuthConfig.oidcDisplayName}
+                      onChange={(e) =>
+                        handleBetterAuthTextChange('oidcDisplayName', e.target.value)
+                      }
+                      placeholder="Microsoft Entra ID"
                       className="flex-1 mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-input"
                       disabled={loading}
                     />

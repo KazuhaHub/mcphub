@@ -113,11 +113,15 @@ interface BetterAuthProviderToggle {
 interface BetterAuthOidcConfig {
   enabled: boolean;
   providerId: string;
+  displayName: string;
   discoveryUrl: string;
   scopes: string[];
   pkce: boolean;
   prompt: string;
 }
+
+export const LOGIN_MODES = ['dual', 'sso_first', 'sso_redirect'] as const;
+export type LoginMode = (typeof LOGIN_MODES)[number];
 
 interface BetterAuthConfig {
   enabled: boolean;
@@ -125,6 +129,7 @@ interface BetterAuthConfig {
   basePath: string;
   trustedOrigins: string[];
   disablePasswordLogin: boolean;
+  loginMode: LoginMode;
   providers: {
     google: BetterAuthProviderToggle;
     github: BetterAuthProviderToggle;
@@ -275,6 +280,7 @@ const getDefaultBetterAuthConfig = (): BetterAuthConfig => ({
   basePath: '/api/auth/better',
   trustedOrigins: [],
   disablePasswordLogin: false,
+  loginMode: 'dual',
   providers: {
     google: {
       enabled: true,
@@ -285,6 +291,7 @@ const getDefaultBetterAuthConfig = (): BetterAuthConfig => ({
     oidc: {
       enabled: false,
       providerId: 'oidc',
+      displayName: '',
       discoveryUrl: '',
       scopes: [...DEFAULT_OIDC_SCOPES],
       pkce: true,
@@ -313,6 +320,9 @@ const normalizeBetterAuthConfig = (config?: Partial<BetterAuthConfig>): BetterAu
     basePath: config?.basePath?.trim() || defaults.basePath,
     trustedOrigins: normalizeStringArray(config?.trustedOrigins, defaults.trustedOrigins),
     disablePasswordLogin: config?.disablePasswordLogin ?? defaults.disablePasswordLogin,
+    loginMode: LOGIN_MODES.includes(config?.loginMode as LoginMode)
+      ? (config?.loginMode as LoginMode)
+      : defaults.loginMode,
     providers: {
       google: {
         enabled: config?.providers?.google?.enabled ?? defaults.providers.google.enabled,
@@ -323,6 +333,7 @@ const normalizeBetterAuthConfig = (config?: Partial<BetterAuthConfig>): BetterAu
       oidc: {
         enabled: config?.providers?.oidc?.enabled ?? defaults.providers.oidc.enabled,
         providerId: config?.providers?.oidc?.providerId?.trim() || defaults.providers.oidc.providerId,
+        displayName: config?.providers?.oidc?.displayName?.trim() || '',
         discoveryUrl: config?.providers?.oidc?.discoveryUrl?.trim() || '',
         scopes: normalizeStringArray(config?.providers?.oidc?.scopes, DEFAULT_OIDC_SCOPES),
         pkce: config?.providers?.oidc?.pkce ?? defaults.providers.oidc.pkce,
