@@ -19,13 +19,14 @@ export interface AuthorizableServer {
   owner?: string;
   visibility?: ServerVisibility;
   sharedWithUsers?: string[];
+  sharedWithUserGroups?: string[];
 }
 
 // Set only when the request authenticated with a `credentials:write:<server>` OAuth token: the
 // principal is then good for that one server's credential binding and nothing else.
 export type CredentialWriteGrantInfo = { clientId: string; serverName: string };
 
-export type RequestPrincipal = Pick<IUser, 'username'> & {
+export type RequestPrincipal = Pick<IUser, 'username' | 'userGroups'> & {
   isAdmin?: boolean;
   credentialEligible?: boolean;
   credentialWriteGrant?: CredentialWriteGrantInfo;

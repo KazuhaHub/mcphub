@@ -7,6 +7,7 @@ import { ensureWorkspaceEnabledAt } from './services/connectedClientService.js';
 import { hydrateSystemConfigCache, getCachedSystemConfig } from './utils/systemConfigCache.js';
 import { logger } from './utils/logger.js';
 import { redactUrl } from './utils/redaction.js';
+import { validateReplicaEnvironment } from './utils/replicaMode.js';
 import {
   startHostedEventSubscriber,
   stopHostedEventSubscriber,
@@ -166,6 +167,7 @@ const setupGlobalProxyFetch = (): void => {
 
 async function boot() {
   try {
+    validateReplicaEnvironment();
     setupGlobalProxyFetch();
 
     // Check if database mode is enabled

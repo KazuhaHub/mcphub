@@ -1,6 +1,7 @@
 import { BearerKeyDao } from './BearerKeyDao.js';
 import { BearerKey as BearerKeyModel } from '../types/index.js';
 import { BearerKeyRepository } from '../db/repositories/BearerKeyRepository.js';
+import { SystemConfigRepository } from '../db/repositories/SystemConfigRepository.js';
 import { bearerHashMatches, describeBearerToken, hashBearerToken } from '../utils/bearerKeyHash.js';
 import { logger } from '../utils/logger.js';
 
@@ -41,6 +42,8 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
       allowedServers: entity.allowedServers ?? [],
       createdAt: entity.createdAt ? new Date(entity.createdAt).toISOString() : undefined,
       lastUsedAt: entity.lastUsedAt ? new Date(entity.lastUsedAt).toISOString() : undefined,
+      excludedGroups: entity.excludedGroups ?? [],
+      excludedServers: entity.excludedServers ?? [],
     };
   }
 
@@ -87,6 +90,8 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
       accessType: data.accessType,
       allowedGroups: data.allowedGroups ?? [],
       allowedServers: data.allowedServers ?? [],
+      excludedGroups: data.excludedGroups ?? [],
+      excludedServers: data.excludedServers ?? [],
       ...(data.createdAt ? { createdAt: new Date(data.createdAt) } : {}),
       lastUsedAt: data.lastUsedAt ? new Date(data.lastUsedAt) : undefined,
     } as any);
@@ -100,13 +105,19 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
   ): Promise<BearerKeyModel | null> {
     const entity = await this.repository.update(id, {
       name: data.name,
-      ...(data.token ? { token: null, ...describeBearerToken(data.token) } : {}),
+      ...(data.token
+        ? { token: null, ...describeBearerToken(data.token) }
+        : data.tokenHash !== undefined
+          ? { token: null, tokenHash: data.tokenHash, tokenPrefix: data.tokenPrefix }
+          : {}),
       enabled: data.enabled,
       kind: data.kind,
       owner: data.owner,
       accessType: data.accessType,
       allowedGroups: data.allowedGroups,
       allowedServers: data.allowedServers,
+      excludedGroups: data.excludedGroups,
+      excludedServers: data.excludedServers,
     } as any);
     return entity ? this.toModel(entity as any) : null;
   }
@@ -121,6 +132,12 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
     }
     if (migrated > 0) logger.log(`Hashed ${migrated} bearer key(s) stored in plaintext`);
     legacyMigrationComplete = (await this.repository.findWithPlaintextToken()).length === 0;
+    // Instances migrated by an older version still carry the raw legacy key in routing config.
+    const systemConfigRepo = new SystemConfigRepository();
+    const routing = ((await systemConfigRepo.get()) as any)?.routing || {};
+    if (routing.bearerAuthKey) {
+      await systemConfigRepo.updateSection('routing', { ...routing, bearerAuthKey: '' });
+    }
     return migrated;
   }
 
@@ -143,8 +160,11 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
     for (const key of allKeys) {
       let updated = false;
 
-      if (key.allowedServers && key.allowedServers.length > 0) {
-        const newServers = key.allowedServers.map((server) => {
+      for (const field of ['allowedServers', 'excludedServers'] as const) {
+        const servers = key[field];
+        if (!servers || servers.length === 0) continue;
+
+        const newServers = servers.map((server) => {
           if (server === oldName) {
             updated = true;
             return newName;
@@ -152,10 +172,13 @@ export class BearerKeyDaoDbImpl implements BearerKeyDao {
           return server;
         });
 
-        if (updated) {
-          await this.repository.update(key.id, { allowedServers: newServers });
-          updatedCount++;
+        if (newServers.some((server, index) => server !== servers[index])) {
+          await this.repository.update(key.id, { [field]: newServers });
         }
+      }
+
+      if (updated) {
+        updatedCount++;
       }
     }
 

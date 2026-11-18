@@ -1,4 +1,5 @@
 import { isSafePassthroughHeader } from '../utils/passthroughHeaders.js';
+import { isReplicaMode } from '../utils/replicaMode.js';
 import { AxiosHeaders } from 'axios';
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import { randomUUID } from 'node:crypto';
@@ -23,6 +24,7 @@ import { DestinationMismatchError } from '../utils/credentialTemplate.js';
 import { getT } from '../utils/i18n.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeStringForLogging, createSafeJSON } from '../utils/serialization.js';
+import { fromOpenApiSchema } from '../utils/openApiSchema.js';
 import {
   buildMultipartParts,
   encodeFormUrlEncoded,
@@ -58,6 +60,7 @@ interface MappedSecurityScheme {
 }
 
 interface OpenAPIClientOptions {
+  getPersonalAccessToken?: (rejectedToken?: string) => Promise<string>;
   persistOAuth2Token?: (oauth2: OpenAPISecurityConfig['oauth2']) => Promise<void> | void;
 }
 
@@ -140,6 +143,7 @@ export class OpenAPIClient {
   private tools: OpenAPIToolInfo[] = [];
   private baseUrl: string;
   private securityConfig?: OpenAPISecurityConfig;
+  private readonly getPersonalAccessToken?: (rejectedToken?: string) => Promise<string>;
   private readonly persistOAuth2Token?: OpenAPIClientOptions['persistOAuth2Token'];
   private oauth2TokenRequest?: Promise<string | undefined>;
   // Per-session cookie jars for the dynamic Set-Cookie login flow. Keyed by
@@ -178,7 +182,8 @@ export class OpenAPIClient {
     // user-derived default baseURL must not taint this.httpClient — CodeQL
     // tracks a client's default baseURL as the host of every request it makes.
     this.baseUrl = config.openapi?.url ? this.extractBaseUrl(config.openapi.url) : '';
-    this.securityConfig = config.openapi.security;
+    this.getPersonalAccessToken = options.getPersonalAccessToken;
+    this.securityConfig = options.getPersonalAccessToken ? undefined : config.openapi.security;
     this.persistOAuth2Token = options.persistOAuth2Token;
 
     this.httpClient = this.createHttpClient(config);
@@ -768,8 +773,10 @@ export class OpenAPIClient {
           // references those objects directly, so without sanitization every
           // downstream serializer (tokenCost, getServerConfig, MCP ListTools,
           // embeddings) throws "Converting circular structure to JSON". See #959.
-          inputSchema: createSafeJSON(
-            this.generateInputSchema(operation, path, method as string, requestBodySelection),
+          inputSchema: fromOpenApiSchema(
+            createSafeJSON(
+              this.generateInputSchema(operation, path, method as string, requestBodySelection),
+            ),
           ),
           operationId: operation.operationId || operationName,
           method: method as string,
@@ -909,6 +916,7 @@ export class OpenAPIClient {
 
     let attemptedUpstreamRequest = false;
     let authorizationUsedForRequest: string | undefined;
+    let personalAccessToken: string | undefined;
     let resolvedTarget: URL | null = null;
 
     try {
@@ -1101,6 +1109,18 @@ export class OpenAPIClient {
         }
         requestConfig.headers = headers;
       }
+      if (this.getPersonalAccessToken) {
+        // A remote specification cannot redirect personal tokens to another origin.
+        const apiOrigin = new URL(
+          this.config.oauth?.resource ?? this.config.openapi?.url ?? this.baseUrl,
+        ).origin;
+        if (resolvedTarget?.origin !== apiOrigin)
+          throw new Error('OpenAPI operation is outside the personal OAuth API origin');
+        const headers = AxiosHeaders.from(requestConfig.headers as Record<string, string>);
+        personalAccessToken = await this.getPersonalAccessToken();
+        headers.set('Authorization', 'Bearer ' + personalAccessToken);
+        requestConfig.headers = headers;
+      }
       authorizationUsedForRequest = this.getDefaultAuthorizationHeader();
       attemptedUpstreamRequest = true;
       Object.assign(requestConfig, ssrfConnectionOptions(this.allowInternalNetworks));
@@ -1124,6 +1144,16 @@ export class OpenAPIClient {
           attemptedUpstreamRequest &&
           error.response?.status === 401 &&
           !hasRetriedAfterUnauthorized &&
+          personalAccessToken &&
+          this.getPersonalAccessToken
+        ) {
+          await this.getPersonalAccessToken(personalAccessToken);
+          return this.callTool(toolName, args, passthroughHeaders, true, sessionId);
+        }
+        if (
+          !isReplicaMode() && attemptedUpstreamRequest &&
+          error.response?.status === 401 &&
+          !hasRetriedAfterUnauthorized &&
           authorizationUsedForRequest &&
           authorizationUsedForRequest !== this.getDefaultAuthorizationHeader()
         ) {
@@ -1131,7 +1161,7 @@ export class OpenAPIClient {
         }
 
         if (
-          attemptedUpstreamRequest &&
+          !isReplicaMode() && attemptedUpstreamRequest &&
           error.response?.status === 401 &&
           !hasRetriedAfterUnauthorized &&
           (await this.invalidateRefreshableOAuth2Token())

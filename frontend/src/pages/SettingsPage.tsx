@@ -1,4 +1,5 @@
-import { getSmartRoutingPath } from '@/utils/runtime';
+import { useBranding } from '@/contexts/BrandingContext';
+import { getRuntimeConfig, getSmartRoutingPath } from '@/utils/runtime';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -16,10 +17,12 @@ import type { BearerKey, User } from '@/types';
 import { useServerContext } from '@/contexts/ServerContext';
 import { useGroupData } from '@/hooks/useGroupData';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import FakeIpExceptionsSettings from '@/components/FakeIpExceptionsSettings';
+import ToolPolicyPanel from '@/components/ToolPolicyPanel';
 import SmartRoutingIndexPanel from '@/components/SmartRoutingIndexPanel';
 import ActivityRetentionSetting from '@/components/ActivityRetentionSetting';
 import { useAuth } from '@/contexts/AuthContext';
-import { apiGet, apiPost } from '@/utils/fetchInterceptor';
+import { apiGet, apiPost, apiPut } from '@/utils/fetchInterceptor';
 import {
   filterBearerKeysByScopeFilter,
   getBearerKeyScopeFilterOptions,
@@ -37,9 +40,11 @@ interface BearerKeyRowProps {
     payload: {
       name: string;
       enabled: boolean;
-      accessType: 'all' | 'groups' | 'servers' | 'custom';
+      accessType: 'all' | 'groups' | 'servers' | 'custom' | 'exclude';
       allowedGroups: string;
       allowedServers: string;
+      excludedGroups: string;
+      excludedServers: string;
     },
   ) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -60,11 +65,13 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(keyData.name);
   const [enabled, setEnabled] = useState<boolean>(keyData.enabled);
-  const [accessType, setAccessType] = useState<'all' | 'groups' | 'servers' | 'custom'>(
+  const [accessType, setAccessType] = useState<'all' | 'groups' | 'servers' | 'custom' | 'exclude'>(
     keyData.accessType || 'all',
   );
   const [selectedGroups, setSelectedGroups] = useState<string[]>(keyData.allowedGroups || []);
   const [selectedServers, setSelectedServers] = useState<string[]>(keyData.allowedServers || []);
+  const [excludedGroups, setExcludedGroups] = useState<string[]>(keyData.excludedGroups || []);
+  const [excludedServers, setExcludedServers] = useState<string[]>(keyData.excludedServers || []);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -75,6 +82,8 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
       setAccessType(keyData.accessType || 'all');
       setSelectedGroups(keyData.allowedGroups || []);
       setSelectedServers(keyData.allowedServers || []);
+      setExcludedGroups(keyData.excludedGroups || []);
+      setExcludedServers(keyData.excludedServers || []);
     }
   }, [keyData, isEditing]);
 
@@ -82,7 +91,7 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
   const isSystemKey = (keyData.kind ?? 'system') === 'system';
 
   const handleSave = async () => {
-    if (isSystemKey && accessType === 'groups' && selectedGroups.length === 0) {
+    if (accessType === 'groups' && selectedGroups.length === 0) {
       showToast(t('settings.selectAtLeastOneGroup') || 'Please select at least one group', 'error');
       return;
     }
@@ -100,6 +109,14 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
       );
       return;
     }
+    if (isSystemKey && accessType === 'exclude' && excludedGroups.length === 0 && excludedServers.length === 0) {
+      showToast(
+        t('settings.selectAtLeastOneExcludedGroupOrServer') ||
+          'Please select at least one group or server to exclude',
+        'error',
+      );
+      return;
+    }
 
     setSaving(true);
     try {
@@ -109,6 +126,8 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
         accessType,
         allowedGroups: selectedGroups.join(', '),
         allowedServers: selectedServers.join(', '),
+        excludedGroups: excludedGroups.join(', '),
+        excludedServers: excludedServers.join(', '),
       });
       setIsEditing(false);
     } finally {
@@ -128,19 +147,20 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
     }
   };
 
-  const isGroupsMode = accessType === 'groups';
+  const isGroupsMode = accessType === 'groups' || !isSystemKey;
   const isCustomMode = accessType === 'custom';
+  const isExcludeMode = accessType === 'exclude';
 
   // Helper function to format access type display text
   const formatAccessTypeDisplay = (key: BearerKey): string => {
-    if ((key.kind ?? 'system') === 'user') {
+    if ((key.kind ?? 'system') === 'user' && key.accessType === 'all') {
       return `${t('settings.bearerKeyAccessUserVisibility') || 'User visibility'}${key.owner ? ` · ${key.owner}` : ''}`;
     }
     if (key.accessType === 'all') {
       return t('settings.bearerKeyAccessAll') || 'All Resources';
     }
     if (key.accessType === 'groups') {
-      return `${t('settings.bearerKeyAccessGroups') || 'Groups'}: ${key.allowedGroups}`;
+      return `${t('settings.bearerKeyAccessGroups') || 'Groups'}: ${(key.allowedGroups ?? []).map((id) => availableGroups.find((group) => group.value === id)?.label ?? id).join(', ')}`;
     }
     if (key.accessType === 'servers') {
       return `${t('settings.bearerKeyAccessServers') || 'Servers'}: ${key.allowedServers}`;
@@ -155,11 +175,24 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
       }
       return `${t('settings.bearerKeyAccessCustom') || 'Custom'}: ${parts.join('; ')}`;
     }
+    if (key.accessType === 'exclude') {
+      const parts: string[] = [];
+      if (key.excludedGroups && key.excludedGroups.length > 0) {
+        parts.push(
+          `${t('settings.bearerKeyExcludedGroups') || 'Excluded groups'}: ${key.excludedGroups}`,
+        );
+      }
+      if (key.excludedServers && key.excludedServers.length > 0) {
+        parts.push(
+          `${t('settings.bearerKeyExcludedServers') || 'Excluded servers'}: ${key.excludedServers}`,
+        );
+      }
+      return `${t('settings.bearerKeyAccessExclude') || 'All except'}: ${parts.join('; ')}`;
+    }
     return '';
   };
 
-  if (isEditing) {
-    return (
+  const editForm = isEditing ? (
       <tr>
         <td colSpan={5} className="p-0 border-b border-gray-200 dark:border-gray-700">
           <div className="bg-gray-50 dark:bg-gray-800 p-5">
@@ -205,7 +238,7 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
                 </div>
               </div>
 
-              {isAdmin && isSystemKey && <div className="w-48">
+              <div className="w-48">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {t('settings.bearerKeyAccessType') || 'Access scope'}
                 </label>
@@ -213,25 +246,36 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
                   className="block w-full py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-select transition-shadow duration-200"
                   value={accessType}
                   onChange={(e) =>
-                    setAccessType(e.target.value as 'all' | 'groups' | 'servers' | 'custom')
+                    setAccessType(
+                      e.target.value as 'all' | 'groups' | 'servers' | 'custom' | 'exclude',
+                    )
                   }
                   disabled={loading}
                 >
-                  <option value="all">{t('settings.bearerKeyAccessAll') || 'All Resources'}</option>
+                  <option value="all">{t(isSystemKey ? 'settings.bearerKeyAccessAll' : 'settings.bearerKeyAccessUserVisibility')}</option>
                   <option value="groups">
                     {t('settings.bearerKeyAccessGroups') || 'Specific Groups'}
                   </option>
-                  <option value="servers">
-                    {t('settings.bearerKeyAccessServers') || 'Specific Servers'}
-                  </option>
-                  <option value="custom">
-                    {t('settings.bearerKeyAccessCustom') || 'Custom (Groups & Servers)'}
-                  </option>
+                  {isSystemKey && (
+                    <>
+                      <option value="servers">
+                        {t('settings.bearerKeyAccessServers') || 'Specific Servers'}
+                      </option>
+                      <option value="custom">
+                        {t('settings.bearerKeyAccessCustom') || 'Custom (Groups & Servers)'}
+                      </option>
+                      <option value="exclude">
+                        {t('settings.bearerKeyAccessExclude') || 'All except selected groups/servers'}
+                      </option>
+                    </>
+                  )}
                 </select>
-              </div>}
+              </div>
+
+              {!isSystemKey && <p className="w-full text-sm text-gray-500">{t('settings.bearerKeyPersonalScopeHint')}</p>}
 
               {/* Show single selector for groups or servers mode */}
-              {isAdmin && isSystemKey && !isCustomMode && (
+              {!isCustomMode && !isExcludeMode && (
                 <div className="flex-1 min-w-[200px]">
                   <label
                     className={`block text-sm font-medium mb-1 ${accessType === 'all' ? 'text-gray-400' : 'text-gray-700'}`}
@@ -284,11 +328,41 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
                 </>
               )}
 
+              {/* Show both selectors for exclude mode */}
+              {isAdmin && isSystemKey && isExcludeMode && (
+                <>
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('settings.bearerKeyExcludedGroups') || 'Excluded groups'}
+                    </label>
+                    <MultiSelect
+                      options={availableGroups}
+                      selected={excludedGroups}
+                      onChange={setExcludedGroups}
+                      placeholder={t('settings.selectGroups') || 'Select groups...'}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('settings.bearerKeyExcludedServers') || 'Excluded servers'}
+                    </label>
+                    <MultiSelect
+                      options={availableServers}
+                      selected={excludedServers}
+                      onChange={setExcludedServers}
+                      placeholder={t('settings.selectServers') || 'Select servers...'}
+                      disabled={loading}
+                    />
+                  </div>
+                </>
+              )}
+
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 h-[38px]"
+                  className="hub-btn"
                 >
                   {t('common.cancel') || 'Cancel'}
                 </button>
@@ -305,10 +379,10 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
           </div>
         </td>
       </tr>
-    );
-  }
+  ) : null;
 
   return (
+    <>
     <tr className="hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700">
       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
         {keyData.name}
@@ -331,11 +405,23 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
       </td>
       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
         <button
-          onClick={() => setIsEditing(true)}
+          onClick={() => setIsEditing((editing) => !editing)}
+          disabled={loading || saving}
+          aria-expanded={isEditing}
+          aria-label={t(isEditing ? 'common.cancel' : 'common.edit')}
           className="text-blue-600 hover:text-blue-900 mr-4 inline-flex items-center"
-          title={t('common.edit') || 'Edit'}
+          title={t(isEditing ? 'common.cancel' : 'common.edit')}
         >
-          <Edit className="h-4 w-4" />
+          {isEditing ? <X className="h-4 w-4" /> : <Edit className="h-4 w-4" />}
+        </button>
+        <button
+          onClick={() => onReset(keyData)}
+          disabled={loading || saving || deleting}
+          className="text-blue-600 hover:text-blue-900 mr-4 inline-flex items-center"
+          title={t('settings.resetBearerKey')}
+          aria-label={t('settings.resetBearerKey')}
+        >
+          <RefreshCw className="h-4 w-4" />
         </button>
         <button
           onClick={() => onReset(keyData)}
@@ -348,7 +434,7 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
         </button>
         <button
           onClick={handleDelete}
-          disabled={deleting}
+          disabled={loading || saving || deleting}
           className="text-red-600 hover:text-red-900 inline-flex items-center"
           title={t('common.delete') || 'Delete'}
         >
@@ -356,6 +442,8 @@ const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
         </button>
       </td>
     </tr>
+    {editForm}
+    </>
   );
 };
 
@@ -600,6 +688,7 @@ const SettingsPage: React.FC = () => {
   });
 
   const [tempOAuthServerConfig, setTempOAuthServerConfig] = useState<{
+    approvalLifetime: string;
     accessTokenLifetime: string;
     refreshTokenLifetime: string;
     authorizationCodeLifetime: string;
@@ -607,6 +696,7 @@ const SettingsPage: React.FC = () => {
     dynamicRegistrationAllowedGrantTypes: string;
     dynamicRegistrationClientTtl: string;
   }>({
+    approvalLifetime: '1209600',
     accessTokenLifetime: '3600',
     refreshTokenLifetime: '1209600',
     authorizationCodeLifetime: '300',
@@ -633,6 +723,28 @@ const SettingsPage: React.FC = () => {
     oidcPrompt: '',
   });
 
+  const { dashboardName, setDashboardName } = useBranding();
+  const [tempDashboardName, setTempDashboardName] = useState(dashboardName);
+  const [savingDashboardName, setSavingDashboardName] = useState(false);
+  useEffect(() => {
+    setTempDashboardName(dashboardName);
+  }, [dashboardName]);
+  const saveDashboardName = async () => {
+    setSavingDashboardName(true);
+    try {
+      const name = tempDashboardName.trim();
+      const result = await apiPut('/system-config', { dashboardName: name });
+      if (!result.success) throw new Error(result.message || result.error);
+      setDashboardName(name);
+      setTempDashboardName(name);
+      showToast(t('settings.systemConfigUpdated'));
+    } catch {
+      showToast(t('settings.dashboardNameSaveFailed'), 'error');
+    } finally {
+      setSavingDashboardName(false);
+    }
+  };
+
   const [tempNameSeparator, setTempNameSeparator] = useState<string>('-');
   const [showAddBearerKeyForm, setShowAddBearerKeyForm] = useState(false);
   const [keyToReset, setKeyToReset] = useState<BearerKey | null>(null);
@@ -653,9 +765,17 @@ const SettingsPage: React.FC = () => {
     oauthServerConfig,
     allowRegistration,
     updateAllowRegistration,
+    toolPolicies,
+    updateToolPolicies,
+    error: settingsError,
+    fetchSettings,
     betterAuthConfig,
+    normalizeToolNames,
+    updateNormalizeToolNames,
     nameSeparator,
     enableSessionRebuild,
+    fakeIpExceptions,
+    updateFakeIpExceptions,
     allowedCidrs,
     updateAllowedCidrs,
     storeToolPayload,
@@ -792,6 +912,7 @@ const SettingsPage: React.FC = () => {
   useEffect(() => {
     if (oauthServerConfig) {
       setTempOAuthServerConfig({
+        approvalLifetime: String(oauthServerConfig.approvalLifetime),
         accessTokenLifetime:
           oauthServerConfig.accessTokenLifetime !== undefined
             ? String(oauthServerConfig.accessTokenLifetime)
@@ -903,6 +1024,10 @@ const SettingsPage: React.FC = () => {
     }));
   };
 
+  const usesDefaultBearerHeader =
+    !routingConfig.bearerAuthHeaderName.trim() ||
+    routingConfig.bearerAuthHeaderName.trim().toLowerCase() === 'authorization';
+
   const handleRoutingConfigChange = async (
     key:
       | 'enableGlobalRoute'
@@ -910,6 +1035,7 @@ const SettingsPage: React.FC = () => {
       | 'enableBearerAuth'
       | 'bearerAuthKey'
       | 'bearerAuthHeaderName'
+      | 'allowAuthorizationPassthrough'
       | 'jsonBodyLimit'
       | 'skipAuth'
       | 'allowTokenInQuery',
@@ -1035,6 +1161,7 @@ const SettingsPage: React.FC = () => {
   };
 
   type OAuthServerNumberField =
+    | 'approvalLifetime'
     | 'accessTokenLifetime'
     | 'refreshTokenLifetime'
     | 'authorizationCodeLifetime';
@@ -1068,7 +1195,14 @@ const SettingsPage: React.FC = () => {
     }
 
     const parsedValue = Number(rawValue);
-    if (Number.isNaN(parsedValue) || parsedValue < 0) {
+    if (
+      key === 'approvalLifetime' &&
+      (!Number.isSafeInteger(parsedValue) || parsedValue < 1 || parsedValue > 31536000)
+    ) {
+      showToast(t('oauthApprovals.invalidLifetime'), 'error');
+      return;
+    }
+    if (!Number.isFinite(parsedValue) || parsedValue < 0) {
       showToast(t('settings.invalidNumberInput') || 'Please enter a valid number', 'error');
       return;
     }
@@ -1596,9 +1730,11 @@ const SettingsPage: React.FC = () => {
     enabled: boolean;
     kind: 'system' | 'user';
     owner: string;
-    accessType: 'all' | 'groups' | 'servers' | 'custom';
+    accessType: 'all' | 'groups' | 'servers' | 'custom' | 'exclude';
     allowedGroups: string;
     allowedServers: string;
+    excludedGroups: string;
+    excludedServers: string;
   }>({
     name: '',
     enabled: true,
@@ -1607,10 +1743,14 @@ const SettingsPage: React.FC = () => {
     accessType: 'all',
     allowedGroups: '',
     allowedServers: '',
+    excludedGroups: '',
+    excludedServers: '',
   });
 
   const [newSelectedGroups, setNewSelectedGroups] = useState<string[]>([]);
   const [newSelectedServers, setNewSelectedServers] = useState<string[]>([]);
+  const [newSelectedExcludedGroups, setNewSelectedExcludedGroups] = useState<string[]>([]);
+  const [newSelectedExcludedServers, setNewSelectedExcludedServers] = useState<string[]>([]);
 
   // Prepare options for MultiSelect
   const availableServers = servers.map((server) => ({
@@ -1618,10 +1758,14 @@ const SettingsPage: React.FC = () => {
     label: server.name,
   }));
 
-  const availableGroups = groups.map((group) => ({
-    value: group.name,
+  const personalGroupOptions = groups.map((group) => ({
+    value: group.id,
     label: group.name,
   }));
+
+  const availableGroups = groups.map((group) => ({ value: group.name, label: group.name }));
+
+  const newUsesGroupSelector = newBearerKey.accessType === 'groups' || !isAdmin || newBearerKey.kind === 'user';
 
   // Reset selected arrays when accessType changes
   useEffect(() => {
@@ -1720,7 +1864,7 @@ const SettingsPage: React.FC = () => {
       return;
     }
 
-    if (newBearerKey.kind === 'system' && newBearerKey.accessType === 'groups' && newSelectedGroups.length === 0) {
+    if (newBearerKey.accessType === 'groups' && newSelectedGroups.length === 0) {
       showToast(t('settings.selectAtLeastOneGroup') || 'Please select at least one group', 'error');
       return;
     }
@@ -1743,6 +1887,19 @@ const SettingsPage: React.FC = () => {
       );
       return;
     }
+    if (
+      newBearerKey.kind === 'system' &&
+      newBearerKey.accessType === 'exclude' &&
+      newSelectedExcludedGroups.length === 0 &&
+      newSelectedExcludedServers.length === 0
+    ) {
+      showToast(
+        t('settings.selectAtLeastOneExcludedGroupOrServer') ||
+          'Please select at least one group or server to exclude',
+        'error',
+      );
+      return;
+    }
 
     const created = await createBearerKey({
       name: newBearerKey.name,
@@ -1760,6 +1917,14 @@ const SettingsPage: React.FC = () => {
         newSelectedServers.length > 0
           ? newSelectedServers
           : undefined,
+      excludedGroups:
+        newBearerKey.accessType === 'exclude' && newSelectedExcludedGroups.length > 0
+          ? newSelectedExcludedGroups
+          : undefined,
+      excludedServers:
+        newBearerKey.accessType === 'exclude' && newSelectedExcludedServers.length > 0
+          ? newSelectedExcludedServers
+          : undefined,
     } as any);
     if (!created) return;
     setCreatedBearerToken(created.token);
@@ -1772,9 +1937,13 @@ const SettingsPage: React.FC = () => {
       accessType: 'all',
       allowedGroups: '',
       allowedServers: '',
+      excludedGroups: '',
+      excludedServers: '',
     });
     setNewSelectedGroups([]);
     setNewSelectedServers([]);
+    setNewSelectedExcludedGroups([]);
+    setNewSelectedExcludedServers([]);
     await refreshBearerKeys();
   };
 
@@ -1783,9 +1952,11 @@ const SettingsPage: React.FC = () => {
     payload: {
       name: string;
       enabled: boolean;
-      accessType: 'all' | 'groups' | 'servers' | 'custom';
+      accessType: 'all' | 'groups' | 'servers' | 'custom' | 'exclude';
       allowedGroups: string;
       allowedServers: string;
+      excludedGroups: string;
+      excludedServers: string;
     },
   ) => {
     await updateBearerKey(id, {
@@ -1794,6 +1965,8 @@ const SettingsPage: React.FC = () => {
       accessType: payload.accessType,
       allowedGroups: parseCommaSeparated(payload.allowedGroups),
       allowedServers: parseCommaSeparated(payload.allowedServers),
+      excludedGroups: parseCommaSeparated(payload.excludedGroups),
+      excludedServers: parseCommaSeparated(payload.excludedServers),
     } as any);
     await refreshBearerKeys();
   };
@@ -1818,6 +1991,21 @@ const SettingsPage: React.FC = () => {
             setCreatedBearerToken('');
             await refreshBearerKeys();
           }}
+        />
+      )}
+
+      {isAdmin && (
+        <ToolPolicyPanel
+          nameSeparator={nameSeparator}
+          rules={toolPolicies}
+          loading={loading}
+          loadError={settingsError}
+          onRetry={fetchSettings}
+          onSave={updateToolPolicies}
+          users={users}
+          bearerKeys={bearerKeys}
+          servers={servers}
+          groups={groups}
         />
       )}
 
@@ -1903,6 +2091,40 @@ const SettingsPage: React.FC = () => {
                   </button>
                 </div>
               </div>}
+
+              {isAdmin && !getRuntimeConfig().isHosted && (
+                <div className="flex items-start justify-between gap-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                  <div className="min-w-0">
+                    <h3 id="authorization-passthrough-label" className="font-medium text-gray-700">
+                      {t('settings.allowAuthorizationPassthrough')}
+                    </h3>
+                    <p id="authorization-passthrough-description" className="text-sm text-gray-500">
+                      {t('settings.allowAuthorizationPassthroughDescription')}
+                    </p>
+                    {usesDefaultBearerHeader && (
+                      <p id="authorization-passthrough-requirement" className="mt-1 text-sm text-amber-700 dark:text-amber-400">
+                        {t('settings.allowAuthorizationPassthroughRequirement')}
+                      </p>
+                    )}
+                  </div>
+                  <Switch
+                    aria-labelledby="authorization-passthrough-label"
+                    aria-describedby={
+                      usesDefaultBearerHeader
+                        ? 'authorization-passthrough-description authorization-passthrough-requirement'
+                        : 'authorization-passthrough-description'
+                    }
+                    className="shrink-0 mt-1"
+                    disabled={
+                      loading || (!routingConfig.allowAuthorizationPassthrough && usesDefaultBearerHeader)
+                    }
+                    checked={routingConfig.allowAuthorizationPassthrough}
+                    onCheckedChange={(checked) =>
+                      handleRoutingConfigChange('allowAuthorizationPassthrough', checked)
+                    }
+                  />
+                </div>
+              )}
 
               <div className="flex flex-wrap justify-between items-center gap-3">
                 <p className="text-sm text-gray-600">
@@ -2002,7 +2224,7 @@ const SettingsPage: React.FC = () => {
                           keyData={key}
                           loading={loading}
                           availableServers={availableServers}
-                          availableGroups={availableGroups}
+                          availableGroups={(key.kind ?? 'system') === 'system' ? availableGroups : personalGroupOptions}
                           isAdmin={isAdmin}
                           onSave={handleSaveExistingBearerKey}
                           onDelete={handleDeleteExistingBearerKey}
@@ -2059,7 +2281,7 @@ const SettingsPage: React.FC = () => {
                         <select
                           className="block w-full py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 rounded-md sm:text-sm form-select"
                           value={newBearerKey.kind}
-                          onChange={(e) => setNewBearerKey((prev) => ({ ...prev, kind: e.target.value as 'system' | 'user' }))}
+                          onChange={(e) => setNewBearerKey((prev) => ({ ...prev, kind: e.target.value as 'system' | 'user', accessType: 'all' }))}
                         >
                           <option value="system">{t('settings.bearerKeyKindSystem') || 'System-level'}</option>
                           <option value="user">{t('settings.bearerKeyKindUser') || 'User-level'}</option>
@@ -2101,7 +2323,7 @@ const SettingsPage: React.FC = () => {
                         </div>
                       </div>
 
-                      {isAdmin && newBearerKey.kind === 'system' && <div className="w-48">
+                      <div className="w-48">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           {t('settings.bearerKeyAccessType') || 'Access scope'}
                         </label>
@@ -2111,53 +2333,68 @@ const SettingsPage: React.FC = () => {
                           onChange={(e) =>
                             setNewBearerKey((prev) => ({
                               ...prev,
-                              accessType: e.target.value as 'all' | 'groups' | 'servers' | 'custom',
+                              accessType: e.target.value as
+                                | 'all'
+                                | 'groups'
+                                | 'servers'
+                                | 'custom'
+                                | 'exclude',
                             }))
                           }
                           disabled={loading}
                         >
                           <option value="all">
-                            {t('settings.bearerKeyAccessAll') || 'All Resources'}
+                            {t(isAdmin && newBearerKey.kind === 'system' ? 'settings.bearerKeyAccessAll' : 'settings.bearerKeyAccessUserVisibility')}
                           </option>
                           <option value="groups">
                             {t('settings.bearerKeyAccessGroups') || 'Specific Groups'}
                           </option>
-                          <option value="servers">
-                            {t('settings.bearerKeyAccessServers') || 'Specific Servers'}
-                          </option>
-                          <option value="custom">
-                            {t('settings.bearerKeyAccessCustom') || 'Custom (Groups & Servers)'}
-                          </option>
+                          {isAdmin && newBearerKey.kind === 'system' && (
+                            <>
+                              <option value="servers">
+                                {t('settings.bearerKeyAccessServers') || 'Specific Servers'}
+                              </option>
+                              <option value="custom">
+                                {t('settings.bearerKeyAccessCustom') || 'Custom (Groups & Servers)'}
+                              </option>
+                              <option value="exclude">
+                                {t('settings.bearerKeyAccessExclude') ||
+                                  'All except selected groups/servers'}
+                              </option>
+                            </>
+                          )}
                         </select>
-                      </div>}
+                      </div>
 
-                      {isAdmin && newBearerKey.kind === 'system' && newBearerKey.accessType !== 'custom' && (
+                      {(!isAdmin || newBearerKey.kind === 'user') && <p className="w-full text-sm text-gray-500">{t('settings.bearerKeyPersonalScopeHint')}</p>}
+
+                      {newBearerKey.accessType !== 'custom' && newBearerKey.accessType !== 'exclude' && (
                         <div className="flex-1 min-w-[200px]">
                           <label
                             className={`block text-sm font-medium mb-1 ${newBearerKey.accessType === 'all' ? 'text-gray-400' : 'text-gray-700'}`}
                           >
-                            {newBearerKey.accessType === 'groups'
+                            {newUsesGroupSelector
                               ? t('settings.bearerKeyAllowedGroups') || 'Allowed groups'
                               : t('settings.bearerKeyAllowedServers') || 'Allowed servers'}
                           </label>
                           <MultiSelect
                             options={
-                              newBearerKey.accessType === 'groups'
-                                ? availableGroups
+                              newUsesGroupSelector
+                                ? (isAdmin && newBearerKey.kind === 'system' ? availableGroups : personalGroupOptions)
                                 : availableServers
                             }
                             selected={
-                              newBearerKey.accessType === 'groups'
+                              newUsesGroupSelector
                                 ? newSelectedGroups
                                 : newSelectedServers
                             }
                             onChange={
-                              newBearerKey.accessType === 'groups'
+                              newUsesGroupSelector
                                 ? setNewSelectedGroups
                                 : setNewSelectedServers
                             }
                             placeholder={
-                              newBearerKey.accessType === 'groups'
+                              newUsesGroupSelector
                                 ? t('settings.selectGroups') || 'Select groups...'
                                 : t('settings.selectServers') || 'Select servers...'
                             }
@@ -2188,6 +2425,35 @@ const SettingsPage: React.FC = () => {
                               options={availableServers}
                               selected={newSelectedServers}
                               onChange={setNewSelectedServers}
+                              placeholder={t('settings.selectServers') || 'Select servers...'}
+                              disabled={loading}
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {isAdmin && newBearerKey.kind === 'system' && newBearerKey.accessType === 'exclude' && (
+                        <>
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              {t('settings.bearerKeyExcludedGroups') || 'Excluded groups'}
+                            </label>
+                            <MultiSelect
+                              options={availableGroups}
+                              selected={newSelectedExcludedGroups}
+                              onChange={setNewSelectedExcludedGroups}
+                              placeholder={t('settings.selectGroups') || 'Select groups...'}
+                              disabled={loading}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              {t('settings.bearerKeyExcludedServers') || 'Excluded servers'}
+                            </label>
+                            <MultiSelect
+                              options={availableServers}
+                              selected={newSelectedExcludedServers}
+                              onChange={setNewSelectedExcludedServers}
                               placeholder={t('settings.selectServers') || 'Select servers...'}
                               disabled={loading}
                             />
@@ -3263,6 +3529,55 @@ const SettingsPage: React.FC = () => {
                 />
               </div>
 
+              <div className="flex items-center justify-between gap-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                <div>
+                  <label htmlFor="remember-oauth-consent" className="font-medium">
+                    {t('oauthApprovals.remember')}
+                  </label>
+                  <p className="text-sm text-gray-500">{t('oauthApprovals.rememberDescription')}</p>
+                </div>
+                <Switch
+                  id="remember-oauth-consent"
+                  disabled={loading || !oauthServerConfig.enabled}
+                  checked={!oauthServerConfig.alwaysShowApprovalScreen}
+                  onCheckedChange={(checked) =>
+                    updateOAuthServerConfig('alwaysShowApprovalScreen', !checked)
+                  }
+                />
+              </div>
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                <label htmlFor="approval-lifetime" className="font-medium">
+                  {t('oauthApprovals.lifetime')}
+                </label>
+                <p id="approval-lifetime-help" className="text-sm text-gray-500 mb-2">
+                  {t('oauthApprovals.lifetimeDescription')}
+                </p>
+                <div className="flex items-center gap-3">
+                  <input
+                    id="approval-lifetime"
+                    type="number"
+                    min="1"
+                    max="31536000"
+                    step="1"
+                    aria-describedby="approval-lifetime-help"
+                    value={tempOAuthServerConfig.approvalLifetime}
+                    disabled={loading || !oauthServerConfig.enabled}
+                    onChange={(e) =>
+                      handleOAuthServerNumberChange('approvalLifetime', e.target.value)
+                    }
+                    className="form-input flex-1 min-w-0 rounded-md border border-gray-300 px-3 py-2"
+                  />
+                  <button
+                    type="button"
+                    disabled={loading || !oauthServerConfig.enabled}
+                    onClick={() => saveOAuthServerNumberConfig('approvalLifetime')}
+                    className="hub-btn primary"
+                  >
+                    {t('common.save')}
+                  </button>
+                </div>
+              </div>
+
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
                 <div className="mb-2">
                   <h3 className="font-medium text-gray-700">{t('settings.accessTokenLifetime')}</h3>
@@ -3923,6 +4238,33 @@ const SettingsPage: React.FC = () => {
           {sectionsVisible.nameSeparator && (
             <div className="hub-reveal space-y-4 pb-4 px-4 pt-4 border-t border-[var(--hub-line-2)]">
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                <label htmlFor="dashboard-name" className="block font-medium text-gray-700">
+                  {t('settings.dashboardName')}
+                </label>
+                <p id="dashboard-name-description" className="text-sm text-gray-500 mb-2">
+                  {t('settings.dashboardNameDescription')}
+                </p>
+                <div className="flex items-center gap-3">
+                  <input
+                    id="dashboard-name"
+                    aria-describedby="dashboard-name-description"
+                    value={tempDashboardName}
+                    onChange={(e) => setTempDashboardName(e.target.value)}
+                    maxLength={100}
+                    placeholder={t('app.title')}
+                    disabled={savingDashboardName}
+                    className="flex-1 min-w-0 py-2 px-3 border border-gray-300 rounded-md form-input"
+                  />
+                  <button
+                    onClick={saveDashboardName}
+                    disabled={savingDashboardName}
+                    className="hub-btn primary"
+                  >
+                    {t('common.save')}
+                  </button>
+                </div>
+              </div>
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
                 <div className="mb-2">
                   <h3 className="font-medium text-gray-700">{t('settings.nameSeparatorLabel')}</h3>
                   <p className="text-sm text-gray-500">{t('settings.nameSeparatorDescription')}</p>
@@ -3945,6 +4287,24 @@ const SettingsPage: React.FC = () => {
                     {t('common.save')}
                   </button>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                <div>
+                  <h3 id="normalize-tool-names-label" className="font-medium text-gray-700">
+                    {t('settings.normalizeToolNames')}
+                  </h3>
+                  <p id="normalize-tool-names-description" className="text-sm text-gray-500">
+                    {t('settings.normalizeToolNamesDescription')}
+                  </p>
+                </div>
+                <Switch
+                  aria-labelledby="normalize-tool-names-label"
+                  aria-describedby="normalize-tool-names-description"
+                  disabled={loading}
+                  checked={normalizeToolNames}
+                  onCheckedChange={updateNormalizeToolNames}
+                />
               </div>
 
               <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
@@ -4044,6 +4404,15 @@ const SettingsPage: React.FC = () => {
                     {t('common.save')}
                   </button>
                 </div>
+              )}
+
+              {isAdmin && (
+                <FakeIpExceptionsSettings
+                  value={fakeIpExceptions}
+                  servers={servers}
+                  loading={loading}
+                  onSave={updateFakeIpExceptions}
+                />
               )}
 
               <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-md">

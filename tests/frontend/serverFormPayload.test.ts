@@ -308,6 +308,39 @@ describe('buildServerPayload', () => {
     },
   });
 
+  it('uses personal OAuth for OpenAPI calls and keeps the specification auth separate', () => {
+    const formData = buildSseForm({
+      identityMode: 'personal',
+      clientId: 'api-client',
+      clientSecret: 'api-secret',
+      authorizationEndpoint: 'https://login.example.com/authorize',
+      tokenEndpoint: 'https://login.example.com/token',
+      scopes: 'read offline_access',
+    });
+    formData.openapi = {
+      ...formData.openapi!,
+      url: 'https://api.example.com/openapi.json',
+      securityType: 'oauth2',
+      oauth2Token: 'old-shared-token',
+      specSecurityType: 'apiKey',
+      specApiKeyName: 'X-Spec-Key',
+      specApiKeyValue: 'spec-only',
+    };
+    const build = () => buildServerPayload({ formData, serverType: 'openapi', envVars: [], headerVars: [] });
+    expect(build().config).toMatchObject({
+      oauth: {
+        ...formData.oauth,
+        scopes: ['read', 'offline_access'],
+      },
+      openapi: { specSecurity: { type: 'apiKey', apiKey: { value: 'spec-only' } } },
+    });
+    expect(build().config.openapi?.security).toBeUndefined();
+
+    formData.oauth!.identityMode = 'shared';
+    expect(build().config.oauth).toBeUndefined();
+    expect(build().config.openapi?.security?.oauth2?.token).toBe('old-shared-token');
+  });
+
   it('preserves a full dynamicRegistration sub-object verbatim (deep equal)', () => {
     const payload = buildServerPayload({
       formData: buildSseForm({
@@ -400,12 +433,14 @@ describe('buildServerPayload', () => {
       response_types_supported: ['code'],
     };
     const payload = buildServerPayload({
-      formData: buildSseForm({ authorizationServerMetadata }),
+      formData: buildSseForm({ authorizationServerMetadata,
+        authorizationRelay: { allowedRedirectOrigins: ['https://login.example.com'] } }),
       serverType: 'sse',
       envVars: [],
       headerVars: [],
     });
     expect(payload.config.oauth?.authorizationServerMetadata).toEqual(authorizationServerMetadata);
+    expect(payload.config.oauth?.authorizationRelay).toEqual({ allowedRedirectOrigins: ['https://login.example.com'] });
   });
 
   it('preserves revocationEndpoint, redirectUri and dynamicRegistration together (deep equal)', () => {
@@ -689,6 +724,25 @@ describe('maximum tool risk in the server payload', () => {
   });
 });
 
+it('preserves normalized user-group sharing in server saves', () => {
+  const payload = buildServerPayload({
+    formData: {
+      name: 'shared',
+      url: '',
+      command: 'node',
+      arguments: '',
+      env: [],
+      headers: [],
+      visibility: 'group',
+      sharedWithUserGroups: [' readers ', 'readers'],
+    } as ServerFormData,
+    serverType: 'stdio',
+    envVars: [],
+    headerVars: [],
+  });
+  expect(payload.config).toMatchObject({ sharedWithUserGroups: ['readers'] });
+});
+
 test('preserves shared OAuth expiry when saving the form', () => {
   const payload = buildServerPayload({
     formData: {
@@ -700,4 +754,35 @@ test('preserves shared OAuth expiry when saving the form', () => {
     headerVars: [],
   });
   expect(payload.config.oauth?.accessTokenExpiresAt).toBe(12345);
+});
+
+test('round-trips stored tools and staging so an edit cannot silently drop them (#1056 R53)', () => {
+  const tools = {
+    upload: {
+      enabled: true,
+      description: 'Upload',
+      hiddenParams: ['note'],
+      fileStaging: { enabled: true, inputParams: ['localPath'] },
+    },
+    download: { enabled: false, fileStaging: { enabled: false, outputParams: ['dest'] } },
+  };
+  const staging = { shared: true, adapter: 'ssh' as const };
+  const payload = buildServerPayload({
+    formData: {
+      name: 'sftp',
+      url: '',
+      command: 'npx',
+      arguments: '',
+      env: [],
+      headers: [],
+      tools,
+      staging,
+    },
+    serverType: 'stdio',
+    envVars: [],
+    headerVars: [],
+  });
+
+  expect(payload.config.tools).toEqual(tools);
+  expect(payload.config.staging).toEqual(staging);
 });

@@ -54,6 +54,7 @@ export const resolveOAuthGrantFromToken = async (
     user: {
       username: oauthToken.username,
       password: '',
+      userGroups: dbUser.userGroups,
       isAdmin: dbUser?.isAdmin || false,
     },
     clientId: oauthToken.clientId,

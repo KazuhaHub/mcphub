@@ -1,3 +1,4 @@
+import * as systemConfigCache from '../../src/utils/systemConfigCache.js';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import fs from 'node:fs';
@@ -116,6 +117,9 @@ import {
   createTransportFromConfig,
 } from '../../src/services/mcpService.js';
 
+// proxychains4 wrapping is unsupported on Windows by design (see findProxychains4 in mcpService.ts).
+const itPosix = process.platform === 'win32' ? it.skip : it;
+
 describe('MCP Service - passthrough headers for upstream MCP transports', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -126,38 +130,41 @@ describe('MCP Service - passthrough headers for upstream MCP transports', () => 
     RequestContextService.getInstance().clearRequestContext();
   });
 
-  it('substitutes args credentials after proxy cleaning without logging or modifying the value', async () => {
-    const config: ServerConfig = {
-      type: 'stdio',
-      command: 'node',
-      args: ['--key={{args.KEY}}', 'prefix;{{args.KEY}}'],
-      credentialTemplate: [{ target: 'args', name: 'KEY' }],
-      proxy: { enabled: true, configPath: '/test-proxy.conf' },
-    };
-    const secret = '  "opaque" $HOME ;& {{args.KEY}}  ';
-    argumentCredentialBindings.set(config, { KEY: secret });
-    const exists = fs.existsSync;
-    const check = jest
-      .spyOn(fs, 'existsSync')
-      .mockImplementation(
-        (file) => file === '/usr/bin/proxychains4' || file === '/test-proxy.conf' || exists(file),
-      );
-    const warn = jest.spyOn(logger, 'warn');
-    try {
-      await createTransportFromConfig('args-proxy', config);
-      expect(StdioClientTransport).toHaveBeenCalledWith(
-        expect.objectContaining({
-          command: '/usr/bin/proxychains4',
-          args: ['-f', '/test-proxy.conf', 'node', `--key=${secret}`, `prefix${secret}`],
-        }),
-      );
-      expect(JSON.stringify(warn.mock.calls)).not.toContain('opaque');
-      expect(config.args).toEqual(['--key={{args.KEY}}', 'prefix;{{args.KEY}}']);
-    } finally {
-      check.mockRestore();
-      warn.mockRestore();
-    }
-  });
+  itPosix(
+    'substitutes args credentials after proxy cleaning without logging or modifying the value',
+    async () => {
+      const config: ServerConfig = {
+        type: 'stdio',
+        command: 'node',
+        args: ['--key={{args.KEY}}', 'prefix;{{args.KEY}}'],
+        credentialTemplate: [{ target: 'args', name: 'KEY' }],
+        proxy: { enabled: true, configPath: '/test-proxy.conf' },
+      };
+      const secret = '  "opaque" $HOME ;& {{args.KEY}}  ';
+      argumentCredentialBindings.set(config, { KEY: secret });
+      const exists = fs.existsSync;
+      const check = jest
+        .spyOn(fs, 'existsSync')
+        .mockImplementation(
+          (file) => file === '/usr/bin/proxychains4' || file === '/test-proxy.conf' || exists(file),
+        );
+      const warn = jest.spyOn(logger, 'warn');
+      try {
+        await createTransportFromConfig('args-proxy', config);
+        expect(StdioClientTransport).toHaveBeenCalledWith(
+          expect.objectContaining({
+            command: '/usr/bin/proxychains4',
+            args: ['-f', '/test-proxy.conf', 'node', `--key=${secret}`, `prefix${secret}`],
+          }),
+        );
+        expect(JSON.stringify(warn.mock.calls)).not.toContain('opaque');
+        expect(config.args).toEqual(['--key={{args.KEY}}', 'prefix;{{args.KEY}}']);
+      } finally {
+        check.mockRestore();
+        warn.mockRestore();
+      }
+    },
+  );
 
   it('should merge request-context passthrough headers into streamable-http requests', async () => {
     await createTransportFromConfig('demo-streamable', {
@@ -221,6 +228,24 @@ describe('MCP Service - passthrough headers for upstream MCP transports', () => 
       expect(sentHeaders.get('authorization')).toBe('Bearer static-token');
     },
   );
+
+  it('forwards caller Authorization with the instance opt-in while blocking the hub key', async () => {
+    const config = jest.spyOn(systemConfigCache, 'getCachedSystemConfig').mockReturnValue({
+      routing: { bearerAuthHeaderName: 'X-Hub-Key', allowAuthorizationPassthrough: true },
+    });
+    try {
+      const fetch = createRequestContextAwareFetch(mockBaseFetch, ['Authorization', 'X-Hub-Key']);
+      await RequestContextService.getInstance().runWithCustomRequestContext(
+        { headers: { authorization: 'Bearer upstream-user', 'x-hub-key': 'Bearer hub-secret' } },
+        () => fetch('https://example.com/mcp', { headers: { Authorization: 'Bearer static' } }),
+      );
+      const sent = new Headers(mockBaseFetch.mock.calls[0][1]?.headers);
+      expect(sent.get('authorization')).toBe('Bearer upstream-user');
+      expect(sent.has('x-hub-key')).toBe(false);
+    } finally {
+      config.mockRestore();
+    }
+  });
 
   it('blocks caller credentials from existing configs while forwarding business headers', async () => {
     const names = [

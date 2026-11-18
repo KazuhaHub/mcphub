@@ -13,6 +13,7 @@ import { getCredentialBindingDao, getServerDao } from '../dao/DaoFactory.js';
 import { expandServerConfig } from './serverConfigEnvironment.js';
 import { RequestContextService } from './requestContextService.js';
 import { getT } from '../utils/i18n.js';
+import { isDatabaseModeEnabled } from '../utils/systemConfigCache.js';
 import { logger } from '../utils/logger.js';
 import type { ServerConfig, StoredCredentialBinding } from '../types/index.js';
 import {
@@ -65,6 +66,11 @@ const encryptionKey = async (allowCreate = false): Promise<Buffer> => {
       'Personal credential encryption key is missing. Restore the key file or MCPHUB_CREDENTIAL_ENCRYPTION_KEY before using existing bindings',
     );
   if (!allowCreate) throw missing();
+  if (isDatabaseModeEnabled()) {
+    throw new CredentialBindingError(
+      'Database mode requires MCPHUB_CREDENTIAL_ENCRYPTION_KEY before saving personal credentials. Configure a persistent 32-byte base64 key; if bindings already exist, restore their original key. Automatic local key generation is disabled because container replacement can lose the key',
+    );
+  }
   const hasBindings = await getCredentialBindingDao().hasBindings();
   // Another process may have created the key while storage was being checked.
   const createdElsewhere = readKey();
@@ -241,6 +247,7 @@ export const getCredentialBindingStatus = async (
   serverName: string,
   username: string,
   definition: ServerConfig,
+  includePreviews = false,
 ) => {
   const binding = await getCredentialBindingDao().get(serverName, username);
   const slots = validateCredentialTemplate(definition) || [];
@@ -253,6 +260,20 @@ export const getCredentialBindingStatus = async (
   return {
     configured: slots.length > 0 && configuredSlots.length === slots.length,
     configuredSlots,
+    ...(includePreviews
+      ? {
+          valuePreviews: Object.fromEntries(
+            configuredSlots.map((id) => {
+              const characters = Array.from(values[id]);
+              const visible = characters.length <= 4 ? 1 : characters.length <= 8 ? 2 : 4;
+              return [
+                id,
+                `••••${characters.length > 1 ? characters.slice(-visible).join('') : ''}`,
+              ];
+            }),
+          ),
+        }
+      : {}),
     updatedAt: binding?.updatedAt ?? null,
   };
 };
@@ -262,6 +283,7 @@ export const saveCredentialBinding = async (
   username: string,
   definition: ServerConfig,
   values: unknown,
+  guard?: { expected: string | undefined },
 ): Promise<void> => {
   const slots = validateCredentialTemplate(definition) || [];
   if (!slots.length)
@@ -291,14 +313,61 @@ export const saveCredentialBinding = async (
     username,
     record as Record<string, string>,
   );
-  await getCredentialBindingDao().save({
+  const binding: StoredCredentialBinding = {
     serverName,
     username,
     encryptedValues,
     updatedAt: new Date().toISOString(),
     destinationFingerprint: await computeDestinationFingerprint(definition),
-  });
+  };
+  const dao = getCredentialBindingDao();
+  if (guard) {
+    if (!(await dao.compareAndSave(binding, guard.expected)))
+      throw new CredentialBindingError('Target credentials changed; refresh and try again');
+  } else await dao.save(binding);
   credentialBindingEvents.emit('invalidate', { serverName, username });
+};
+
+// Copy only declared slots for one user; never return plaintext to the dashboard.
+export const copyPersonalCredentialBinding = async (
+  sourceName: string,
+  targetName: string,
+  username: string,
+  sourceConfig: ServerConfig,
+  targetConfig: ServerConfig,
+  overwrite = false,
+): Promise<void> => {
+  if (sourceName === targetName)
+    throw new CredentialBindingError('Choose a different source server');
+  const sourceSlots = validateCredentialTemplate(sourceConfig) || [];
+  const targetSlots = validateCredentialTemplate(targetConfig) || [];
+  const canonicalId = (slot: (typeof sourceSlots)[number]) =>
+    slot.target === 'headers' ? credentialSlotId(slot).toLowerCase() : credentialSlotId(slot);
+  const matchingSlots = targetSlots.map((target) => ({
+    target,
+    source: sourceSlots.find((source) => canonicalId(source) === canonicalId(target)),
+  }));
+  if (!targetSlots.length || matchingSlots.some(({ source }) => !source))
+    throw new CredentialBindingError('Source and target credential slots are incompatible');
+  const dao = getCredentialBindingDao();
+  const source = await dao.get(sourceName, username);
+  if (!source) throw new CredentialBindingError('Source credentials are not configured');
+  // Values saved for a destination the source no longer points at are never carried anywhere.
+  if (isStaleBinding(source, await computeDestinationFingerprint(sourceConfig)))
+    throw new CredentialBindingError('Source credentials are not configured');
+  const existing = await dao.get(targetName, username);
+  if (existing && !overwrite)
+    throw new CredentialBindingError('Confirm overwriting the existing target credentials');
+  const sourceValues = await decryptCredentialValues(source);
+  const values = Object.fromEntries(
+    matchingSlots.map(({ target, source }) => [
+      credentialSlotId(target),
+      sourceValues[credentialSlotId(source!)],
+    ]),
+  );
+  await saveCredentialBinding(targetName, username, targetConfig, values, {
+    expected: existing?.encryptedValues,
+  });
 };
 
 export const deleteCredentialBindings = async (filter: {

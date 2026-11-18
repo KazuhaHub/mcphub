@@ -1,4 +1,6 @@
 import type { Request, Response } from 'express';
+import { getUserByUsername } from '../services/userService.js';
+import type { BearerKey } from '../types/index.js';
 import { getServerDao } from '../dao/DaoFactory.js';
 import {
   authorizationService,
@@ -6,6 +8,7 @@ import {
   type RequestPrincipal,
 } from '../services/authorizationService.js';
 import {
+  copyPersonalCredentialBinding,
   deleteCredentialBindings,
   getCredentialBindingStatus,
   saveCredentialBinding,
@@ -31,18 +34,42 @@ const respondError = (res: Response, error: unknown) => {
   });
 };
 
-export const listMyCredentials = async (req: Request, res: Response): Promise<void> => {
-  const user = principal(req);
-  if (!user || user.credentialEligible === false) {
-    res.status(401).json({ success: false });
+// Management credentials authorize the actor; visibility and encryption use the target user.
+const resolveUser = async (req: Request, res: Response, managed: boolean) => {
+  const actor = principal(req);
+  if (!managed) {
+    if (!actor || actor.credentialEligible === false) {
+      res.status(401).json({ success: false });
+      return;
+    }
+    return actor;
+  }
+  // A credential-write token is for its holder's own binding of one server, never for managing
+  // another user's credentials.
+  if (actor?.credentialWriteGrant) {
+    res.status(403).json({ success: false });
     return;
   }
+  const key = (req as Request & { bearerKey?: BearerKey }).bearerKey;
+  const systemKey = key && key.kind !== 'user' && key.accessType === 'all';
+  if (!actor?.isAdmin || (actor.credentialEligible === false && !systemKey)) {
+    res.status(403).json({ success: false, message: 'Authenticated admin privileges required' });
+    return;
+  }
+  const user = await getUserByUsername(req.params.username);
+  if (!user) res.status(404).json({ success: false, message: 'User not found' });
+  return user;
+};
+
+const listCredentials = async (req: Request, res: Response, managed: boolean): Promise<void> => {
   // A credential-write token is for one server's binding only, never for the list.
-  if (user.credentialWriteGrant) {
+  if (principal(req)?.credentialWriteGrant) {
     res.status(403).json({ success: false });
     return;
   }
   try {
+    const user = await resolveUser(req, res, managed);
+    if (!user) return;
     const servers = (await getServerDao().findAll()).filter(
       (server) =>
         hasCredentialTemplate(server) && authorizationService.can('server.discover', server, user),
@@ -52,7 +79,7 @@ export const listMyCredentials = async (req: Request, res: Response): Promise<vo
         serverName: server.name,
         manageUrl: server.manageUrl,
         credentialTemplate: validateCredentialTemplate(server),
-        ...(await getCredentialBindingStatus(server.name, user.username, server)),
+        ...(await getCredentialBindingStatus(server.name, user.username, server, true)),
       })),
     );
     res.json({ success: true, data });
@@ -61,22 +88,25 @@ export const listMyCredentials = async (req: Request, res: Response): Promise<vo
   }
 };
 
-export const updateMyCredential = async (req: Request, res: Response): Promise<void> => {
-  const user = principal(req);
-  if (!user || user.credentialEligible === false) {
-    res.status(401).json({ success: false });
-    return;
-  }
-  const grant = user.credentialWriteGrant;
+const updateCredential = async (req: Request, res: Response, managed: boolean): Promise<void> => {
+  const actor = principal(req);
+  const grant = actor?.credentialWriteGrant;
   if (grant && grant.serverName !== req.params.name) {
     res.status(403).json({ success: false, message: 'This token cannot be used for that server' });
     return;
   }
   const startedAt = Date.now();
   const operation = req.method === 'DELETE' ? 'delete' : 'write';
+  let user: RequestPrincipal | undefined;
   try {
+    user = await resolveUser(req, res, managed);
+    if (!user) return;
     const server = await getServerDao().findById(req.params.name);
-    if (!server || !authorizationService.can('server.discover', server, user)) {
+    if (
+      !server ||
+      (managed && !hasCredentialTemplate(server)) ||
+      !authorizationService.can('server.discover', server, user)
+    ) {
       res.status(404).json({ success: false, message: 'Server not available' });
       return;
     }
@@ -87,7 +117,7 @@ export const updateMyCredential = async (req: Request, res: Response): Promise<v
     if (grant) await auditCredentialWrite(user, grant, operation, 'success', startedAt);
     res.json({ success: true });
   } catch (error) {
-    if (grant) await auditCredentialWrite(user, grant, operation, 'error', startedAt);
+    if (grant && user) await auditCredentialWrite(user, grant, operation, 'error', startedAt);
     respondError(res, error);
   }
 };
@@ -115,3 +145,59 @@ const auditCredentialWrite = async (
     hasCredentialTemplate: true,
   });
 };
+
+export const listMyCredentials = (req: Request, res: Response) => listCredentials(req, res, false);
+export const updateMyCredential = (req: Request, res: Response) =>
+  updateCredential(req, res, false);
+export const listUserCredentials = (req: Request, res: Response) => listCredentials(req, res, true);
+export const updateUserCredential = (req: Request, res: Response) =>
+  updateCredential(req, res, true);
+
+const copyCredential = async (req: Request, res: Response, managed: boolean): Promise<void> => {
+  // A copy reads another server's binding: never open to a credential-write token.
+  if (principal(req)?.credentialWriteGrant) {
+    res.status(403).json({ success: false });
+    return;
+  }
+  try {
+    const user = await resolveUser(req, res, managed);
+    if (!user) return;
+    const { sourceServer, overwrite } = req.body || {};
+    if (
+      typeof sourceServer !== 'string' ||
+      !sourceServer ||
+      (overwrite !== undefined && typeof overwrite !== 'boolean')
+    )
+      throw new CredentialBindingError('Provide a source server and an optional boolean overwrite');
+    const dao = getServerDao();
+    const source = await dao.findById(sourceServer);
+    const target = await dao.findById(req.params.name);
+    if (
+      !source ||
+      !target ||
+      [source, target].some(
+        (server) =>
+          !hasCredentialTemplate(server) ||
+          !authorizationService.can('server.discover', server, user),
+      )
+    ) {
+      res.status(404).json({ success: false, message: 'Server not available' });
+      return;
+    }
+    await copyPersonalCredentialBinding(
+      source.name,
+      target.name,
+      user.username,
+      source,
+      target,
+      overwrite,
+    );
+    await notifyWorkspaceUser(user.username);
+    res.json({ success: true });
+  } catch (error) {
+    respondError(res, error);
+  }
+};
+
+export const copyMyCredential = (req: Request, res: Response) => copyCredential(req, res, false);
+export const copyUserCredential = (req: Request, res: Response) => copyCredential(req, res, true);

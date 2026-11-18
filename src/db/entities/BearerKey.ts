@@ -40,7 +40,7 @@ export class BearerKey {
   owner?: string;
 
   @Column({ type: 'varchar', length: 20, default: 'all' })
-  accessType: 'all' | 'groups' | 'servers' | 'custom';
+  accessType: 'all' | 'groups' | 'servers' | 'custom' | 'exclude';
 
   @Column({ type: 'simple-json', nullable: true })
   allowedGroups?: string[];
@@ -50,6 +50,11 @@ export class BearerKey {
 
   @Column({ name: 'last_used_at', type: 'timestamp', nullable: true })
   lastUsedAt?: Date | null;
+  @Column({ type: 'simple-json', nullable: true })
+  excludedGroups?: string[];
+
+  @Column({ type: 'simple-json', nullable: true })
+  excludedServers?: string[];
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt: Date;

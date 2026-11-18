@@ -1,10 +1,20 @@
+import { rateLimit } from 'express-rate-limit';
 import express from 'express';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { IUser, IOAuthToken, IGroup, ServerConfig } from '../../src/types/index.js';
+import {
+  IUser,
+  IOAuthToken,
+  IGroup,
+  ServerConfig,
+  OAuthClientApproval,
+  UserPasskey,
+} from '../../src/types/index.js';
 
 let users: IUser[];
+let approvals: OAuthClientApproval[];
+let passkeys: UserPasskey[];
 let tokens: IOAuthToken[];
 let groups: IGroup[];
 let servers: (ServerConfig & { name: string })[];
@@ -19,6 +29,17 @@ const revokeUserTokensMock = jest.fn(async (username: string) => {
 });
 
 jest.mock('../../src/dao/index.js', () => ({
+  getOAuthApprovalDao: () => ({
+    findById: async (id: string) => approvals.find((row) => row.id === id),
+    findByUsername: async (username: string) => approvals.filter((row) => row.username === username),
+    save: async (row: OAuthClientApproval) => { approvals.push(row); },
+    deleteByUsername: async (username: string) => { approvals = approvals.filter((row) => row.username !== username); },
+  }),
+  getPasskeyDao: () => ({
+    deleteByUsername: async (username: string) => {
+      passkeys = passkeys.filter((row) => row.username !== username);
+    },
+  }),
   getUserDao: () => ({
     findAll: async () => users,
     findByUsername: async (username: string) => users.find((user) => user.username === username),
@@ -124,6 +145,23 @@ describe('local user offboarding', () => {
       { username: 'victim', password: await bcrypt.hash('victim-password', 4), isAdmin: false },
     ];
     tokens = [];
+    approvals = [];
+    passkeys = [
+      {
+        id: 'passkey-1',
+        username: 'victim',
+        credentialId: 'credential-1',
+        publicKey: 'public-key',
+        counter: 0,
+        userHandle: 'handle',
+        rpId: 'hub.example.test',
+        sessionVersion: 'version',
+        name: 'Laptop',
+        deviceType: 'multiDevice',
+        backedUp: true,
+        createdAt: new Date().toISOString(),
+      },
+    ];
     groups = [
       {
         id: 'g1',
@@ -145,6 +183,7 @@ describe('local user offboarding', () => {
     victimJwt = userToken(users[1]);
     await initOAuthServer();
     app = express();
+    app.use(rateLimit({ windowMs: 60_000, limit: 1000 }));
     app.use(express.json());
     app.use(express.urlencoded({ extended: false }));
     app.use((req, _res, next) => {
@@ -221,10 +260,12 @@ describe('local user offboarding', () => {
       (await request(app).delete('/api/users/victim').set('x-auth-token', adminJwt)).status,
     ).toBe(200);
     expect(tokens).toHaveLength(0);
+    expect(approvals).toHaveLength(0);
+    expect(passkeys).toHaveLength(0);
     expect(groups[0].sharedWithUsers).toEqual(['other']);
     expect(servers[0].sharedWithUsers).toEqual(['other']);
     expect(servers[0].pausedUsers).toEqual(['other']);
-    expect(getAuthorizationCode(code)).toBeUndefined();
+    expect(await getAuthorizationCode(code)).toBeUndefined();
     expect(
       (await request(app).post('/mcp/g1').auth(livePair.access_token, { type: 'bearer' })).status,
     ).toBe(401);

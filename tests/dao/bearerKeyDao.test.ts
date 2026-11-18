@@ -36,6 +36,34 @@ describe('BearerKeyDaoImpl migration + settings caching behavior', () => {
     }
   });
 
+  it('rewrites excluded server names when a server is renamed', async () => {
+    writeSettings(settingsPath, {
+      mcpServers: {},
+      users: [],
+      bearerKeys: [
+        {
+          id: 'k-exclude',
+          name: 'exclude',
+          token: 'mcphub_exclude123',
+          enabled: true,
+          kind: 'system',
+          accessType: 'exclude',
+          allowedServers: ['keep-server'],
+          excludedServers: ['old-server'],
+          excludedGroups: ['blocked-group'],
+        },
+      ],
+    });
+    const dao = new BearerKeyDaoImpl();
+
+    expect(await dao.updateServerName('old-server', 'new-server')).toBe(1);
+
+    const stored = (await dao.findAll())[0];
+    expect(stored.excludedServers).toEqual(['new-server']);
+    expect(stored.excludedGroups).toEqual(['blocked-group']);
+    expect(stored.allowedServers).toEqual(['keep-server']);
+  });
+
   it('does not rewrite settings when bearerKeys exists as an empty array', async () => {
     writeSettings(settingsPath, {
       mcpServers: {},

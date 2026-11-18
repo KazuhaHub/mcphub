@@ -12,7 +12,7 @@ jest.mock('openid-client', () => ({}));
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { Server as HttpServer } from 'node:http';
 import express from 'express';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -21,6 +21,7 @@ import { Server as McpServer } from '@modelcontextprotocol/server';
 import request from 'supertest';
 import {
   getServerDao,
+  getUserDao,
   getCredentialBindingDao,
   getSystemConfigDao,
   getGroupDao,
@@ -34,6 +35,10 @@ import {
   userContextMiddleware,
 } from '../../src/middlewares/userContext.js';
 import {
+  copyMyCredential,
+  copyUserCredential,
+  listUserCredentials,
+  updateUserCredential,
   listMyCredentials,
   updateMyCredential,
 } from '../../src/controllers/credentialBindingController.js';
@@ -50,6 +55,7 @@ import {
   cleanupAllServers,
   getServersInfo,
   getServerByName,
+  updateServerInfoVisibility,
   removeServer,
   getServerConnectionStats,
   handleCallToolRequest,
@@ -170,6 +176,11 @@ beforeAll(async () => {
   app.use('/api', authenticatedRouteRateLimiter, auth, userContextMiddleware);
   app.post('/api/mcp/:serverName/prompts/:promptName', getPrompt);
   app.post('/api/tools/:serverName/:toolName', executeToolViaOpenAPI);
+  app.get('/api/users/:username/credentials', listUserCredentials);
+  app.put('/api/users/:username/credentials/:name', updateUserCredential);
+  app.delete('/api/users/:username/credentials/:name', updateUserCredential);
+  app.post('/api/credentials/:name/copy', copyMyCredential);
+  app.post('/api/users/:username/credentials/:name/copy', copyUserCredential);
   app.get('/api/credentials', listMyCredentials);
   app.put('/api/credentials/:name', updateMyCredential);
   app.delete('/api/credentials/:name', updateMyCredential);
@@ -230,6 +241,245 @@ const connect = async (username: string, serverName = 'shared') => {
   );
   return client;
 };
+
+test.each([alice, 'admin'])(
+  'policy restricts %s user keys before personal OAuth resolution across routes',
+  async (username) => {
+    const suffix = username === 'admin' ? 'admin' : 'user';
+    const name = `policyOAuth-${suffix}`;
+    const group = `policy-group-${suffix}`;
+    const calls: string[] = [];
+    const refreshes: string[] = [];
+    app.post(`/policy-token-${suffix}`, express.urlencoded({ extended: false }), (req, res) => {
+      refreshes.push(req.body.refresh_token);
+      res.json({
+        access_token: `fresh-${username}`,
+        refresh_token: `refresh-${username}`,
+        token_type: 'Bearer',
+      });
+    });
+    app.post(`/policy-upstream-${suffix}`, async (req, res) => {
+      if (req.headers.authorization !== `Bearer fresh-${username}`) {
+        res.set('WWW-Authenticate', 'Bearer').status(401).end();
+        return;
+      }
+      const upstream = new McpServer({ name, version: '1' }, { capabilities: { tools: {} } });
+      upstream.setRequestHandler('tools/list', async () => ({
+        tools: [
+          'identity',
+          'write',
+          'new_tool',
+          'search_tools',
+          `${name}${getNameSeparator()}identity`,
+        ].map((tool) => ({
+          name: tool,
+          inputSchema: { type: 'object' },
+        })),
+      }));
+      upstream.setRequestHandler('tools/call', async (request) => {
+        calls.push(request.params.name);
+        return {
+          content: [
+            { type: 'text', text: JSON.stringify({ credential: req.headers.authorization }) },
+          ],
+        };
+      });
+      const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      res.on('close', () => {
+        void transport.close();
+        void upstream.close();
+      });
+      await upstream.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    });
+    const definition = await getServerDao().create({
+      name,
+      type: 'streamable-http',
+      owner: 'admin',
+      visibility: 'public',
+      url: `${baseUrl}/policy-upstream-${suffix}`,
+      oauth: {
+        identityMode: 'personal',
+        clientId: 'client',
+        allowInsecureTokenEndpoint: true,
+        authorizationServerMetadata: {
+          issuer: baseUrl,
+          authorization_endpoint: `${baseUrl}/authorize`,
+          token_endpoint: `${baseUrl}/policy-token-${suffix}`,
+          response_types_supported: ['code'],
+          token_endpoint_auth_methods_supported: ['none'],
+        },
+      },
+    });
+    await getGroupDao().create({
+      id: group,
+      name: group,
+      owner: 'admin',
+      visibility: 'public',
+      servers: [{ name, tools: 'all' }],
+    });
+    const key = await getBearerKeyDao().create({
+      name: `policy-${suffix}`,
+      token: `policy-${suffix}-bearer`,
+      kind: 'user',
+      owner: username,
+      enabled: true,
+      accessType: 'all',
+      createdAt: new Date().toISOString(),
+    });
+    const { PersonalOAuthContext } = await import('../../src/services/personalOAuthService.js');
+    const context = await PersonalOAuthContext.load(name, username, definition!);
+    await context.persistTokens(name, {
+      accessToken: `expired-${username}`,
+      refreshToken: `refresh-${username}`,
+    });
+    jest.mocked(createOAuthProvider).mockImplementation(async (serverName, config) => {
+      if (config.oauth?.identityMode !== 'personal') return undefined;
+      return jest
+        .requireActual('../../src/services/mcpOAuthProvider.js')
+        .createOAuthProvider(serverName, config);
+    });
+    const rule = {
+      id: `read-${suffix}`,
+      effect: 'allow' as const,
+      keyId: key!.id,
+      groupId: group,
+      serverId: definition!.id,
+      tool: 'identity',
+    };
+    try {
+      await getSystemConfigDao().update({ toolPolicies: [rule] });
+      await initializeClientsFromSettings(true);
+      const coldAcquire = jest.spyOn(PrincipalRuntimeService.prototype, 'acquire');
+      try {
+        for (const requested of ['search_tools', `${name}${getNameSeparator()}identity`]) {
+          const denied = await UserContextService.getInstance().runWithContext(
+            () =>
+              RequestContextService.getInstance().runWithCustomRequestContext(
+                { headers: {}, group: name, username, keyId: key!.id, keyKind: 'user' },
+                () =>
+                  handleCallToolRequest(
+                    { params: { name: requested, arguments: { query: 'identity' } } },
+                    { group: name },
+                  ),
+              ),
+            { username, password: '', isAdmin: username === 'admin' },
+          );
+          expect(denied.isError).toBe(true);
+          expect(coldAcquire).not.toHaveBeenCalled();
+        }
+        expect(refreshes).toEqual([]);
+      } finally {
+        coldAcquire.mockRestore();
+      }
+      const client = await connect(`policy-${suffix}`, group);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+        `${name}${getNameSeparator()}identity`,
+      ]);
+      expect(
+        parseIdentity(await client.callTool({ name: `${name}${getNameSeparator()}identity` }))
+          .credential,
+      ).toBe(`Bearer fresh-${username}`);
+      expect(refreshes).toEqual([`refresh-${username}`]);
+      const acquire = jest.spyOn(PrincipalRuntimeService.prototype, 'acquire');
+      const run = (route: string, toolName: string, wrapper = false) =>
+        UserContextService.getInstance().runWithContext(
+          () =>
+            RequestContextService.getInstance().runWithCustomRequestContext(
+              { headers: {}, group: route, username, keyId: key!.id, keyKind: 'user' },
+              () =>
+                handleCallToolRequest(
+                  {
+                    params: wrapper
+                      ? { name: 'call_tool', arguments: { toolName } }
+                      : { name: toolName, arguments: {} },
+                  },
+                  { group: route },
+                ),
+            ),
+          { username, password: '', isAdmin: username === 'admin' },
+        );
+      try {
+        for (const route of [name, '', '$smart', group, `$smart/${group}`]) {
+          const tool =
+            route === name
+              ? 'identity'
+              : `${name}${getNameSeparator()}${route.includes(group) ? 'write' : 'identity'}`;
+          for (const wrapper of [false, true]) {
+            acquire.mockClear();
+            expect((await run(route, tool, wrapper)).isError).toBe(true);
+            expect(acquire).not.toHaveBeenCalled();
+          }
+        }
+        expect(calls).toEqual(['identity']);
+        expect(mockActivityLogToolCall).toHaveBeenCalledWith(
+          expect.objectContaining({
+            server: name,
+            keyId: key!.id,
+            policy: expect.objectContaining({ decision: 'deny', reason: 'no-matching-allow' }),
+          }),
+        );
+        acquire.mockClear();
+        expect(
+          parseIdentity(await run(`$smart/${group}`, `${name}${getNameSeparator()}identity`, true))
+            .credential,
+        ).toBe(`Bearer fresh-${username}`);
+        expect(acquire).toHaveBeenCalled();
+        await getSystemConfigDao().update({ toolPolicies: [{ ...rule, groupId: undefined }] });
+        for (const route of [name, '', '$smart', group, `$smart/${group}`]) {
+          const exposed = route === name ? 'identity' : `${name}${getNameSeparator()}identity`;
+          expect(parseIdentity(await run(route, exposed)).credential).toBe(
+            `Bearer fresh-${username}`,
+          );
+          expect(parseIdentity(await run(route, exposed, true)).credential).toBe(
+            `Bearer fresh-${username}`,
+          );
+          expect(
+            (await run(route, route === name ? 'new_tool' : `${name}${getNameSeparator()}new_tool`))
+              .isError,
+          ).toBe(true);
+        }
+        acquire.mockClear();
+        expect((await run('$smart', `shared${getNameSeparator()}identity`, true)).isError).toBe(
+          true,
+        );
+        expect(acquire).not.toHaveBeenCalled();
+        await getGroupDao().update(group, { servers: [{ name, alias: 'personal', tools: 'all' }] });
+        expect(
+          parseIdentity(await run(group, `personal${getNameSeparator()}identity`)).credential,
+        ).toBe(`Bearer fresh-${username}`);
+        expect((await run(group, `personal${getNameSeparator()}write`)).isError).toBe(true);
+        await getGroupDao().update(group, {
+          servers: [{ name, preserveToolNames: true, tools: 'all' }],
+        });
+        expect(parseIdentity(await run(group, 'identity')).credential).toBe(
+          `Bearer fresh-${username}`,
+        );
+        expect((await run(group, 'write')).isError).toBe(true);
+        await getGroupDao().update(group, { servers: [{ name, tools: [] }] });
+        expect((await run(group, `${name}${getNameSeparator()}identity`)).isError).toBe(true);
+        await getGroupDao().update(group, { servers: [{ name, tools: 'all' }] });
+        await getSystemConfigDao().update({
+          toolPolicies: [rule, { id: 'block', effect: 'deny', keyId: key!.id, tool: 'identity' }],
+        });
+        acquire.mockClear();
+        expect((await run(group, `${name}${getNameSeparator()}identity`)).isError).toBe(true);
+        expect(acquire).not.toHaveBeenCalled();
+        expect(mockActivityLogToolCall).toHaveBeenCalledWith(
+          expect.objectContaining({
+            policy: expect.objectContaining({ decision: 'deny', policyId: 'block' }),
+          }),
+        );
+      } finally {
+        acquire.mockRestore();
+      }
+    } finally {
+      await getSystemConfigDao().update({ toolPolicies: [] });
+      await getServerDao().delete(name);
+      await getGroupDao().delete(group);
+    }
+  },
+);
 
 test('args credentials reach the child literally, isolate users, and redact failures', async () => {
   const name = 'argsShared';
@@ -303,7 +553,7 @@ test('args credentials reach the child literally, isolate users, and redact fail
   }
 });
 
-test('dashboard bindings are write-only, self-scoped, and preserve the shared safe view', async () => {
+test('dashboard bindings return self-scoped masked previews and preserve the shared safe view', async () => {
   expect(getServerConnectionStats()).toEqual({ total: 0, connected: 0, disconnected: 0 });
   expect((await request(app).get('/api/credentials')).status).toBe(401);
   expect((await bind(alice, 'alice-sentinel')).status).toBe(200);
@@ -311,9 +561,11 @@ test('dashboard bindings are write-only, self-scoped, and preserve the shared sa
     .get('/api/credentials')
     .set('x-auth-token', apiToken(alice));
   expect(aliceStatus.body.data[0].configured).toBe(true);
+  expect(aliceStatus.body.data[0].valuePreviews).toEqual({ 'env.PERSONAL_KEY': '••••inel' });
   expect(JSON.stringify(aliceStatus.body)).not.toContain('alice-sentinel');
   const bobStatus = await request(app).get('/api/credentials').set('x-auth-token', apiToken(bob));
   expect(bobStatus.body.data[0].configured).toBe(false);
+  expect(bobStatus.body.data[0].valuePreviews).toEqual({});
   const config = await request(app).get('/api/servers/shared').set('x-auth-token', apiToken(alice));
   expect(config.body.data.config.configRestricted).toBe(true);
   expect(config.body.data.config.credentialTemplate).toEqual([
@@ -328,6 +580,134 @@ test('dashboard bindings are write-only, self-scoped, and preserve the shared sa
         .send({ values: { 'env.PERSONAL_KEY': 'bad' } })
     ).status,
   ).not.toBe(200);
+});
+
+test('admins receive masked target previews while preserving isolation and authentication', async () => {
+  const endpoint = `/api/users/${encodeURIComponent(alice)}/credentials`;
+  const values = { 'env.PERSONAL_KEY': 'admin-provisioned-sentinel' };
+  await bind(bob, 'bob-admin-test');
+  const a = await connect(alice);
+  const b = await connect(bob);
+  const toolName = `shared${getNameSeparator()}identity`;
+  const update = (token: string, body = { values }) =>
+    request(app).put(`${endpoint}/shared`).set('x-auth-token', token).send(body);
+  expect((await update(apiToken(bob))).status).toBe(403);
+  expect((await request(app).get(endpoint).set('x-auth-token', apiToken(bob))).status).toBe(403);
+  expect(
+    (await request(app).delete(`${endpoint}/shared`).set('x-auth-token', apiToken(bob))).status,
+  ).toBe(403);
+  expect((await update(apiToken('admin'))).status).toBe(200);
+  expect(parseIdentity(await a.callTool({ name: toolName })).credential).toBe(
+    values['env.PERSONAL_KEY'],
+  );
+  expect(parseIdentity(await b.callTool({ name: toolName })).credential).toBe('bob-admin-test');
+  const status = await request(app).get(endpoint).set('x-auth-token', apiToken('admin'));
+  expect(status.status).toBe(200);
+  expect(status.body.data.find((entry: any) => entry.serverName === 'shared')).toMatchObject({
+    configured: true,
+    configuredSlots: ['env.PERSONAL_KEY'],
+    updatedAt: expect.any(String),
+    valuePreviews: { 'env.PERSONAL_KEY': '••••inel' },
+  });
+  expect(JSON.stringify(status.body)).not.toContain('admin-provisioned-sentinel');
+  expect(JSON.stringify(status.body)).not.toContain('encryptedValues');
+  expect((await update(apiToken('admin'), { values: { 'env.PERSONAL_KEY': '' } })).status).toBe(
+    400,
+  );
+  for (const method of ['get', 'put', 'delete'] as const) {
+    const suffix = method === 'get' ? '' : '/shared';
+    expect(
+      (
+        await request(app)[method](`/api/users/missing/credentials${suffix}`)
+          .set('x-auth-token', apiToken('admin'))
+          .send({ values })
+      ).status,
+    ).toBe(404);
+  }
+  await getServerDao().create({
+    name: 'admin-only-template',
+    type: 'stdio',
+    command: process.execPath,
+    owner: 'admin',
+    visibility: 'private',
+    credentialTemplate: [{ target: 'env', name: 'PERSONAL_KEY' }],
+  });
+  await getServerDao().create({
+    name: 'no-template',
+    type: 'stdio',
+    command: process.execPath,
+    owner: 'admin',
+    visibility: 'public',
+  });
+  try {
+    for (const name of ['admin-only-template', 'no-template']) {
+      for (const method of ['put', 'delete'] as const) {
+        expect(
+          (
+            await request(app)[method](`${endpoint}/${name}`)
+              .set('x-auth-token', apiToken('admin'))
+              .send({ values })
+          ).status,
+        ).toBe(404);
+      }
+    }
+    const list = await request(app).get(endpoint).set('x-auth-token', apiToken('admin'));
+    expect(list.body.data.map((entry: any) => entry.serverName)).not.toContain(
+      'admin-only-template',
+    );
+  } finally {
+    await getServerDao().delete('admin-only-template');
+    await getServerDao().delete('no-template');
+  }
+  const key = await getBearerKeyDao().create({
+    name: 'admin-provisioner',
+    token: 'admin-provisioner-test',
+    kind: 'system',
+    enabled: true,
+    accessType: 'all',
+    createdAt: new Date().toISOString(),
+  });
+  const config = await getSystemConfigDao().get();
+  try {
+    expect(
+      (
+        await request(app)
+          .put(`${endpoint}/shared`)
+          .set('Authorization', 'Bearer admin-provisioner-test')
+          .send({ values })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await request(app)
+          .get('/api/credentials')
+          .set('Authorization', 'Bearer admin-provisioner-test')
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await request(app)
+          .put(`${endpoint}/shared`)
+          .set('Authorization', `Bearer ${alice}-bearer`)
+          .send({ values })
+      ).status,
+    ).toBe(401);
+    await getSystemConfigDao().update({ routing: { ...config!.routing!, skipAuth: true } });
+    expect((await request(app).get(endpoint)).status).toBe(403);
+    expect((await request(app).put(`${endpoint}/shared`).send({ values })).status).toBe(403);
+    expect((await request(app).delete(`${endpoint}/shared`)).status).toBe(403);
+  } finally {
+    await getSystemConfigDao().update(config!);
+    await getBearerKeyDao().delete(key.id);
+  }
+  expect(
+    (await request(app).delete(`${endpoint}/shared`).set('x-auth-token', apiToken('admin'))).status,
+  ).toBe(200);
+  expect((await a.callTool({ name: toolName })).isError).toBe(true);
+  expect(parseIdentity(await b.callTool({ name: toolName })).credential).toBe('bob-admin-test');
+  await bind(alice, 'alice-sentinel');
+  await a.close();
+  await b.close();
 });
 
 test('real stdio calls resolve bearer owners, isolate simultaneous users, and reuse a principal across sessions', async () => {
@@ -883,6 +1263,142 @@ test('upstream tool errors preserve diagnosis, redact personal values, and keep 
   expect(after.pid).toBe(before.pid);
 });
 
+test.each(['idle-expiry', 'restart'] as const)(
+  'personal OAuth recovers after %s without replaying calls or replacing another user',
+  async (scenario) => {
+    const name = `sessionRecovery-${scenario}`;
+    const endpoint = `/session-recovery-${scenario}`;
+    const sessions = new Map<
+      string,
+      { transport: NodeStreamableHTTPServerTransport; owner: string }
+    >();
+    const resources: { transport: NodeStreamableHTTPServerTransport; upstream: McpServer }[] = [];
+    const handshakes: string[] = [];
+    const calls: string[] = [];
+    const { PersonalOAuthContext } = await import('../../src/services/personalOAuthService.js');
+    app.all(endpoint, async (req, res) => {
+      const sid = req.headers['mcp-session-id'] as string | undefined;
+      if (sid) {
+        const session = sessions.get(sid);
+        if (!session) {
+          res.status(404).json({
+            jsonrpc: '2.0',
+            id: req.body?.id ?? null,
+            error: {
+              code: -32001,
+              message:
+                'Session not found. Please re-initialize by calling initialize without mcp-session-id header.',
+            },
+          });
+          return;
+        }
+        expect(req.headers.authorization).toBe(session.owner);
+        await session.transport.handleRequest(req, res, req.body);
+        return;
+      }
+      if (req.body?.method !== 'initialize') {
+        res.status(400).end();
+        return;
+      }
+      const owner = req.headers.authorization!;
+      handshakes.push(owner);
+      const upstream = new McpServer({ name, version: '1' }, { capabilities: { tools: {} } });
+      upstream.setRequestHandler('tools/list', async () => ({
+        tools: [
+          {
+            name: 'write',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      }));
+      upstream.setRequestHandler('tools/call', async () => {
+        calls.push(owner);
+        return { content: [{ type: 'text', text: JSON.stringify({ credential: owner }) }] };
+      });
+      const transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: randomUUID,
+        onsessioninitialized: (sessionId) => {
+          sessions.set(sessionId, { transport, owner });
+        },
+      });
+      resources.push({ transport, upstream });
+      await upstream.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    });
+    await getServerDao().create({
+      name,
+      type: 'streamable-http',
+      owner: 'admin',
+      visibility: 'public',
+      url: `${baseUrl}${endpoint}`,
+      idleTimeoutMs: 60_000,
+      oauth: { identityMode: 'personal', clientId: 'client' },
+    });
+    const definition = (await getServerDao().findById(name))!;
+    for (const username of [alice, bob]) {
+      const context = await PersonalOAuthContext.load(name, username, definition);
+      await context.persistTokens(name, { accessToken: `session-token-${username}` });
+    }
+    jest.mocked(createOAuthProvider).mockImplementation(async (serverName, config) => {
+      if (config.oauth?.identityMode !== 'personal') return undefined;
+      return jest
+        .requireActual('../../src/services/mcpOAuthProvider.js')
+        .createOAuthProvider(serverName, config);
+    });
+    await initializeClientsFromSettings(true);
+    try {
+      const [a, b] = await Promise.all([connect(alice, name), connect(bob, name)]);
+      const tool = `${name}${getNameSeparator()}write`;
+      const aOwner = `Bearer session-token-${alice}`;
+      const bOwner = `Bearer session-token-${bob}`;
+      expect(parseIdentity(await a.callTool({ name: tool })).credential).toBe(aOwner);
+      expect(parseIdentity(await b.callTool({ name: tool })).credential).toBe(bOwner);
+      const savedBindings = await Promise.all(
+        [alice, bob].map((username) => getCredentialBindingDao().get(name, username)),
+      );
+      // Drop only the server-side session registration: the TCP connection and
+      // OAuth grant are still valid, as with a real upstream session eviction.
+      for (const [sid, session] of sessions) {
+        if (scenario === 'restart' || session.owner === aOwner) sessions.delete(sid);
+      }
+      const before = calls.length;
+      const failures = await Promise.all([a.callTool({ name: tool }), a.callTool({ name: tool })]);
+      expect(failures.every((result) => result.isError)).toBe(true);
+      expect(failures.every((result) => JSON.stringify(result).includes('Session not found'))).toBe(
+        true,
+      );
+      expect(calls).toHaveLength(before); // No automatic write replay.
+      const recovered = await Promise.all([a.callTool({ name: tool }), a.callTool({ name: tool })]);
+      expect(recovered.map(parseIdentity).map((result) => result.credential)).toEqual([
+        aOwner,
+        aOwner,
+      ]);
+      expect(handshakes.filter((owner) => owner === aOwner)).toHaveLength(2);
+      if (scenario === 'restart') {
+        expect((await b.callTool({ name: tool })).isError).toBe(true);
+        expect(parseIdentity(await b.callTool({ name: tool })).credential).toBe(bOwner);
+        expect(handshakes.filter((owner) => owner === bOwner)).toHaveLength(2);
+      } else {
+        expect(parseIdentity(await b.callTool({ name: tool })).credential).toBe(bOwner);
+        expect(handshakes.filter((owner) => owner === bOwner)).toHaveLength(1);
+      }
+      expect(
+        await Promise.all(
+          [alice, bob].map((username) => getCredentialBindingDao().get(name, username)),
+        ),
+      ).toEqual(savedBindings);
+    } finally {
+      jest.mocked(createOAuthProvider).mockReset();
+      await getCredentialBindingDao().delete({ serverName: name });
+      await getServerDao().delete(name);
+      for (const { transport, upstream } of resources) {
+        await transport.close();
+        await upstream.close();
+      }
+    }
+  },
+);
+
 test('HTTP handshake failures survive acquisition wrappers without credential blame or secret logs', async () => {
   app.post('/unavailable-upstream', (_req, res) =>
     res.status(503).send('Temporary upstream outage; opaque-http-sentinel'),
@@ -1337,3 +1853,333 @@ test('on-demand personal snapshots restore isolated tools without spawning and r
     await removeServer(name);
   }
 });
+
+
+test('user-group membership grants server and group use, and removal revokes an existing user-key session', async () => {
+  const userDao = getUserDao();
+  const serverDao = getServerDao();
+  const original = await serverDao.findById('shared');
+  const originalUser = await userDao.findByUsername(alice);
+  const group = await getGroupDao().create({
+    name: 'user-membership-team',
+    owner: 'admin',
+    visibility: 'group',
+    sharedWithUserGroups: ['readers'],
+    servers: ['shared'],
+  });
+  const newClients: Client[] = [];
+  try {
+    await userDao.update(alice, { userGroups: ['readers'] });
+    await serverDao.update('shared', {
+      visibility: 'group',
+      sharedWithUsers: [],
+      sharedWithUserGroups: ['readers'],
+    });
+    updateServerInfoVisibility('shared', 'group', [], ['readers']);
+    await bind(alice, 'group-member-credential');
+    const client = await connect(alice, group.name);
+    newClients.push(client);
+    const toolName = (await client.listTools()).tools[0].name;
+    expect(parseIdentity(await client.callTool({ name: toolName })).credential).toBe(
+      'group-member-credential',
+    );
+    const direct = await connect(alice, 'shared');
+    newClients.push(direct);
+    expect((await direct.listTools()).tools).toHaveLength(1);
+    await userDao.update(alice, { userGroups: [] });
+    await expect(client.listTools()).rejects.toThrow(/Group access denied/);
+    await expect(client.callTool({ name: toolName })).rejects.toThrow(/Group access denied/);
+    expect((await direct.listTools()).tools).toHaveLength(0);
+    const denied = await direct.callTool({ name: toolName });
+    expect(denied.isError).toBe(true);
+  } finally {
+    await userDao.update(alice, { userGroups: ['readers'] });
+    for (const client of newClients) {
+      await client.close();
+      clients.splice(clients.indexOf(client), 1);
+    }
+    await userDao.update(alice, { userGroups: originalUser?.userGroups ?? [] });
+    await serverDao.update('shared', {
+      visibility: original!.visibility,
+      sharedWithUsers: original!.sharedWithUsers,
+      sharedWithUserGroups: original!.sharedWithUserGroups,
+    });
+    updateServerInfoVisibility(
+      'shared',
+      original!.visibility,
+      original!.sharedWithUsers,
+      original!.sharedWithUserGroups,
+    );
+    await getGroupDao().delete(group.id);
+  }
+});
+
+test('credential copy API scopes both endpoints to one authorized target user', async () => {
+  const source = (await getServerDao().findById('shared'))!;
+  await getServerDao().create({
+    ...source,
+    name: 'copy-target',
+    owner: 'admin',
+    visibility: 'public',
+  });
+  await getServerDao().create({
+    ...source,
+    name: 'copy-private',
+    owner: 'admin',
+    visibility: 'private',
+  });
+  await bind(alice, 'alice-copy-sentinel');
+  await bind(bob, 'bob-copy-sentinel');
+  const copy = (target: string, body: unknown, username = alice) =>
+    request(app)
+      .post(`/api/credentials/${target}/copy`)
+      .set('x-auth-token', apiToken(username))
+      .send(body);
+  expect((await copy('copy-target', { sourceServer: 'shared', username: bob })).status).toBe(200);
+  const { resolveCredentialBinding } = await import(
+    '../../src/services/credentialBindingService.js'
+  );
+  expect(
+    (await resolveCredentialBinding('copy-target', alice, source)).config.env?.PERSONAL_KEY,
+  ).toBe('alice-copy-sentinel');
+  expect(await getCredentialBindingDao().get('copy-target', bob)).toBeNull();
+  const client = await connect(alice);
+  const toolName = `shared${getNameSeparator()}identity`;
+  expect(parseIdentity(await client.callTool({ name: toolName })).credential).toBe('alice-copy-sentinel');
+  await request(app).put('/api/credentials/copy-target')
+    .set('x-auth-token', apiToken(alice))
+    .send({ values: { 'env.PERSONAL_KEY': 'copied-runtime-sentinel' } });
+  expect((await copy('shared', { sourceServer: 'copy-target', overwrite: true })).status).toBe(200);
+  expect(parseIdentity(await client.callTool({ name: toolName })).credential).toBe('copied-runtime-sentinel');
+
+  expect((await copy('copy-target', { sourceServer: 'shared' })).status).toBe(400);
+  expect((await copy('copy-target', { sourceServer: 'shared', overwrite: 'true' })).status).toBe(
+    400,
+  );
+  expect(
+    (await copy('copy-target', { sourceServer: 'copy-private', overwrite: true })).status,
+  ).toBe(404);
+  expect((await copy('copy-private', { sourceServer: 'shared' })).status).toBe(404);
+  expect(
+    (await request(app).post('/api/credentials/copy-target/copy').send({ sourceServer: 'shared' }))
+      .status,
+  ).toBe(401);
+  const managed = (actor: string) =>
+    request(app)
+      .post(`/api/users/${encodeURIComponent(bob)}/credentials/copy-target/copy`)
+      .set('x-auth-token', apiToken(actor))
+      .send({ sourceServer: 'shared' });
+  expect((await managed(alice)).status).toBe(403);
+  const response = await managed('admin');
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual({ success: true });
+  expect(
+    (await resolveCredentialBinding('copy-target', bob, source)).config.env?.PERSONAL_KEY,
+  ).toBe('bob-copy-sentinel');
+  await getCredentialBindingDao().delete({ serverName: 'copy-target' });
+  await getServerDao().delete('copy-target');
+  await getServerDao().delete('copy-private');
+});
+
+test('consumer OAuth reports missing personal authorization and recovers after separate consent (#1468)', async () => {
+  const { getOAuthClientDao } = await import('../../src/dao/DaoFactory.js');
+  const { initOAuthServer, generateCodeChallenge } = await import(
+    '../../src/services/oauthServerService.js'
+  );
+  const { postAuthorize, postToken } = await import(
+    '../../src/controllers/oauthServerController.js'
+  );
+  const { managePersonalOAuth } = await import('../../src/controllers/personalOAuthController.js');
+  const { handleOAuthCallback } = await import('../../src/controllers/oauthCallbackController.js');
+  const { PersonalOAuthContext, disconnectPersonalOAuth } = await import(
+    '../../src/services/personalOAuthService.js'
+  );
+  const { createHash } = await import('node:crypto');
+  jest
+    .mocked(createOAuthProvider)
+    .mockImplementation(
+      jest.requireActual('../../src/services/mcpOAuthProvider.js').createOAuthProvider,
+    );
+  await getSystemConfigDao().update({
+    oauthServer: { enabled: true, requireClientSecret: false, allowedScopes: ['read', 'write'] },
+  });
+  await initOAuthServer();
+  app.use(express.urlencoded({ extended: false }));
+  app.post('/oauth/authorize', mcpConnectionRateLimiter, postAuthorize);
+  app.post('/oauth/token', mcpConnectionRateLimiter, postToken);
+  app.post('/api/servers/:name/oauth/personal', authenticatedRouteRateLimiter, managePersonalOAuth);
+  app.get('/oauth/callback', mcpConnectionRateLimiter, handleOAuthCallback);
+  let upstreamRequests = 0;
+  let upstreamExchanges = 0;
+  let challenge: string | null = null;
+  app.get('/.well-known/oauth-protected-resource/repro-upstream', (_req, res) =>
+    res.json({
+      resource: `${baseUrl}/repro-upstream`,
+      authorization_servers: [`${baseUrl}/repro-oauth`],
+      scopes_supported: ['mcp'],
+    }),
+  );
+  app.get('/.well-known/oauth-authorization-server/repro-oauth', (_req, res) =>
+    res.json({
+      issuer: `${baseUrl}/repro-oauth`,
+      authorization_endpoint: `${baseUrl}/repro-authorize`,
+      token_endpoint: `${baseUrl}/repro-token`,
+      scopes_supported: ['mcp'],
+      response_types_supported: ['code'],
+      grant_types_supported: ['authorization_code', 'refresh_token'],
+      code_challenge_methods_supported: ['S256'],
+      token_endpoint_auth_methods_supported: ['none'],
+    }),
+  );
+  app.get('/repro-authorize', (req, res) => {
+    challenge = String(req.query.code_challenge);
+    const upstreamState = String(req.query.state);
+    const callback = new URL(String(req.query.redirect_uri));
+    callback.searchParams.set('state', upstreamState);
+    callback.searchParams.set('code', 'local-consent-code');
+    res.redirect(callback.toString());
+  });
+  app.post('/repro-token', (req, res) => {
+    upstreamExchanges++;
+    expect(req.body.code).toBe('local-consent-code');
+    expect(createHash('sha256').update(req.body.code_verifier).digest('base64url')).toBe(challenge);
+    res.json({ access_token: 'repro-upstream-token', token_type: 'Bearer', scope: 'mcp' });
+  });
+  app.post('/repro-upstream', async (req, res) => {
+    upstreamRequests++;
+    if (req.headers.authorization !== 'Bearer repro-upstream-token') {
+      res
+        .status(401)
+        .set(
+          'WWW-Authenticate',
+          `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource/repro-upstream"`,
+        )
+        .end();
+      return;
+    }
+    const upstream = new McpServer(
+      { name: 'local-microsoft-substitute', version: '1' },
+      { capabilities: { tools: {} } },
+    );
+    upstream.setRequestHandler('tools/list', async () => ({
+      tools: [{ name: 'identity', inputSchema: { type: 'object' } }],
+    }));
+    upstream.setRequestHandler('tools/call', async () => ({
+      content: [{ type: 'text', text: req.headers.authorization! }],
+    }));
+    const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    res.on('close', () => {
+      void transport.close();
+      void upstream.close();
+    });
+    await upstream.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  });
+  await getServerDao().create({
+    name: 'repro1468',
+    type: 'streamable-http',
+    owner: 'admin',
+    visibility: 'public',
+    url: `${baseUrl}/repro-upstream`,
+    oauth: {
+      identityMode: 'personal',
+      clientId: 'local-upstream-client',
+      scopes: ['mcp'],
+      redirectUri: `${baseUrl}/oauth/callback`,
+    },
+  });
+  await getGroupDao().create({
+    id: 'repro1468-group',
+    name: 'repro1468-group',
+    owner: 'admin',
+    visibility: 'public',
+    servers: ['repro1468'],
+  });
+  await getOAuthClientDao().create({
+    clientId: 'hermes-substitute',
+    name: 'Local consumer',
+    redirectUris: ['http://127.0.0.1:9876/callback'],
+    grants: ['authorization_code', 'refresh_token'],
+    scopes: ['read', 'write'],
+  });
+  await initializeClientsFromSettings(true);
+  const verifier = 'v'.repeat(64);
+  const authorized = await request(app)
+    .post('/oauth/authorize')
+    .send({
+      allow: 'true',
+      response_type: 'code',
+      client_id: 'hermes-substitute',
+      redirect_uri: 'http://127.0.0.1:9876/callback',
+      scope: 'read write',
+      state: 'consumer-state',
+      code_challenge: generateCodeChallenge(verifier),
+      code_challenge_method: 'S256',
+      resource: `${baseUrl}/mcp/repro1468-group`,
+      token: apiToken(alice),
+    });
+  expect(authorized.status).toBe(302);
+  const consumerCallback = new URL(authorized.headers.location);
+  expect(consumerCallback.searchParams.get('state')).toBe('consumer-state');
+  const exchange = await request(app)
+    .post('/oauth/token')
+    .type('form')
+    .send({
+      grant_type: 'authorization_code',
+      client_id: 'hermes-substitute',
+      redirect_uri: 'http://127.0.0.1:9876/callback',
+      code: consumerCallback.searchParams.get('code'),
+      code_verifier: verifier,
+    });
+  expect(exchange.status).toBe(200);
+  const client = new Client({ name: 'hermes-substitute', version: '1' });
+  clients.push(client);
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/repro1468-group`), {
+      requestInit: { headers: { Authorization: `Bearer ${exchange.body.access_token}` } },
+    }),
+  );
+  expect(client.getServerVersion()).toBeDefined();
+  const authorizationError = {
+    code: -32000,
+    message: expect.stringContaining('Connect in Dashboard → Servers'),
+    data: { code: 'PERSONAL_AUTHORIZATION_REQUIRED', servers: ['repro1468'] },
+  };
+  await expect(client.listTools()).rejects.toMatchObject(authorizationError);
+  expect(upstreamRequests).toBe(0);
+  expect(await getCredentialBindingDao().get('repro1468', alice)).toBeNull();
+  await bind(alice, 'alice-mixed-group');
+  await getGroupDao().update('repro1468-group', { servers: ['repro1468', 'shared'] });
+  expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+  await getGroupDao().update('repro1468-group', { servers: ['repro1468'] });
+  const start = await request(app)
+    .post('/api/servers/repro1468/oauth/personal')
+    .set('x-auth-token', apiToken(alice))
+    .send({});
+  expect(start.status).toBe(200);
+  const consent = await fetch(start.body.data.authorizationUrl, { redirect: 'manual' });
+  expect(consent.status).toBe(302);
+  await consent.body?.cancel();
+  const callback = await fetch(consent.headers.get('location')!);
+  expect(callback.status).toBe(200);
+  await callback.text();
+  expect(upstreamExchanges).toBe(1);
+  const definition = (await getServerDao().findById('repro1468'))!;
+  expect(
+    (await PersonalOAuthContext.load('repro1468', alice, definition)).config.oauth.accessToken,
+  ).toBe('repro-upstream-token');
+  const after = await client.listTools();
+  expect(after.tools).toHaveLength(1);
+  const called = await client.callTool({ name: after.tools[0].name, arguments: {} });
+  expect(called.isError).not.toBe(true);
+  expect(JSON.stringify(called)).toContain('Bearer repro-upstream-token');
+  await getServerDao().updateTools('repro1468', { identity: { enabled: false } });
+  expect((await client.listTools()).tools).toEqual([]);
+  await getServerDao().updateTools('repro1468', {});
+  const otherUser = await connect(bob, 'repro1468-group');
+  await expect(otherUser.listTools()).rejects.toMatchObject(authorizationError);
+  await disconnectPersonalOAuth('repro1468', alice);
+  await expect(client.listTools()).rejects.toMatchObject(authorizationError);
+  const direct = await connect(alice, 'repro1468');
+  await expect(direct.listTools()).rejects.toMatchObject(authorizationError);
+}, 30000);

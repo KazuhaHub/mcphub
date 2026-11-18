@@ -29,6 +29,7 @@
               "features/per-user-credentials",
               "features/group-management",
               "features/smart-routing",
+              "features/file-staging",
               "features/mcp-apps",
               "features/oauth",
               "features/authentication",
@@ -42,8 +43,10 @@
               "configuration/mcp-settings",
               "configuration/environment-variables",
               "configuration/docker-setup",
+              "configuration/credential-key-upgrade",
               "configuration/nginx",
-              "configuration/database-configuration"
+              "configuration/database-configuration",
+              "configuration/replicas"
             ]
           },
           {
@@ -76,6 +79,7 @@
               "zh/features/per-user-credentials",
               "zh/features/group-management",
               "zh/features/smart-routing",
+              "zh/features/file-staging",
               "zh/features/mcp-apps",
               "zh/features/oauth",
               "zh/features/authentication",
@@ -89,8 +93,10 @@
               "zh/configuration/mcp-settings",
               "zh/configuration/environment-variables",
               "zh/configuration/docker-setup",
+              "zh/configuration/credential-key-upgrade",
               "zh/configuration/nginx",
-              "zh/configuration/database-configuration"
+              "zh/configuration/database-configuration",
+              "zh/configuration/replicas"
             ]
           }
         ]

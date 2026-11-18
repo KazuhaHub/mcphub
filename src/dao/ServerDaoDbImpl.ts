@@ -103,6 +103,7 @@ export class ServerDaoDbImpl implements ServerDao {
       enabled: entity.enabled !== undefined ? entity.enabled : true,
       owner: entity.owner,
       visibility: entity.visibility ?? 'private',
+      sharedWithUserGroups: entity.sharedWithUserGroups,
       sharedWithUsers: entity.sharedWithUsers,
       pausedUsers: entity.pausedUsers,
       maintenance: entity.maintenance,
@@ -114,6 +115,7 @@ export class ServerDaoDbImpl implements ServerDao {
       keepAliveInterval: entity.keepAliveInterval,
       protocolNegotiation: entity.protocolNegotiation,
       tools: entity.tools,
+      staging: entity.staging,
       prompts: entity.prompts,
       resources: entity.resources,
       options,
@@ -170,12 +172,14 @@ export class ServerDaoDbImpl implements ServerDao {
     assignNullable('toolRiskOverrides');
     assignNullable('defaultUserRisk');
     assignNullable('credentialWriteClients');
+    assignNullable('sharedWithUserGroups');
     if (hasOwn('enableKeepAlive')) {
       updateData.enableKeepAlive = entity.enableKeepAlive ?? false;
     }
     assignNullable('keepAliveInterval');
     assignNullable('protocolNegotiation');
     assignNullable('tools');
+    assignNullable('staging');
     assignNullable('prompts');
     assignNullable('resources');
     assignNullable('oauth');
@@ -267,7 +271,7 @@ export class ServerDaoDbImpl implements ServerDao {
 
   async updateTools(
     name: string,
-    tools: Record<string, { enabled: boolean; description?: string; hiddenParams?: string[] }>,
+    tools: NonNullable<ServerConfig['tools']>,
   ): Promise<boolean> {
     const result = await this.update(name, { tools });
     return result !== null;
@@ -299,6 +303,7 @@ export class ServerDaoDbImpl implements ServerDao {
   }
 
   private mapToServerConfig(server: {
+    id?: string;
     name: string;
     type?: string;
     description?: string;
@@ -311,6 +316,7 @@ export class ServerDaoDbImpl implements ServerDao {
     enabled: boolean;
     owner?: string;
     visibility?: 'private' | 'group' | 'public';
+    sharedWithUserGroups?: string[];
     sharedWithUsers?: string[];
     pausedUsers?: string[];
     maintenance?: ServerConfig['maintenance'];
@@ -320,7 +326,8 @@ export class ServerDaoDbImpl implements ServerDao {
     credentialWriteClients?: string[];
     enableKeepAlive?: boolean;
     keepAliveInterval?: number;
-    tools?: Record<string, { enabled: boolean; description?: string; hiddenParams?: string[] }>;
+    tools?: ServerConfig['tools'];
+    staging?: ServerConfig['staging'];
     prompts?: Record<string, { enabled: boolean; description?: string }>;
     resources?: Record<string, { enabled: boolean; description?: string }>;
     options?: Record<string, any>;
@@ -343,6 +350,7 @@ export class ServerDaoDbImpl implements ServerDao {
     );
 
     return {
+      id: server.id,
       name: server.name,
       type: server.type as 'stdio' | 'sse' | 'streamable-http' | 'openapi' | undefined,
       description: server.description,
@@ -355,6 +363,7 @@ export class ServerDaoDbImpl implements ServerDao {
       enabled: server.enabled,
       owner: server.owner,
       visibility: server.visibility ?? 'private',
+      sharedWithUserGroups: server.sharedWithUserGroups,
       sharedWithUsers: server.sharedWithUsers,
       // Unset columns read back as null.
       pausedUsers: server.pausedUsers ?? undefined,
@@ -367,6 +376,7 @@ export class ServerDaoDbImpl implements ServerDao {
       keepAliveInterval: server.keepAliveInterval,
       protocolNegotiation: server.protocolNegotiation ?? undefined,
       tools: server.tools,
+      staging: server.staging,
       prompts: server.prompts,
       resources: server.resources,
       options,

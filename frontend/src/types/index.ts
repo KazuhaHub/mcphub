@@ -121,6 +121,7 @@ export interface Tool {
   defaultDescription?: string;
   hasDescriptionOverride?: boolean;
   hiddenParams?: string[];
+  fileStaging?: { enabled: boolean; inputParams?: string[]; outputParams?: string[] };
   inputSchema: ToolInputSchema;
   annotations?: Record<string, unknown>;
   _meta?: Record<string, unknown>;
@@ -209,6 +210,7 @@ export interface MyCredentialBinding {
   credentialTemplate: CredentialSlot[];
   configured: boolean;
   configuredSlots: string[];
+  valuePreviews?: Record<string, string>;
   updatedAt: string | null;
   // The service's connection settings changed after these were entered; they are not used.
   stale?: boolean;
@@ -221,6 +223,7 @@ export interface ServerMaintenance {
 
 // Server config types
 export interface ServerConfig {
+  id?: string;
   credentialTemplate?: CredentialSlot[];
   type?: 'stdio' | 'sse' | 'streamable-http' | 'openapi';
   description?: string;
@@ -234,6 +237,7 @@ export interface ServerConfig {
   enabled?: boolean;
   // Per-server visibility for non-admin users.
   visibility?: 'private' | 'group' | 'public';
+  sharedWithUserGroups?: string[];
   sharedWithUsers?: string[];
   // Admin runtime state, effective only under Workspace Mode. `null` clears on save.
   pausedUsers?: string[];
@@ -252,7 +256,8 @@ export interface ServerConfig {
   // and shut it down automatically after a period of inactivity (stdio only).
   startOnDemand?: boolean;
   idleTimeoutMs?: number; // Milliseconds of inactivity before shutting down (default: 300_000)
-  tools?: Record<string, { enabled: boolean; description?: string }>; // Tool-specific configurations with enable/disable state and custom descriptions
+  tools?: Record<string, { enabled: boolean; description?: string; hiddenParams?: string[]; fileStaging?: { enabled: boolean; inputParams?: string[]; outputParams?: string[] } }>; // Tool-specific configurations with enable/disable state and custom descriptions
+  staging?: { shared?: boolean; adapter?: 'ssh' }; // File staging trust (#1056)
   prompts?: Record<string, { enabled: boolean; description?: string }>; // Prompt-specific configurations with enable/disable state and custom descriptions
   resources?: Record<string, { enabled: boolean; description?: string }>; // Resource-specific configurations with enable/disable state and custom descriptions
   options?: {
@@ -295,6 +300,7 @@ export interface ServerConfig {
       initialAccessToken?: string;
     };
     resource?: string; // OAuth resource parameter (RFC8707)
+    authorizationRelay?: { allowedRedirectOrigins: string[] };
     authorizationServerMetadata?: {
       issuer: string;
       authorization_endpoint: string;
@@ -410,6 +416,7 @@ export interface IGroupServerConfig {
 export interface Group {
   owner?: string;
   visibility?: 'private' | 'group' | 'public';
+  sharedWithUserGroups?: string[];
   sharedWithUsers?: string[];
   id: string;
   name: string;
@@ -441,6 +448,7 @@ export interface ServerFormData {
   passthroughHeaders?: string;
   // Visibility for non-admin users.
   visibility?: 'private' | 'group' | 'public';
+  sharedWithUserGroups?: string[];
   sharedWithUsers?: string[];
   // Admins only; left undefined for everyone else so a save leaves the stored values alone.
   pausedUsers?: string[];
@@ -457,6 +465,11 @@ export interface ServerFormData {
   // Proxychains4 proxy configuration for STDIO servers (Linux/macOS only).
   // Round-tripped from the stored config so an edit does not drop it.
   proxy?: ProxychainsConfig;
+  // Per-tool file staging and the server staging declaration (#1056).
+  // Round-tripped from the stored config: the form has no editors for them
+  // yet, but saving any other field must not silently disable staging.
+  tools?: ServerConfig['tools'];
+  staging?: ServerConfig['staging'];
   keepAlive?: {
     enabled?: boolean;
     interval?: number;
@@ -476,6 +489,7 @@ export interface ServerFormData {
     accessTokenExpiresAt?: number;
     accessToken?: string;
     refreshToken?: string;
+    authorizationRelay?: { allowedRedirectOrigins: string[] };
     authorizationServerMetadata?: NonNullable<ServerConfig['oauth']>['authorizationServerMetadata'];
     authorizationEndpoint?: string;
     tokenEndpoint?: string;
@@ -537,6 +551,7 @@ export interface ServerFormData {
 // Group form data types
 export interface GroupFormData {
   visibility?: Group['visibility'];
+  sharedWithUserGroups?: string[];
   sharedWithUsers?: string[];
   name: string;
   description: string;
@@ -553,7 +568,7 @@ export interface ApiResponse<T = any> {
 }
 
 // Bearer authentication key configuration (frontend view model)
-export type BearerKeyAccessType = 'all' | 'groups' | 'servers' | 'custom';
+export type BearerKeyAccessType = 'all' | 'groups' | 'servers' | 'custom' | 'exclude';
 export type BearerKeyKind = 'system' | 'user';
 
 export interface BearerKey {
@@ -567,6 +582,8 @@ export interface BearerKey {
   accessType: BearerKeyAccessType;
   allowedGroups?: string[];
   allowedServers?: string[];
+  excludedGroups?: string[];
+  excludedServers?: string[];
 }
 
 // Auth types
@@ -578,6 +595,7 @@ export interface IUser {
 
 // User management types
 export interface User {
+  userGroups?: string[];
   username: string;
   isAdmin: boolean;
   email?: string;
@@ -591,6 +609,7 @@ export interface UserFormData {
 }
 
 export interface UserUpdateData {
+  userGroups?: string[];
   isAdmin?: boolean;
   newPassword?: string;
   email?: string;
@@ -881,6 +900,7 @@ export interface TemplateServerConfig {
       initialAccessToken?: string;
     };
     resource?: string;
+    authorizationRelay?: { allowedRedirectOrigins: string[] };
     authorizationServerMetadata?: NonNullable<ServerConfig['oauth']>['authorizationServerMetadata'];
     authorizationEndpoint?: string;
     tokenEndpoint?: string;
@@ -1091,4 +1111,24 @@ export interface WorkspaceClient {
   lastUsedAt: string | null;
   expiresAt?: string;
   idle: boolean;
+}
+
+export interface Passkey {
+  id: string;
+  name: string;
+  rpId: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  deviceType: 'singleDevice' | 'multiDevice';
+  backedUp: boolean;
+}
+
+export interface OAuthApproval {
+  id: string;
+  clientId: string;
+  scopes: string[];
+  redirectUri: string;
+  resource?: string;
+  approvedAt: string;
+  expiresAt: string;
 }

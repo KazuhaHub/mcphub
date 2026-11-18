@@ -4,20 +4,72 @@ import {
   createSelfIssuerFetch,
   resolveSelfResource,
 } from './selfOAuthResource.js';
-import { projectGroupToolName, assertValidGroupToolNames } from '../utils/groupToolNames.js';
+import {
+  createToolHandlers,
+  findToolOnServer,
+  getActivityInputFromToolRequest,
+  getActivityToolNameFromRequest,
+  STATUS_META_KEY,
+  stripToolServerPrefix,
+  type ToolCallOutcome,
+} from './mcpTools.js';
+import { createPromptHandlers, normalizePromptForList } from './mcpPrompts.js';
+import {
+  getExposedServerName,
+  getGroupLookupName,
+  normalizeToolNameForServer,
+  resolveNameFromGroup,
+} from '../utils/mcpRouteNames.js';
+import { ToolUnavailableError } from '../utils/toolUnavailableError.js';
+export { ToolUnavailableError } from '../utils/toolUnavailableError.js';
+export { ToolRiskNotEnabledError } from './mcpTools.js';
+export {
+  summarizeArgumentsForLogging,
+  summarizeToolResultForLogging,
+} from '../utils/mcpRequestLogging.js';
+import { compatibleToolNames } from '../utils/compatibleToolNames.js';
+import { getToolPolicy } from './toolPolicyService.js';
+import { DEFAULT_INSTALL_BASE_URL, resolveInstallBaseUrl } from '../utils/installBaseUrl.js';
+import { isLegacyServerId, legacyServerId } from '../utils/serverIdentity.js';
+import {
+  hasStagedTools,
+  resolveStagingCwd,
+  serverVersionMatchesPinnedProfile,
+  validateResolvedSshArgs,
+  validateSshServerConfig,
+} from './fileStaging/adapter.js';
+import {
+  dispatchStagedToolCall as dispatchStagingCall,
+  resolveStagingServerId,
+} from './fileStaging/dispatch.js';
+import { resolveStagingPrincipal } from './fileStaging/identity.js';
+import {
+  getFileStagingSettings,
+  getStagingStateStore,
+  isStagingRuntimeSupported,
+} from './fileStaging/settings.js';
+import { StagingError } from './fileStaging/types.js';
+import {
+  STAGING_TOOL_DEFINITIONS,
+  executeStagingTool,
+  isReservedStagingName,
+  isStagingToolName,
+} from './fileStaging/tools.js';
+import { isDeepStrictEqual } from 'node:util';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { isReplicaMode } from '../utils/replicaMode.js';
+import { withKeyedLock, withReplicaLock } from './replicaLock.js';
+import type { ToolPolicyAudit } from '../types/index.js';
 import { isSafePassthroughHeader } from '../utils/passthroughHeaders.js';
-import { observeToolCall, setMetricsServer } from './metricsService.js';
+import { observeToolCall } from './metricsService.js';
 import {
   hasPersonalOAuth,
   PersonalOAuthContext,
   personalOAuthContexts,
   personalAuthorizationRequired,
+  PersonalAuthorizationRequiredError,
 } from './personalOAuthService.js';
-import {
-  preserveListFreshness,
-  combineListFreshness,
-  remainingListTtl,
-} from '../utils/listFreshness.js';
+import { preserveListFreshness, remainingListTtl } from '../utils/listFreshness.js';
 import { expandServerConfig, getServerEnvironment } from './serverConfigEnvironment.js';
 import { getMcpRequestGroup } from '../utils/mcpRequestGroup.js';
 import { revalidateUpstreamList, type UpstreamList } from './upstreamListRefresh.js';
@@ -29,15 +81,20 @@ import {
   withElicitation,
 } from './elicitationService.js';
 import { LEGACY_PROTOCOL_VERSIONS, resolveUpstreamProtocolMode } from '../utils/mcpProtocol.js';
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash } from 'node:crypto';
+import {
+  createRequestServerProjection,
+  getRequestServers,
+  withRequestServers,
+} from './mcpRequestScope.js';
+import { createHash, randomUUID } from 'node:crypto';
 import { canAccessGroupRoute } from '../utils/groupAccess.js';
 import { canServeToolRequests } from '../utils/serverAvailability.js';
-import {
-  assertToolCallArgumentsSafe,
-  isToolCallGuardEnabled,
-  ToolCallBlockedError,
-} from '../middlewares/toolCallGuard.js';
+import { createResourceHandlers, normalizeResourceForList } from './mcpResources.js';
+import type {
+  FilteredGroupServersResult,
+  IsolatedClientContext,
+  McpAppsRouteContext,
+} from '../types/mcpRouting.js';
 import {
   applyHiddenParams,
   findToolConfig,
@@ -87,7 +144,6 @@ import {
 import {
   ENABLE_RISK_ACTION,
   RISK_NOT_ENABLED_CODE,
-  buildRiskNotEnabledMessage,
   buildUserServerStatus,
   getUserServerStatus,
   isAdminBlockedForUser,
@@ -110,8 +166,18 @@ import {
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import treeKill from 'tree-kill';
-import { isProcessTreeKillAvailable } from '../utils/processTree.js';
+import { captureStdioTreeSafely, killStdioProcessTree } from './mcpStdioLifecycle.js';
+import {
+  assertNotPersonalRuntime,
+  closeServerRuntime,
+  createOnDemandLifecycle,
+  isStdioServer,
+} from './mcpConnectionLifecycle.js';
+export {
+  STDIO_TERMINATION_DRAIN_BUDGET_MS,
+  drainStdioTerminations,
+  resetStdioTerminationsForTest,
+} from './mcpStdioLifecycle.js';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import {
   type Client,
@@ -119,7 +185,7 @@ import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
 } from '../clients/mcpSdkClient.js';
-import { Server, ServerCapabilities } from '@modelcontextprotocol/server';
+import { ProtocolError, Server, ServerCapabilities } from '@modelcontextprotocol/server';
 import type {
   Prompt as McpPrompt,
   Resource as McpResource,
@@ -142,7 +208,10 @@ import {
   ProxychainsConfig,
   IGroup,
   IGroupServerConfig,
+  IUser,
   ToolRiskLevel,
+  UpstreamResourceTemplate,
+  ToolFileStagingConfig,
 } from '../types/index.js';
 import { expandEnvVars, replaceEnvVars, getNameSeparator } from '../config/index.js';
 import config from '../config/index.js';
@@ -166,29 +235,16 @@ import {
   getSystemConfigDao,
   getBuiltinPromptDao,
   getBuiltinResourceDao,
+  getCredentialBindingDao,
   ServerConfigWithName,
 } from '../dao/index.js';
 import { initializeAllOAuthClients } from './oauthService.js';
-import { createOAuthProvider } from './mcpOAuthProvider.js';
-import {
-  initSmartRoutingService,
-  getSmartRoutingTools,
-  handleSearchToolsRequest,
-  handleDescribeToolRequest,
-  isSmartRoutingGroup,
-} from './smartRoutingService.js';
+import { createOAuthProvider, MCPHubOAuthProvider } from './mcpOAuthProvider.js';
+import { initSmartRoutingService, isSmartRoutingGroup } from './smartRoutingService.js';
 import { getActivityLoggingService } from './activityLoggingService.js';
-import { maybeCompressToolResult } from './toolResultCompressionService.js';
-import {
-  assertHostedToolAllowed,
-  filterHostedTools,
-  HostedCreditReservation,
-  reserveHostedToolCall,
-  settleHostedToolCall,
-} from './hostedAuthService.js';
+import { filterHostedTools } from './hostedAuthService.js';
 import {
   formatErrorForLogging,
-  sanitizeStringForLogging,
   summarizeErrorForLogging,
 } from '../utils/serialization.js';
 import { addStdioErrorContext, observeStdioStderr } from '../utils/stdioDiagnostics.js';
@@ -199,6 +255,7 @@ import {
   isAppOnlyTool,
   stripMcpAppsMetadata,
 } from '../utils/mcpApps.js';
+import { MCPHUB_INSTANCE_CAPABILITIES, isThisMcpHubInstance } from '../utils/mcpHubIdentity.js';
 import {
   supportsCacheRefresh,
   injectRefreshFlag,
@@ -544,14 +601,22 @@ export const deleteMcpServer = (sessionId: string): void => {
  * process tree (to avoid orphaned wrappers like `npx`) when applicable.
  */
 const closeIsolatedClient = (serverName: string, client: Client, transport: any): void => {
+  const candidateTransport = transport as { pid?: unknown };
+
+  // Before either close(). The SDK's client.close() closes its own transport,
+  // and for a stdio transport that is the SIGTERM to the child, so a wrapper
+  // such as `npx` that honours it can be gone before any later walk could find
+  // the descendants it leaves behind.
+  const { pid: stdioPid, captured } = captureStdioTreeSafely(
+    serverName,
+    () => candidateTransport.pid,
+  );
+
   try {
     client.close();
   } catch (e) {
     logger.warn(`[${serverName}] Error closing isolated client:`, e);
   }
-
-  const candidateTransport = transport as { pid?: unknown };
-  const stdioPid = typeof candidateTransport.pid === 'number' ? candidateTransport.pid : null;
 
   try {
     transport.close();
@@ -561,7 +626,7 @@ const closeIsolatedClient = (serverName: string, client: Client, transport: any)
 
   // For stdio transports, kill the whole process tree to avoid orphans
   if (stdioPid) {
-    killStdioProcessTree(serverName, stdioPid);
+    killStdioProcessTree(serverName, stdioPid, captured);
   }
 };
 
@@ -771,6 +836,7 @@ export const updateServerInfoVisibility = (
   serverName: string,
   visibility: ServerConfig['visibility'],
   sharedWithUsers?: string[],
+  sharedWithUserGroups?: string[],
 ): void => {
   const serverInfo = getServerByName(serverName);
   if (!serverInfo) {
@@ -779,12 +845,14 @@ export const updateServerInfoVisibility = (
 
   serverInfo.visibility = visibility;
   serverInfo.sharedWithUsers = sharedWithUsers;
+  serverInfo.sharedWithUserGroups = sharedWithUserGroups;
 
   if (serverInfo.config) {
     serverInfo.config = {
       ...serverInfo.config,
       visibility,
       sharedWithUsers,
+      sharedWithUserGroups,
     };
   }
 };
@@ -894,6 +962,7 @@ const buildToolWithDescriptionMetadata = (tool: Tool, toolConfig?: ToolConfig): 
     defaultDescription: upstreamDescription,
     hasDescriptionOverride: hasDescriptionOverride(toolConfig),
     ...(toolConfig?.hiddenParams?.length ? { hiddenParams: toolConfig.hiddenParams } : {}),
+    ...(toolConfig?.fileStaging ? { fileStaging: toolConfig.fileStaging } : {}),
     enabled: toolConfig?.enabled !== false,
   };
 };
@@ -1005,23 +1074,6 @@ export const syncCredentialServerToolEmbeddings = async (
   return enabledTools.length;
 };
 
-// Normalize prompt payload to satisfy MCP ListPrompts response schema
-const normalizePromptForList = (prompt: {
-  name: string;
-  title?: string;
-  description?: string;
-  arguments?: any[];
-  [key: string]: unknown;
-}) => {
-  return {
-    ...prompt,
-    name: prompt.name,
-    title: prompt.title || prompt.name,
-    description: prompt.description || '',
-    arguments: Array.isArray(prompt.arguments) ? prompt.arguments : [],
-  };
-};
-
 const normalizePromptForCache = (serverName: string, prompt: McpPrompt) => {
   return normalizePromptForList({
     ...prompt,
@@ -1029,25 +1081,23 @@ const normalizePromptForCache = (serverName: string, prompt: McpPrompt) => {
   });
 };
 
-// Normalize resource payload to avoid nullable DB fields violating MCP schema
-const normalizeResourceForList = (resource: {
-  uri: string;
-  name?: string | null;
-  description?: string | null;
-  mimeType?: string | null;
-  [key: string]: unknown;
-}): Resource => {
-  return {
-    ...resource,
-    uri: resource.uri,
-    name: resource.name || '',
-    description: resource.description || '',
-    mimeType: resource.mimeType || '',
-  };
-};
-
 const normalizeResourceForCache = (resource: McpResource): Resource => {
   return normalizeResourceForList(resource);
+};
+
+// Resource URIs are the identity of a resource within one upstream. A hub that
+// points back at itself can re-list the same URI several times while its list
+// notification is in flight; keeping only the first occurrence prevents that
+// echo from growing the cache even before instance-level self detection runs.
+const normalizeResourcesForCache = (resources: McpResource[]): Resource[] => {
+  const seen = new Set<string>();
+  return resources
+    .filter((resource) => {
+      if (seen.has(resource.uri)) return false;
+      seen.add(resource.uri);
+      return true;
+    })
+    .map(normalizeResourceForCache);
 };
 
 // Store all server information
@@ -1152,7 +1202,6 @@ const createConnectGate = (limit: number): ConnectGate => {
 // result anywhere. See the `liveServerInfo` helper in that function.
 let initGeneration = 0;
 
-const principalServerScope = new AsyncLocalStorage<ServerInfo[]>();
 // Header-dependent discovery must never publish descriptors or embeddings globally.
 const requestDiscoveryInfos = new WeakSet<ServerInfo>();
 
@@ -1164,7 +1213,15 @@ const workspaceSelectionScope = new AsyncLocalStorage<Set<string>>();
 const workspaceRiskScope = new AsyncLocalStorage<ReadonlyMap<string, ToolRiskLevel>>();
 
 const getVisibleServerInfos = (): ServerInfo[] => {
-  const visible = getDataService().filterData(principalServerScope.getStore() ?? serverInfos);
+  let visible = getDataService().filterData(getRequestServers(serverInfos));
+  // A system key with accessType 'exclude' hides its excluded servers (and the
+  // members of excluded groups, already expanded by the auth layer) from every
+  // listing, call resolution and smart-routing surface that reads this list.
+  const excludedServers = RequestContextService.getInstance().getBearerKeyExclusions();
+  if (excludedServers && excludedServers.length > 0) {
+    const excluded = new Set(excludedServers);
+    visible = visible.filter((serverInfo) => !excluded.has(serverInfo.name));
+  }
   // Pause and maintenance are access controls: under Workspace Mode they hide a server on
   // every route, whatever the user selected. Administrators bypass maintenance; a request
   // without a user does not.
@@ -1222,6 +1279,16 @@ const assessToolRisk = (
   return { level, outcome: 'allowed' };
 };
 
+// Assesses a tool resolved on a server, reading the shared entry's config: a per-user runtime
+// carries a resolved copy, the shared entry is authoritative.
+const assessServerToolRisk = (serverInfo: ServerInfo, tool: Tool) =>
+  assessToolRisk(
+    serverInfo.name,
+    getServerByName(serverInfo.name)?.config ?? serverInfo.config,
+    tool,
+    serverInfo.tools.map((candidate) => candidate.name),
+  );
+
 // Leaves out the tools the requester may not use because of their risk level. The tools passed
 // in can be stripped copies (search hits, stored embeddings), so annotations are read from the
 // server's live tool of the same name; a tool nothing is known about counts as `external`.
@@ -1242,6 +1309,19 @@ const filterToolsByRisk = async <T extends { name: string; annotations?: Record<
       );
     return assessToolRisk(serverName, config, known ?? tool, runtimeNames).outcome === 'allowed';
   });
+};
+
+// Whether a server lists a tool by this runtime name. A tool above the administrator's cap
+// does not exist as far as the requester can tell, for the audit entry of a refused call as
+// much as for the call itself.
+const listsToolForRequester = (serverInfo: ServerInfo, toolName: string): boolean => {
+  const runtimeNames = serverInfo.tools.map((tool) => tool.name);
+  const config = getServerByName(serverInfo.name)?.config ?? serverInfo.config;
+  return serverInfo.tools.some(
+    (tool) =>
+      tool.name === toolName &&
+      assessToolRisk(serverInfo.name, config, tool, runtimeNames).outcome !== 'above-admin-cap',
+  );
 };
 
 // Per-session upstream clients for isolated servers (perSessionClient: true).
@@ -1350,14 +1430,21 @@ export const connectClientWithDiagnostics = async (
 // Consumed once by createTransportFromConfig on the next reconnect.
 const pendingReinstalls = new Set<string>();
 
-// Grace period after sending SIGTERM to a stdio process tree before falling back
-// to SIGKILL. Long enough to let well-behaved servers shut down cleanly, short
-// enough that a hung child does not block the container indefinitely.
-const STDIO_KILL_GRACE_PERIOD_MS = 2000;
-
 // Test-only helper to set serverInfos directly. Not for production use.
 export const setServerInfosForTest = (infos: ServerInfo[]): void => {
   serverInfos = infos;
+};
+
+// Test-only helper to register a per-session isolated upstream client, so the
+// close path for those can be exercised. Not for production use.
+export const setIsolatedClientForTest = (
+  sessionId: string,
+  serverName: string,
+  entry: { client: Client; transport: unknown },
+): void => {
+  const existing = sessionIsolatedClients.get(sessionId) ?? new Map();
+  existing.set(serverName, entry as { client: Client; transport: any });
+  sessionIsolatedClients.set(sessionId, existing);
 };
 
 export const updateServerToolsCache = (
@@ -1385,7 +1472,38 @@ const updateServerPromptsCache = (serverInfo: ServerInfo, prompts: McpPrompt[]):
 };
 
 const updateServerResourcesCache = (serverInfo: ServerInfo, resources: McpResource[]): void => {
-  serverInfo.resources = preserveListFreshness(resources, resources.map(normalizeResourceForCache));
+  serverInfo.resources = preserveListFreshness(resources, normalizeResourcesForCache(resources));
+};
+
+const updateServerResourceTemplatesCache = (
+  serverInfo: ServerInfo,
+  resourceTemplates: UpstreamResourceTemplate[] | undefined,
+): void => {
+  serverInfo.resourceTemplates = Array.isArray(resourceTemplates) ? resourceTemplates : [];
+};
+
+// Best effort: many servers do not implement resources/templates/list.
+const refreshServerResourceTemplatesCache = async (
+  getTarget: () => ServerInfo | undefined,
+  client: Client,
+  options?: RequestOptions,
+  owner: Client = client,
+): Promise<UpstreamResourceTemplate[] | undefined> => {
+  try {
+    if (!client.getServerCapabilities?.()?.resources) return undefined;
+    const { resourceTemplates } = await client.listResourceTemplates({}, options || {});
+    const target = getTarget();
+    if (target && target.client === owner) {
+      updateServerResourceTemplatesCache(target, resourceTemplates);
+    }
+    return resourceTemplates;
+  } catch (error) {
+    logger.debug('Failed to list resource templates for server', {
+      serverName: getTarget()?.name,
+      error: summarizeErrorForLogging(error),
+    });
+    return undefined;
+  }
 };
 
 // Modern HTTP has no list-changed push stream. Refresh only the lists needed
@@ -1402,6 +1520,7 @@ const refreshModernServerLists = async (
     info.status !== 'connected'
   )
     return;
+  if (isHubSelfConnection(client)) return;
   const capabilities = client.getServerCapabilities();
   const current = () =>
     info.client === client && info.enabled !== false && info.status === 'connected';
@@ -1463,6 +1582,49 @@ const logListChangedRefreshError = (listType: 'tool' | 'prompt' | 'resource'): v
   logger.warn(`Failed to refresh ${listType} list after upstream notification`);
 };
 
+const hasNormalizedListChanged = <T extends object, U extends object>(
+  current: readonly U[],
+  next: readonly T[],
+  normalize: (item: T) => U,
+): boolean => !isDeepStrictEqual(current, next.map(normalize));
+
+// Resource cache writes deduplicate by URI before normalizing, so change
+// detection has to compare through the same pipeline. Comparing the cache
+// against a raw one-item-per-upstream-entry normalization makes a duplicate
+// list look different on every notification and rebroadcasts an unchanged list.
+const hasNormalizedResourceListChanged = (
+  current: readonly Resource[],
+  next: readonly McpResource[],
+): boolean => !isDeepStrictEqual(current, normalizeResourcesForCache([...next]));
+
+// A server that points back at this MCPHub instance is a client of our own
+// server descriptor. Product name/version is shared by every MCPHub process,
+// so it cannot distinguish a loop from a legitimate hub-to-hub upstream. The
+// per-process capability survives reverse proxies and Docker service names and
+// is unique for this exact instance.
+const isHubSelfConnection = (client: Client): boolean => {
+  return isThisMcpHubInstance(client.getServerCapabilities?.());
+};
+
+const warnedSelfConnectionChanges = new Set<string>();
+const ignoreSelfConnectionListChange = (
+  client: Client,
+  serverInfo: ServerInfo,
+  listType: 'tool' | 'prompt' | 'resource',
+): boolean => {
+  if (!isHubSelfConnection(client)) {
+    return false;
+  }
+  const key = `${serverInfo.name}:${listType}`;
+  if (!warnedSelfConnectionChanges.has(key)) {
+    warnedSelfConnectionChanges.add(key);
+    logger.warn(
+      `Ignoring ${listType} list change from self-connection '${serverInfo.name}' to prevent a recursive notification loop`,
+    );
+  }
+  return true;
+};
+
 const createUpstreamMcpClient = (
   name: string,
   getServerInfo: () => ServerInfo | undefined,
@@ -1494,6 +1656,16 @@ const createUpstreamMcpClient = (
             if (!serverInfo || !tools) {
               return;
             }
+            if (ignoreSelfConnectionListChange(client, serverInfo, 'tool')) {
+              return;
+            }
+            if (
+              !hasNormalizedListChanged(serverInfo.tools, tools, (tool) =>
+                normalizeToolForCache(serverInfo.name, tool),
+              )
+            ) {
+              return;
+            }
             updateServerToolsCache(serverInfo, tools);
             broadcastToolListChanged();
           },
@@ -1507,6 +1679,16 @@ const createUpstreamMcpClient = (
               return;
             }
             if (!serverInfo || !prompts) {
+              return;
+            }
+            if (ignoreSelfConnectionListChange(client, serverInfo, 'prompt')) {
+              return;
+            }
+            if (
+              !hasNormalizedListChanged(serverInfo.prompts, prompts, (prompt) =>
+                normalizePromptForCache(serverInfo.name, prompt),
+              )
+            ) {
               return;
             }
             updateServerPromptsCache(serverInfo, prompts);
@@ -1524,15 +1706,45 @@ const createUpstreamMcpClient = (
             if (!serverInfo || !resources) {
               return;
             }
-            updateServerResourcesCache(serverInfo, resources);
-            broadcastResourceListChanged();
+            if (ignoreSelfConnectionListChange(client, serverInfo, 'resource')) {
+              return;
+            }
+            const resourcesChanged = hasNormalizedResourceListChanged(
+              serverInfo.resources,
+              resources,
+            );
+            if (resourcesChanged) {
+              updateServerResourcesCache(serverInfo, resources);
+              broadcastResourceListChanged();
+            }
+            // Templates have no list-changed notification of their own, so a
+            // template-only change is surfaced through the resource list
+            // notification once the refreshed cache actually differs.
+            if (serverInfo.client) {
+              const previousTemplates = serverInfo.resourceTemplates;
+              void refreshServerResourceTemplatesCache(
+                getServerInfo,
+                serverInfo.client,
+                serverInfo.options,
+              ).then(() => {
+                const current = getServerInfo();
+                if (
+                  !resourcesChanged &&
+                  current &&
+                  current.client === serverInfo.client &&
+                  !isDeepStrictEqual(previousTemplates ?? [], current.resourceTemplates ?? [])
+                ) {
+                  broadcastResourceListChanged();
+                }
+              });
+            }
           },
         },
       },
     },
   );
   if (elicitation && downstream) installElicitationRelay(client, downstream);
-  return client;
+  return protectReplicaOAuthClient(client, name, serverConfig);
 };
 
 export interface ServerConnectionStats {
@@ -1659,72 +1871,6 @@ const getHeaderValue = (
   return undefined;
 };
 
-const LOG_SUMMARY_LIMIT = 8;
-
-const getValueTypeForLogging = (value: unknown): string => {
-  if (Array.isArray(value)) {
-    return `array(${value.length})`;
-  }
-  if (value === null) {
-    return 'null';
-  }
-  if (value && typeof value === 'object') {
-    return `object(${Object.keys(value as Record<string, unknown>).length} keys)`;
-  }
-  return typeof value;
-};
-
-const summarizeObjectShapeForLogging = (
-  value: Record<string, unknown>,
-): Record<string, unknown> => {
-  const entries = Object.entries(value);
-  return {
-    keyCount: entries.length,
-    keys: entries.slice(0, LOG_SUMMARY_LIMIT).map(([key]) => key),
-    valueTypes: Object.fromEntries(
-      entries
-        .slice(0, LOG_SUMMARY_LIMIT)
-        .map(([key, entryValue]) => [key, getValueTypeForLogging(entryValue)]),
-    ),
-    truncated: entries.length > LOG_SUMMARY_LIMIT || undefined,
-  };
-};
-
-export const summarizeArgumentsForLogging = (value: unknown): Record<string, unknown> => {
-  if (value === undefined) {
-    return { present: false };
-  }
-
-  if (Array.isArray(value)) {
-    return {
-      present: true,
-      type: 'array',
-      length: value.length,
-      itemTypes: Array.from(new Set(value.slice(0, LOG_SUMMARY_LIMIT).map(getValueTypeForLogging))),
-      truncated: value.length > LOG_SUMMARY_LIMIT || undefined,
-    };
-  }
-
-  if (value && typeof value === 'object') {
-    return {
-      present: true,
-      type: 'object',
-      ...summarizeObjectShapeForLogging(value as Record<string, unknown>),
-    };
-  }
-
-  return {
-    present: true,
-    type: getValueTypeForLogging(value),
-  };
-};
-
-const summarizeTextPayloadForLogging = (text: string): Record<string, unknown> => ({
-  textLength: text.length,
-  looksLikeJson: /^[[{]/.test(text.trim()) || undefined,
-  wasSanitized: sanitizeStringForLogging(text) !== text || undefined,
-});
-
 const getHttpErrorStatusCode = (error: unknown): number | undefined => {
   if (!error || typeof error !== 'object') {
     return undefined;
@@ -1760,113 +1906,6 @@ const isRecoverableHttp4xxError = (error: unknown): boolean => {
       : '';
 
   return /Error POSTing to endpoint \(HTTP 40[14]/.test(message);
-};
-
-const summarizeContentItemForLogging = (item: unknown): Record<string, unknown> => {
-  if (!item || typeof item !== 'object') {
-    return { type: getValueTypeForLogging(item) };
-  }
-
-  const record = item as Record<string, unknown>;
-  return {
-    type: typeof record.type === 'string' ? record.type : 'object',
-    keys: Object.keys(record).slice(0, LOG_SUMMARY_LIMIT),
-    text: typeof record.text === 'string' ? summarizeTextPayloadForLogging(record.text) : undefined,
-    truncated: Object.keys(record).length > LOG_SUMMARY_LIMIT || undefined,
-  };
-};
-
-export const summarizeToolResultForLogging = (value: unknown): Record<string, unknown> => {
-  if (!value || typeof value !== 'object') {
-    return { type: getValueTypeForLogging(value) };
-  }
-
-  const record = value as Record<string, unknown>;
-  const summary: Record<string, unknown> = {
-    type: 'object',
-    ...summarizeObjectShapeForLogging(record),
-  };
-
-  if (typeof record.isError === 'boolean') {
-    summary.isError = record.isError;
-  }
-
-  if (Array.isArray(record.content)) {
-    summary.contentCount = record.content.length;
-    summary.content = record.content
-      .slice(0, LOG_SUMMARY_LIMIT)
-      .map((item) => summarizeContentItemForLogging(item));
-    summary.contentTruncated = record.content.length > LOG_SUMMARY_LIMIT || undefined;
-  }
-
-  return summary;
-};
-
-const summarizeToolRequestForLogging = (params: any): Record<string, unknown> => ({
-  name: typeof params?.name === 'string' ? params.name : 'unknown',
-  arguments: summarizeArgumentsForLogging(params?.arguments),
-});
-
-const getActivityInputFromToolRequest = (request: any): unknown => {
-  if (request?.params?.name === 'call_tool') {
-    return request?.params?.arguments?.arguments;
-  }
-
-  return request?.params?.arguments;
-};
-
-const getActivityToolNameFromRequest = (request: any): string => {
-  if (request?.params?.name === 'call_tool') {
-    const nestedToolName = request?.params?.arguments?.toolName;
-    return typeof nestedToolName === 'string' ? nestedToolName : 'call_tool';
-  }
-
-  return typeof request?.params?.name === 'string' ? request.params.name : 'unknown';
-};
-
-const stripToolServerPrefix = (toolName: string, serverName?: string): string => {
-  if (!serverName) {
-    return toolName;
-  }
-
-  const separator = getNameSeparator();
-  const prefix = `${serverName}${separator}`;
-  return toolName.startsWith(prefix) ? toolName.substring(prefix.length) : toolName;
-};
-
-const summarizePromptForLogging = (prompt: unknown): Record<string, unknown> => {
-  if (!prompt || typeof prompt !== 'object') {
-    return { type: getValueTypeForLogging(prompt) };
-  }
-
-  const record = prompt as Record<string, unknown>;
-  const summary: Record<string, unknown> = {
-    type: 'object',
-    ...summarizeObjectShapeForLogging(record),
-  };
-
-  if (Array.isArray(record.messages)) {
-    const messages = record.messages as Array<Record<string, unknown>>;
-    summary.messageCount = messages.length;
-    summary.messages = messages.slice(0, LOG_SUMMARY_LIMIT).map((message) => ({
-      role: typeof message.role === 'string' ? message.role : undefined,
-      contentType:
-        message.content && typeof message.content === 'object'
-          ? (message.content as Record<string, unknown>).type
-          : getValueTypeForLogging(message.content),
-      text:
-        message.content &&
-        typeof message.content === 'object' &&
-        typeof (message.content as Record<string, unknown>).text === 'string'
-          ? summarizeTextPayloadForLogging(
-              String((message.content as Record<string, unknown>).text),
-            )
-          : undefined,
-    }));
-    summary.messagesTruncated = messages.length > LOG_SUMMARY_LIMIT || undefined;
-  }
-
-  return summary;
 };
 
 export const collectPassthroughHeaders = (
@@ -1950,7 +1989,19 @@ const stripAuthorizationHeader = (headers: Record<string, string>): Record<strin
   );
 };
 
-export const createTransportFromConfig = async (name: string, conf: ServerConfig): Promise<any> => {
+export const createTransportFromConfig = async (
+  name: string,
+  conf: ServerConfig,
+  principalUsername?: string,
+): Promise<any> => {
+  // Resolved before any transport branch, and only for a server that actually
+  // stages: an unresolvable staging root fails this server closed. Starting the
+  // child in the hub cwd instead would root an ssh/filesystem tool at /app,
+  // where mcp_settings.json and the ledger live — the exact escape the staging
+  // boundary exists to prevent.
+  const stagingCwd = hasStagedTools(conf)
+    ? await resolveStagingCwd(conf, principalUsername)
+    : undefined;
   let transport;
   const env = await getServerEnvironment(conf);
 
@@ -1966,7 +2017,7 @@ export const createTransportFromConfig = async (name: string, conf: ServerConfig
   const allowInternal = !!ownerUser?.isAdmin && !hasUrlCredentialSlots(conf);
 
   if (conf.url) {
-    await assertSafeUrl(conf.url, { allowInternal });
+    await assertSafeUrl(conf.url, { allowInternal, serverId: conf.id });
   }
 
   if (conf.type === 'streamable-http') {
@@ -1980,6 +2031,9 @@ export const createTransportFromConfig = async (name: string, conf: ServerConfig
     const requestAwareFetch = createRedirectValidatingFetch(
       createRequestContextAwareFetch(baseFetch, conf.passthroughHeaders),
       allowInternal,
+      undefined,
+      undefined,
+      conf.id,
     );
 
     // Create OAuth provider if configured - SDK will handle authentication automatically
@@ -2029,6 +2083,9 @@ export const createTransportFromConfig = async (name: string, conf: ServerConfig
     const requestAwareFetch = createRedirectValidatingFetch(
       createRequestContextAwareFetch(baseFetch, conf.passthroughHeaders),
       allowInternal,
+      undefined,
+      undefined,
+      conf.id,
     );
 
     // Create OAuth provider if configured - SDK will handle authentication automatically
@@ -2103,12 +2160,23 @@ export const createTransportFromConfig = async (name: string, conf: ServerConfig
       conf.proxy,
     );
 
+    // Substitute after expansion and proxy argument cleaning so secrets stay literal.
+    const resolvedStagingArgs = resolveCredentialArguments(conf, finalArgs);
+    if (hasStagedTools(conf)) {
+      // A credential-template args slot must not be able to inject an ssh CLI
+      // option (e.g. --allowed-local-paths=/); validate the argv the child will
+      // actually receive, not just the template.
+      const argsValidation = validateResolvedSshArgs(resolvedStagingArgs);
+      if (!argsValidation.ok) {
+        throw new Error(`File staging argument rejected: ${argsValidation.reason}`);
+      }
+    }
+
     // Create STDIO transport with potentially wrapped command
     transport = new StdioClientTransport({
-      cwd: process.cwd(),
+      cwd: stagingCwd ?? process.cwd(),
       command: finalCommand,
-      // Substitute after expansion and proxy argument cleaning so secrets stay literal.
-      args: resolveCredentialArguments(conf, finalArgs),
+      args: resolvedStagingArgs,
       env: env,
       stderr: 'pipe',
       maxBufferSize: validateMaxBufferSize(conf.options?.maxBufferSize),
@@ -2136,12 +2204,6 @@ export const createTransportFromConfig = async (name: string, conf: ServerConfig
   }
 
   return transport;
-};
-
-type IsolatedClientContext = {
-  sessionId: string;
-  client: Client;
-  transport: any;
 };
 
 // Call arguments without the tool's hidden parameters; `toolName` is the bare upstream name.
@@ -2189,16 +2251,7 @@ const refreshCapabilitiesAfterFailedCall = async (info: ServerInfo): Promise<voi
 };
 
 // Helper function to handle client.callTool with reconnection logic
-// Refuses to rebuild a connection from the shared stored definition when the server takes
-// personal credentials, whether the runtime at hand carries them or the definition declares them.
-const assertNotPersonalRuntime = (serverInfo: ServerInfo, stored?: ServerConfig): void => {
-  if (hasPersonalAuthentication(serverInfo.config) || hasPersonalAuthentication(stored))
-    throw new CredentialBindingError(
-      'A personal runtime cannot be rebuilt from the shared server configuration',
-    );
-};
-
-export const callToolWithReconnect = async (
+const callToolWithReconnectInner = async (
   serverInfo: ServerInfo,
   toolParams: any,
   options?: any,
@@ -2206,6 +2259,8 @@ export const callToolWithReconnect = async (
   isolated?: IsolatedClientContext,
   extra?: Pick<ServerContext, 'mcpReq'>,
 ): Promise<any> => {
+  // A lost response does not prove a side effect failed; replica failover never replays it.
+  if (isReplicaMode()) maxRetries = 0;
   // Local, reassignable refs so a reconnect can swap in the new connection for
   // the next retry attempt. For isolated calls these track the per-session
   // client/transport; otherwise they mirror the shared serverInfo connection.
@@ -2293,7 +2348,11 @@ export const callToolWithReconnect = async (
 
           // Match initial connection expansion before URL validation and transport creation.
           const server = await expandServerConfig(rawConfig);
-          const newTransport = await createTransportFromConfig(serverInfo.name, server);
+          const newTransport = await createTransportFromConfig(
+            serverInfo.name,
+            server,
+            serverInfo.principalUsername,
+          );
           const newClient = createUpstreamMcpClient(serverInfo.name, () => serverInfo, server);
 
           // Reconnect with new transport
@@ -2394,8 +2453,28 @@ export const callToolWithReconnect = async (
   }
 
   // This should not be reached, but just in case
-  throw new Error('Unexpected error in callToolWithReconnect');
+  throw new Error('Unexpected error in callToolWithReconnectInner');
 };
+
+/**
+ * Single staging seam: every MCP upstream call (direct, nested `call_tool`,
+ * and nested `describe_tool`) passes through here, so argument rewrite, output
+ * leases, and finalization have exactly one implementation.
+ */
+export const callToolWithReconnect = async (
+  serverInfo: ServerInfo,
+  toolParams: any,
+  options?: any,
+  maxRetries: number = 1,
+  isolated?: IsolatedClientContext,
+  extra?: Pick<ServerContext, 'mcpReq'>,
+): Promise<any> =>
+  dispatchStagingCall(
+    serverInfo,
+    toolParams,
+    (params) => callToolWithReconnectInner(serverInfo, params, options, maxRetries, isolated, extra),
+    stagingAskUsername(extra),
+  );
 
 const setupServerKeepAlive = (serverInfo: ServerInfo, serverConfig: ServerConfig): void => {
   const client = serverInfo.client;
@@ -2427,9 +2506,14 @@ const setupServerKeepAlive = (serverInfo: ServerInfo, serverConfig: ServerConfig
 export const initializeClientsFromSettings = async (
   isInit: boolean,
   serverName?: string,
-  options?: { reportEmbeddingProgress?: boolean },
+  options?: {
+    reportEmbeddingProgress?: boolean;
+    declarations?: ServerConfigWithName[];
+    preserveExisting?: boolean;
+  },
 ): Promise<ServerInfo[]> => {
-  const allServers: ServerConfigWithName[] = await getServerDao().findAll();
+  const allServers: ServerConfigWithName[] =
+    options?.declarations ?? (await getServerDao().findAll());
   const existingServerInfos = serverInfos;
   const nextServerInfos: ServerInfo[] = [];
   const generation = ++initGeneration;
@@ -2462,6 +2546,14 @@ export const initializeClientsFromSettings = async (
       // Expand environment variables in all configuration values
       const expandedConf = await expandServerConfig(conf);
 
+      if (options?.preserveExisting) {
+        const existing = existingServerInfos.find((info) => info.name === name);
+        if (existing) {
+          nextServerInfos.push(existing);
+          continue;
+        }
+      }
+
       // Skip disabled servers
       if (expandedConf.enabled === false) {
         logger.log(`Skipping disabled server: ${name}`);
@@ -2469,6 +2561,7 @@ export const initializeClientsFromSettings = async (
           name,
           owner: expandedConf.owner,
           visibility: expandedConf.visibility,
+          sharedWithUserGroups: expandedConf.sharedWithUserGroups,
           sharedWithUsers: expandedConf.sharedWithUsers,
           status: 'disconnected',
           error: null,
@@ -2487,6 +2580,7 @@ export const initializeClientsFromSettings = async (
           name,
           owner: expandedConf.owner,
           visibility: expandedConf.visibility,
+          sharedWithUserGroups: expandedConf.sharedWithUserGroups,
           sharedWithUsers: expandedConf.sharedWithUsers,
           enabled: true,
           status: 'disconnected',
@@ -2520,12 +2614,28 @@ export const initializeClientsFromSettings = async (
           resources: [],
           createTime: Date.now(),
         };
+        // A reconnect closes the client before rebuilding the entry. Carrying
+        // `status: 'connected'` (and the closed handle) into the new entry would
+        // make `ensureServerReady` return immediately and dispatch the next call
+        // to a dead client. A changed config always needs a fresh spawn, and a
+        // closed client is never "ready".
+        const needsRespawn =
+          configChanged || (onDemandInfo.status === 'connected' && !onDemandInfo.client);
         Object.assign(onDemandInfo, {
           owner: expandedConf.owner,
           visibility: expandedConf.visibility,
+          sharedWithUserGroups: expandedConf.sharedWithUserGroups,
           sharedWithUsers: expandedConf.sharedWithUsers,
           enabled: true,
           config: expandedConf,
+          ...(needsRespawn
+            ? {
+                status: 'disconnected' as const,
+                client: undefined,
+                transport: undefined,
+                keepAliveIntervalId: undefined,
+              }
+            : {}),
         });
         const cachedTools = await prepareCapabilitySnapshot(onDemandInfo, expandedConf);
         if (cachedTools !== undefined) {
@@ -2563,6 +2673,7 @@ export const initializeClientsFromSettings = async (
         Object.assign(existingServer, {
           owner: expandedConf.owner,
           visibility: expandedConf.visibility,
+          sharedWithUserGroups: expandedConf.sharedWithUserGroups,
           sharedWithUsers: expandedConf.sharedWithUsers,
           enabled: expandedConf.enabled === undefined ? true : expandedConf.enabled,
         });
@@ -2593,6 +2704,7 @@ export const initializeClientsFromSettings = async (
             name,
             owner: expandedConf.owner,
             visibility: expandedConf.visibility,
+            sharedWithUserGroups: expandedConf.sharedWithUserGroups,
             sharedWithUsers: expandedConf.sharedWithUsers,
             status: 'disconnected',
             error: 'Missing OpenAPI specification URL or schema',
@@ -2609,6 +2721,7 @@ export const initializeClientsFromSettings = async (
           name,
           owner: expandedConf.owner,
           visibility: expandedConf.visibility,
+          sharedWithUserGroups: expandedConf.sharedWithUserGroups,
           sharedWithUsers: expandedConf.sharedWithUsers,
           status: 'connecting',
           error: null,
@@ -2714,6 +2827,7 @@ export const initializeClientsFromSettings = async (
             name,
             owner: expandedConf.owner,
             visibility: expandedConf.visibility,
+            sharedWithUserGroups: expandedConf.sharedWithUserGroups,
             sharedWithUsers: expandedConf.sharedWithUsers,
             status: 'disconnected',
             error: `Failed to create transport: ${formatErrorForLogging(error)}`,
@@ -2751,6 +2865,7 @@ export const initializeClientsFromSettings = async (
         name,
         owner: expandedConf.owner,
         visibility: expandedConf.visibility,
+        sharedWithUserGroups: expandedConf.sharedWithUserGroups,
         sharedWithUsers: expandedConf.sharedWithUsers,
         status: 'connecting',
         recovery: existingServer?.recovery,
@@ -2811,7 +2926,7 @@ export const initializeClientsFromSettings = async (
         return current.client === client && current.enabled !== false;
       };
 
-      connectGate
+      const connectPromise = connectGate
         .run(
           () =>
             connectClientWithDiagnostics(client, transport, initRequestOptions || requestOptions),
@@ -2834,6 +2949,24 @@ export const initializeClientsFromSettings = async (
           applyResolvedPackageVersion(info, expandedConf);
           const capabilities: ServerCapabilities | undefined = client.getServerCapabilities();
           logger.log('Server capabilities', JSON.stringify(capabilities));
+
+          // A self-connection only mirrors this hub's aggregate lists. Loading
+          // them would duplicate every capability back into the aggregate and
+          // leave resource echoes untraceable because resources have no server
+          // name prefix. Treat the connection as connected but empty.
+          if (isHubSelfConnection(client)) {
+            info.tools = [];
+            info.prompts = [];
+            info.resources = [];
+            info.resourceTemplates = [];
+            info.status = 'connected';
+            info.error = null;
+            setupServerKeepAlive(info, expandedConf);
+            logger.warn(
+              `Ignoring capabilities from self-connection '${name}' to prevent a recursive list loop`,
+            );
+            return;
+          }
 
           let dataError: Error | null = null;
           if (capabilities?.tools) {
@@ -2884,6 +3017,11 @@ export const initializeClientsFromSettings = async (
           }
 
           if (capabilities?.resources) {
+            void refreshServerResourceTemplatesCache(
+              liveServerInfo,
+              client,
+              initRequestOptions || requestOptions,
+            );
             client
               .listResources({}, initRequestOptions || requestOptions)
               .then((resources) => {
@@ -2958,7 +3096,15 @@ export const initializeClientsFromSettings = async (
             info.error = `Failed to connect: ${formatErrorForLogging(error)}`;
             setupServerKeepAlive(info, expandedConf);
           }
+        })
+        .finally(() => {
+          // Only clear our own promise: a reconnect may already have published
+          // an entry whose connect is the one callers should wait on.
+          if (serverInfo.connectingPromise === connectPromise) {
+            serverInfo.connectingPromise = undefined;
+          }
         });
+      serverInfo.connectingPromise = connectPromise;
       logger.log(`Initialized client for server: ${name}`);
     }
   } catch (error) {
@@ -2985,6 +3131,29 @@ export const initializeClientsFromSettings = async (
   }
 
   return serverInfos;
+};
+
+export const reconcileReplicaServers = async (
+  declarations: ServerConfigWithName[],
+): Promise<void> => {
+  const expanded = new Map<string, ServerConfig>();
+  for (const declaration of declarations) {
+    const resolved = await expandServerConfig(declaration);
+    validateCredentialTemplate(resolved);
+    validateMaxBufferSize(resolved.options?.maxBufferSize);
+    expanded.set(declaration.name, resolved);
+  }
+  const changed = serverInfos.filter(
+    (info) =>
+      !isDeepStrictEqual(info.config, expanded.get(info.name)) ||
+      (info.enabled !== false) !== (expanded.get(info.name)?.enabled !== false),
+  );
+  for (const info of changed) closeServer(info.name);
+  serverInfos = serverInfos.filter((info) => !changed.includes(info));
+  await initializeClientsFromSettings(false, undefined, { declarations, preserveExisting: true });
+  broadcastToolListChanged();
+  broadcastResourceListChanged();
+  broadcastPromptListChanged();
 };
 
 // Register all MCP tools
@@ -3037,6 +3206,7 @@ export const getServersInfo = async (
         name: server.name,
         owner: server.owner,
         visibility: server.visibility,
+        sharedWithUserGroups: server.sharedWithUserGroups,
         sharedWithUsers: server.sharedWithUsers,
         // Newly created servers that are enabled should appear as "connecting"
         // until the MCP client initialization completes. Disabled servers remain
@@ -3231,6 +3401,7 @@ export const getServersInfo = async (
           config:
             resolvedType || serverConfig?.description || serverConfig?.command
               ? {
+                  ...(serverConfig?.id ? { id: serverConfig.id } : {}),
                   ...(resolvedType ? { type: resolvedType } : {}),
                   ...(hasPersonalAuthentication(serverConfig)
                     ? { credentialTemplate: validateCredentialTemplate(serverConfig!) }
@@ -3312,6 +3483,17 @@ export const reconnectServer = async (serverName: string): Promise<void> => {
     clearInterval(serverInfo.keepAliveIntervalId);
     serverInfo.keepAliveIntervalId = undefined;
   }
+
+  // The closed handles must not survive the reconnect: `status: 'connected'`
+  // with a closed client makes an on-demand server look ready and sends the
+  // next call to a dead transport. Bumping the generation also fences off a
+  // cold start that was already in flight: it must not publish the old config,
+  // client or status after this point.
+  serverInfo.client = undefined;
+  serverInfo.transport = undefined;
+  serverInfo.status = 'disconnected';
+  serverInfo.runtimeGeneration = (serverInfo.runtimeGeneration ?? 0) + 1;
+  serverInfo.spawningPromise = undefined;
 
   // Reinitialize the server
   await initializeClientsFromSettings(false, serverName);
@@ -3458,60 +3640,6 @@ const filterToolsByConfig = async (serverName: string, tools: Tool[]): Promise<T
   });
 };
 
-// Get server by tool name
-// Whether a server lists a tool by this runtime name. A tool above the administrator's cap
-// does not exist as far as the requester can tell, for the audit entry of a refused call as
-// much as for the call itself.
-const listsToolForRequester = (serverInfo: ServerInfo, toolName: string): boolean => {
-  const runtimeNames = serverInfo.tools.map((tool) => tool.name);
-  const config = getServerByName(serverInfo.name)?.config ?? serverInfo.config;
-  return serverInfo.tools.some(
-    (tool) =>
-      tool.name === toolName &&
-      assessToolRisk(serverInfo.name, config, tool, runtimeNames).outcome !== 'above-admin-cap',
-  );
-};
-
-const getServerByTool = (toolName: string): ServerInfo | undefined => {
-  return getVisibleServerInfos().find(
-    (serverInfo) => serverInfo.enabled !== false && listsToolForRequester(serverInfo, toolName),
-  );
-};
-
-/**
- * Error thrown when the requested server/tool (or server/prompt) cannot be
- * used by the current caller. `message` is the single safe text returned to
- * the caller — intentionally identical whether the target is hidden from them
- * or does not exist at all, so server/tool existence is never leaked through
- * distinguishable authorization errors (see #1103). `reason` is an internal
- * diagnostic recorded only in logs/activity, never surfaced to the caller.
- */
-export class ToolUnavailableError extends Error {
-  constructor(
-    message: string,
-    public readonly reason: string,
-  ) {
-    super(message);
-    this.name = 'ToolUnavailableError';
-  }
-}
-
-/**
- * A tool the user can see but has not allowed yet: it is above the risk level they chose for
- * the server (and within the administrator's cap). Unlike the generic error this one tells
- * the user what to change, so it is only thrown for tools the requester may use otherwise.
- */
-export class ToolRiskNotEnabledError extends ToolUnavailableError {
-  constructor(
-    message: string,
-    public readonly server: string,
-    public readonly risk: 'write' | 'external',
-  ) {
-    super(message, RISK_NOT_ENABLED_CODE);
-    this.name = 'ToolRiskNotEnabledError';
-  }
-}
-
 /**
  * Best-effort internal classification of why a qualified tool/prompt name was
  * unavailable, for logs/activity only. The externally visible message must not
@@ -3643,55 +3771,6 @@ function checkAuthError(result: any) {
   }
 }
 
-const clearIdleShutdown = (serverInfo: ServerInfo): void => {
-  if (serverInfo.idleTimeoutId) {
-    clearTimeout(serverInfo.idleTimeoutId);
-    serverInfo.idleTimeoutId = undefined;
-  }
-};
-
-const closeServerRuntime = (serverInfo: ServerInfo): void => {
-  clearIdleShutdown(serverInfo);
-  if (serverInfo.client) serverInfo.client.onclose = undefined;
-  serverInfo.recovery = undefined;
-  if (serverInfo.keepAliveIntervalId) {
-    clearInterval(serverInfo.keepAliveIntervalId);
-    serverInfo.keepAliveIntervalId = undefined;
-    logger.log('Cleared MCP server keep-alive interval');
-  }
-
-  const candidateTransport = serverInfo.transport as
-    | {
-        pid?: unknown;
-      }
-    | undefined;
-  const stdioPid = typeof candidateTransport?.pid === 'number' ? candidateTransport.pid : null;
-
-  if (serverInfo.client) {
-    try {
-      serverInfo.client.close();
-    } catch {
-      logger.warn('Error closing MCP client during runtime shutdown');
-    }
-    serverInfo.client = undefined;
-  }
-
-  if (serverInfo.transport) {
-    try {
-      serverInfo.transport.close();
-    } catch {
-      logger.warn('Error closing MCP transport during runtime shutdown');
-    }
-    serverInfo.transport = undefined;
-  }
-
-  if (stdioPid) {
-    killStdioProcessTree(serverInfo.name, stdioPid);
-  }
-
-  logger.log('Closed MCP server client and transport');
-};
-
 // Close server client and transport (keeps the entry in serverInfos; the next
 // initializeClientsFromSettings rebuild drops it if it is no longer configured).
 export function closeServer(name: string) {
@@ -3702,211 +3781,20 @@ export function closeServer(name: string) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// On-demand spawning helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Shuts down an on-demand stdio server without removing it from serverInfos.
- * The tool/prompt/resource lists are preserved so agents can still see what
- * the server offers and trigger a cold-start on the next tool call.
- */
-const shutdownOnDemandServer = (serverInfo: ServerInfo): void => {
-  // Discovery priming may finish while a tool call is using the same child.
-  if (serverInfo.activeToolCalls) return;
-
-  // Close runtime (kills process) but intentionally keep tools/prompts/resources
-  closeServerRuntime(serverInfo);
-
-  serverInfo.status = 'disconnected';
-  logger.log(
-    `[${serverInfo.name}] On-demand server shut down after idle; ` +
-      `${serverInfo.tools.length} tools cached for next wake-up`,
-  );
-};
-
-/**
- * Starts the idle period once the last active call has finished.
- */
-const scheduleIdleShutdown = (serverInfo: ServerInfo): void => {
-  clearIdleShutdown(serverInfo);
-  if (
-    !serverInfo.config?.startOnDemand ||
-    !isStdioServer(serverInfo.config) ||
-    hasPersonalAuthentication(serverInfo.config) ||
-    serverInfo.status !== 'connected' ||
-    !serverInfo.client ||
-    serverInfo.activeToolCalls
-  ) {
-    return;
-  }
-
-  const idleMs = serverInfo.config.idleTimeoutMs ?? 300_000; // default 5 minutes
-  serverInfo.idleTimeoutId = setTimeout(() => {
-    if (serverInfo.status === 'connected') {
-      shutdownOnDemandServer(serverInfo);
-    }
-  }, idleMs);
-};
-
-const beginOnDemandToolCall = (serverInfo: ServerInfo): (() => void) | undefined => {
-  if (
-    !serverInfo.config?.startOnDemand ||
-    !isStdioServer(serverInfo.config) ||
-    hasPersonalAuthentication(serverInfo.config)
-  ) {
-    return undefined;
-  }
-
-  clearIdleShutdown(serverInfo);
-  serverInfo.activeToolCalls = (serverInfo.activeToolCalls ?? 0) + 1;
-  return () => {
-    serverInfo.activeToolCalls = serverInfo.activeToolCalls! - 1;
-    scheduleIdleShutdown(serverInfo);
-  };
-};
-
-/**
- * Ensures an on-demand server is connected before a tool call proceeds.
- *
- * Performs a direct, awaited wake-up that mutates the existing `serverInfo`
- * in place (preserving the reference callers hold), rather than going through
- * `reconnectServer` -> `initializeClientsFromSettings`. The latter skips the
- * connect for on-demand servers, resolves before the fire-and-forget handshake
- * completes, and rebuilds `serverInfos` (leaving callers with a stale object) -
- * so it could never actually wake a sleeping server. See #1029.
- *
- * Concurrent callers coalesce on `spawningPromise` so only one spawn runs.
- */
-const ensureServerReady = async (serverInfo: ServerInfo): Promise<void> => {
-  if (serverInfo.status === 'connected') return;
-
-  // Another call is already spawning - wait for it
-  if (serverInfo.spawningPromise) {
-    await serverInfo.spawningPromise;
-    return;
-  }
-
-  const spawnStart = Date.now();
-
-  const spawnPromise = (async () => {
-    // Load the config fresh from the DAO for the expanded transport config and
-    // to read the server name. See #1029.
-    assertNotPersonalRuntime(serverInfo);
-    const rawConfig = await getServerDao().findById(serverInfo.name);
-    if (!rawConfig) {
-      throw new Error('Server configuration not found for on-demand wake');
-    }
-    assertNotPersonalRuntime(serverInfo, rawConfig);
-    if (rawConfig.enabled === false) {
-      throw new Error(`Cannot start disabled on-demand server: ${rawConfig.name}`);
-    }
-    const expandedConf = await expandServerConfig(rawConfig);
-
-    // startOnDemand is a stdio-only optimisation; OpenAPI/HTTP servers have no
-    // deferred process to spawn, so there is nothing to wake.
-    if (expandedConf.type === 'openapi') {
-      return;
-    }
-
-    await prepareCapabilitySnapshot(serverInfo, expandedConf);
-    const name = rawConfig.name;
-    logger.log(`[${name}] Cold-starting on-demand server…`);
-
-    const transport = await createTransportFromConfig(name, expandedConf);
-    const client = createUpstreamMcpClient(name, () => serverInfo, expandedConf);
-
-    const serverRequestOptions = expandedConf.options || {};
-    const defaultRequestTimeout = Number(process.env.DEFAULT_REQUEST_TIMEOUT) || 60000;
-    const requestOptions = {
-      timeout: serverRequestOptions.timeout || defaultRequestTimeout,
-      resetTimeoutOnProgress: serverRequestOptions.resetTimeoutOnProgress ?? true,
-      maxTotalTimeout: serverRequestOptions.maxTotalTimeout,
-    };
-
-    await connectClientWithDiagnostics(client, transport, requestOptions);
-
-    // Mutate in place so every holder of this serverInfo (resolution paths,
-    // the caller about to invoke the tool) sees the live client/status.
-    serverInfo.client = client;
-    serverInfo.transport = transport;
-    serverInfo.options = requestOptions;
-    serverInfo.version = client.getServerVersion?.()?.version;
-    serverInfo.instructions = client.getInstructions?.();
-    serverInfo.config = expandedConf;
-    // Record the resolved npx/uvx package version backing this server.
-    applyResolvedPackageVersion(serverInfo, expandedConf);
-    serverInfo.status = 'connected';
-    serverInfo.error = null;
-
-    let toolCount = 0;
-    let promptCount = 0;
-    let resourceCount = 0;
-    const capabilities = client.getServerCapabilities?.();
-    if (capabilities?.tools) {
-      try {
-        const tools = await client.listTools({}, requestOptions);
-        toolCount = tools.tools.length;
-        updateServerToolsCache(serverInfo, tools.tools);
-        broadcastToolListChanged();
-      } catch (error) {
-        logger.warn(`[${name}] Failed to list tools during wake`, {
-          error: summarizeErrorForLogging(error),
-        });
-      }
-    } else {
-      updateServerToolsCache(serverInfo, []);
-      broadcastToolListChanged();
-    }
-    await flushCapabilitySnapshot(serverInfo);
-    if (capabilities?.prompts) {
-      try {
-        const prompts = await client.listPrompts({}, requestOptions);
-        promptCount = prompts.prompts.length;
-        updateServerPromptsCache(serverInfo, prompts.prompts);
-      } catch (error) {
-        logger.warn(`[${name}] Failed to list prompts during wake`, {
-          error: summarizeErrorForLogging(error),
-        });
-      }
-    }
-    if (capabilities?.resources) {
-      try {
-        const resources = await client.listResources({}, requestOptions);
-        resourceCount = resources.resources.length;
-        updateServerResourcesCache(serverInfo, resources.resources);
-      } catch (error) {
-        logger.warn(`[${name}] Failed to list resources during wake`, {
-          error: summarizeErrorForLogging(error),
-        });
-      }
-    }
-
-    // No-op for stdio transports; only SSE/streamable-http opt in via enableKeepAlive.
-    setupServerKeepAlive(serverInfo, expandedConf);
-
-    logger.log(
-      `[${name}] On-demand server ready in ${Date.now() - spawnStart}ms` +
-        ` (${toolCount} tools, ${promptCount} prompts, ${resourceCount} resources)`,
-    );
-  })();
-
-  serverInfo.spawningPromise = spawnPromise;
-  try {
-    await spawnPromise;
-  } catch (error) {
-    serverInfo.status = 'disconnected';
-    serverInfo.error = `Failed to start on-demand server: ${formatErrorForLogging(error)}`;
-    throw error;
-  } finally {
-    serverInfo.spawningPromise = undefined;
-  }
-};
-
-// stdio servers are the only ones that benefit from deferred spawning; HTTP/SSE
-// and OpenAPI servers have no long-lived child process to skip.
-const isStdioServer = (conf: ServerConfig | undefined): boolean =>
-  !!conf && (conf.type === 'stdio' || (!conf.type && !!conf.command));
+const { beginOnDemandToolCall, ensureServerReady, shutdownOnDemandServer } =
+  createOnDemandLifecycle({
+    createTransportFromConfig: (...args) => createTransportFromConfig(...args),
+    createUpstreamMcpClient,
+    connectClientWithDiagnostics: (...args) => connectClientWithDiagnostics(...args),
+    applyResolvedPackageVersion,
+    isHubSelfConnection,
+    setupServerKeepAlive,
+    updateServerToolsCache: (...args) => updateServerToolsCache(...args),
+    updateServerPromptsCache,
+    updateServerResourcesCache,
+    refreshServerResourceTemplatesCache,
+    broadcastToolListChanged: (...args) => broadcastToolListChanged(...args),
+  });
 
 /**
  * Connects each on-demand stdio server once to populate its tool cache, then
@@ -3979,6 +3867,7 @@ export const resetServerOAuthConnection = (name: string): boolean => {
   serverInfo.tools = [];
   serverInfo.prompts = [];
   serverInfo.resources = [];
+  serverInfo.resourceTemplates = undefined;
   serverInfo.oauth = undefined;
 
   broadcastToolListChanged();
@@ -3988,159 +3877,62 @@ export const resetServerOAuthConnection = (name: string): boolean => {
   return true;
 };
 
-// Kill the entire process tree of a stdio transport's child process.
-//
-// transport.close() only sends SIGTERM to the direct child. When the server is
-// launched through a wrapper like `npx` / `npm exec`, the wrapper does not
-// forward signals to its descendants, so the real server process is left
-// running as an orphan. Walk the whole tree and force-kill it.
-//
-// When the process-lister tool tree-kill needs (`ps` on Linux) is missing —
-// e.g. slim Docker images without procps — tree-kill's internal spawn fails
-// with an unhandled 'error' event that would crash MCPHub. Fall back to
-// signaling just the direct child instead (issue #1072).
-function killStdioProcessTree(name: string, pid: number): void {
-  const safeDirectKill = (signal: 'SIGTERM' | 'SIGKILL'): void => {
-    try {
-      process.kill(pid, signal);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== 'ESRCH') {
-        logger.warn('Failed to send signal to process', {
-          serverName: name,
-          pid,
-          signal,
-          err,
-        });
-      }
-    }
-  };
-
-  const safeTreeKill = (signal: 'SIGTERM' | 'SIGKILL'): void => {
-    try {
-      treeKill(pid, signal, (err) => {
-        if (err) {
-          // ESRCH (no such process) is expected when the process already exited
-          // — treat as success. Anything else is worth a warning.
-          const code = (err as NodeJS.ErrnoException).code;
-          if (code !== 'ESRCH') {
-            // Pass the user-controlled `name` as a separate argument so a
-            // server named e.g. "%s" cannot inject format specifiers into the
-            // log line (CodeQL: use-of-externally-controlled-format-string).
-            logger.warn('Failed to send signal to process tree', {
-              serverName: name,
-              pid,
-              signal,
-              err,
-            });
-          }
-        }
-      });
-    } catch (err) {
-      logger.warn('Failed to send signal to process tree', {
-        serverName: name,
-        pid,
-        signal,
-        err,
-      });
-    }
-  };
-
-  const safeKill = isProcessTreeKillAvailable()
-    ? safeTreeKill
-    : (signal: 'SIGTERM' | 'SIGKILL'): void => {
-        logger.warn('Process lister unavailable, killing only the direct child process', {
-          serverName: name,
-          pid,
-          signal,
-        });
-        safeDirectKill(signal);
-      };
-
-  safeKill('SIGTERM');
-
-  setTimeout(() => {
-    if (!isProcessAlive(pid)) {
-      return;
-    }
-    safeKill('SIGKILL');
-  }, STDIO_KILL_GRACE_PERIOD_MS);
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // EPERM means the process exists but we don't have permission to signal
-    // it — count it as alive so the SIGKILL fallback still fires. Any other
-    // error (typically ESRCH) means the process is gone.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 // Toggle server enabled status
 export const toggleServerStatus = async (
   name: string,
   enabled: boolean,
 ): Promise<{ success: boolean; message?: string }> => {
-  try {
-    await getServerDao().setEnabled(name, enabled);
-    // If disabling, disconnect the server and remove from active servers
-    if (!enabled) {
-      closeServer(name);
+  // Serialize enable/disable toggles per server: two toggles in quick
+  // succession would otherwise run overlapping `initializeClientsFromSettings`
+  // passes, spawning concurrent transports whose OAuth `state()` /
+  // `saveCodeVerifier()` / `redirectToAuthorization()` calls interleave and
+  // overwrite each other's `pendingAuthorization` (state + PKCE verifier).
+  return withKeyedLock(`server-status:${name}`, async () => {
+    try {
+      await getServerDao().setEnabled(name, enabled);
+      // If disabling, disconnect the server and remove from active servers
+      if (!enabled) {
+        closeServer(name);
 
-      // Update the server info to show as disconnected and disabled
-      const index = serverInfos.findIndex((s) => s.name === name);
-      if (index !== -1) {
-        serverInfos[index] = {
-          ...serverInfos[index],
-          status: 'disconnected',
-          enabled: false,
-        };
+        // Update the server info to show as disconnected and disabled
+        const index = serverInfos.findIndex((s) => s.name === name);
+        if (index !== -1) {
+          serverInfos[index] = {
+            ...serverInfos[index],
+            status: 'disconnected',
+            enabled: false,
+          };
+        }
+
+        // Remove tool embeddings when server is disabled (for smart routing consistency)
+        try {
+          await removeServerToolEmbeddings(name);
+          logger.log(`Removed tool embeddings for disabled server: ${name}`);
+        } catch (embeddingError) {
+          logger.warn('Failed to remove embeddings for server', {
+            serverName: name,
+            error: summarizeErrorForLogging(embeddingError),
+          });
+        }
+      } else {
+        // If enabling, reconnect the server to restore connection and sync tool embeddings
+        try {
+          await initializeClientsFromSettings(false, name);
+          logger.log(`Re-enabled server ${name} and triggered tool embedding sync`);
+        } catch (reconnectError) {
+          logger.warn('Failed to reconnect server during enable', {
+            serverName: name,
+            error: summarizeErrorForLogging(reconnectError),
+          });
+        }
       }
 
-      // Remove tool embeddings when server is disabled (for smart routing consistency)
-      try {
-        await removeServerToolEmbeddings(name);
-        logger.log(`Removed tool embeddings for disabled server: ${name}`);
-      } catch (embeddingError) {
-        logger.warn('Failed to remove embeddings for server', {
-          serverName: name,
-          error: summarizeErrorForLogging(embeddingError),
-        });
-      }
-    } else {
-      // If enabling, reconnect the server to restore connection and sync tool embeddings
-      try {
-        await initializeClientsFromSettings(false, name);
-        logger.log(`Re-enabled server ${name} and triggered tool embedding sync`);
-      } catch (reconnectError) {
-        logger.warn('Failed to reconnect server during enable', {
-          serverName: name,
-          error: summarizeErrorForLogging(reconnectError),
-        });
-      }
+      return { success: true, message: `Server ${enabled ? 'enabled' : 'disabled'} successfully` };
+    } catch (error) {
+      logger.error('Failed to toggle server status', { serverName: name, error });
+      return { success: false, message: 'Failed to toggle server status' };
     }
-
-    return { success: true, message: `Server ${enabled ? 'enabled' : 'disabled'} successfully` };
-  } catch (error) {
-    logger.error('Failed to toggle server status', { serverName: name, error });
-    return { success: false, message: 'Failed to toggle server status' };
-  }
-};
-
-type McpAppsRouteContext = {
-  enabled: boolean;
-  // Set when the route has exactly one eligible MCP upstream (including idle on-demand).
-  // Used for Apps resource routing and legacy unqualified aggregate calls.
-  serverInfo?: ServerInfo;
-  // Eligible MCP upstreams on an aggregate route. Tool names stay qualified
-  // (server::tool), even when other configured upstreams use OpenAPI or their
-  // personal runtimes have not been acquired for this request, so
-  // calls can still be routed unambiguously; Apps metadata and app-only
-  // tools are still surfaced, unlike ordinary (non-Apps) group routes.
-  serverInfos?: ServerInfo[];
+  });
 };
 
 const getMcpAppsRouteContext = async (
@@ -4202,1183 +3994,279 @@ const getMcpAppsRouteContext = async (
   };
 };
 
-const normalizeToolNameForServer = (serverName: string, toolName: string): string => {
-  const prefix = `${serverName}${getNameSeparator()}`;
-  return toolName.startsWith(prefix) ? toolName.substring(prefix.length) : toolName;
-};
+// ---------------------------------------------------------------------------
+// Hub file staging (#1056)
+//
+// Virtual `mcphub_file_*` tools are dispatched before the policy/principal
+// wrappers, and a staging-enabled stdio call is rewritten at exactly one seam:
+// argument rewrite, output lease acquisition, and finalization all happen here.
+// ---------------------------------------------------------------------------
 
-const getGroupLookupName = (group: string | undefined): string | undefined => {
-  if (group === '$smart') {
-    return undefined;
-  }
-  if (group?.startsWith('$smart/')) {
-    return group.substring(7) || undefined;
-  }
-  return group;
-};
-
-const getExposedServerName = (serverName: string, serverConfig?: IGroupServerConfig): string => {
-  return serverConfig?.alias?.trim() || serverName;
-};
-
-const replacePrefixedServerName = (
-  name: string,
-  fromServerName: string,
-  toServerName: string,
-): string => {
-  if (fromServerName === toServerName) {
-    return name;
-  }
-
-  const separator = getNameSeparator();
-  const prefix = `${fromServerName}${separator}`;
-  return name.startsWith(prefix)
-    ? `${toServerName}${separator}${name.substring(prefix.length)}`
-    : name;
-};
-
-const projectNameForGroup = (
-  name: string,
-  serverName: string,
-  serverConfig?: IGroupServerConfig,
-): string => {
-  return replacePrefixedServerName(
-    name,
-    serverName,
-    getExposedServerName(serverName, serverConfig),
-  );
-};
-
-const resolveNameFromGroup = (
-  name: string,
-  serverName: string,
-  serverConfig?: IGroupServerConfig,
-): string => {
-  return replacePrefixedServerName(
-    name,
-    getExposedServerName(serverName, serverConfig),
-    serverName,
-  );
-};
-
-const findToolOnServer = (
-  serverInfo: ServerInfo,
-  toolName: string,
-  allowRawName: boolean,
-  preferRawName = false,
-): Tool | undefined => {
-  // A listed upstream name takes precedence over a colliding legacy cache alias.
-  const rawTool =
-    preferRawName && allowRawName
-      ? serverInfo.tools.find(
-          (tool) => normalizeToolNameForServer(serverInfo.name, tool.name) === toolName,
-        )
-      : undefined;
-  const tool =
-    rawTool ||
-    serverInfo.tools.find(
-      (tool) =>
-        tool.name === toolName ||
-        (allowRawName && normalizeToolNameForServer(serverInfo.name, tool.name) === toolName),
-    );
-  if (!tool) {
-    return undefined;
-  }
-  // A tool disabled via POST /api/servers/:server/tools/:tool/toggle must be
-  // unresolvable for execution, not just hidden from tools/list — otherwise a
-  // caller who already knows the tool name can invoke it regardless of the
-  // disabled flag.
-  //
-  // The runtime tool cache (serverInfo.tools, built by normalizeToolForCache)
-  // never carries an `enabled` field — that field only exists on the
-  // *projection* built for the dashboard/API (buildToolWithDescriptionMetadata),
-  // which is a different object. So the persisted per-tool config must be
-  // consulted directly here.
-  //
-  // A disable may be stored under the runtime (prefixed) name, as the
-  // dashboard writes it, or under the bare upstream name, as a settings file
-  // or a direct API call may. findToolConfig checks both, and never reads
-  // another tool's runtime key as this tool's bare name.
-  const toolConfig = findToolConfig(
-    serverInfo.config?.tools,
-    serverInfo.name,
-    tool.name,
-    serverInfo.tools.map((candidate) => candidate.name),
-  );
-  if (toolConfig && toolConfig.enabled === false) {
-    return undefined;
-  }
-  // A tool above the administrator's cap is as good as nonexistent. One above the user's own
-  // ceiling is refused with the way to allow it.
-  const risk = assessToolRisk(
-    serverInfo.name,
-    // A per-user runtime carries a resolved copy; the shared entry is authoritative.
-    getServerByName(serverInfo.name)?.config ?? serverInfo.config,
-    tool,
-    serverInfo.tools.map((candidate) => candidate.name),
-  );
-  if (risk.outcome === 'above-admin-cap') return undefined;
-  if (risk.outcome === 'above-user-ceiling') {
-    throw new ToolRiskNotEnabledError(
-      buildRiskNotEnabledMessage(
-        serverInfo.name,
-        normalizeToolNameForServer(serverInfo.name, tool.name),
-        risk.level as 'write' | 'external',
-      ),
-      serverInfo.name,
-      risk.level as 'write' | 'external',
-    );
-  }
-  return tool;
-};
-
-const assertToolAvailableForRoute = (tool: Tool, appsRouteContext: McpAppsRouteContext): void => {
-  if (isAppOnlyTool(tool) && !appsRouteContext.enabled) {
-    throw new Error(`Tool '${tool.name}' is only available to MCP Apps`);
-  }
-};
-
-const resolveToolInGroup = async (
-  group: string | undefined,
-  toolName: string,
-  appsRouteContext: McpAppsRouteContext,
-): Promise<{ serverInfo: ServerInfo; toolName: string; tool: Tool } | undefined> => {
-  const lookupGroup = getGroupLookupName(group);
-  if (!lookupGroup) {
-    return undefined;
-  }
-
-  const { filteredServerInfos, serverConfigsByName } =
-    await getFilteredServerInfosForGroup(lookupGroup);
-
-  // Accept raw names only on single-upstream routes, even without client
-  // capabilities after session rebuild. Count configured servers as well so
-  // a disabled or disconnected peer cannot make a group appear unambiguous.
-  const allowRawName =
-    !isSmartRoutingGroup(group) &&
-    serverConfigsByName.size <= 1 &&
-    filteredServerInfos.length === 1;
-
-  // Validate the full visible catalog before routing, even if the client skips tools/list.
-  const hasOriginalToolNames = [...serverConfigsByName.values()].some(
-    (config) => config.preserveToolNames,
-  );
-  if (hasOriginalToolNames) {
-    await listGroupTools(lookupGroup, filteredServerInfos, serverConfigsByName, appsRouteContext);
-  }
-
-  for (const serverInfo of filteredServerInfos) {
-    // An idle on-demand server is selected here and woken by the caller (#1029)
-    if (!canServeToolRequests(serverInfo)) {
-      continue;
-    }
-
-    const serverConfig = serverConfigsByName.get(serverInfo.name);
-    const internalToolName = serverConfig?.preserveToolNames
-      ? `${serverInfo.name}${getNameSeparator()}${toolName}`
-      : resolveNameFromGroup(toolName, serverInfo.name, serverConfig);
-    const tool = findToolOnServer(
-      serverInfo,
-      internalToolName,
-      allowRawName,
-      serverConfigsByName.size === 0,
-    );
-    if (!tool || (hasOriginalToolNames && !appsRouteContext.enabled && isAppOnlyTool(tool))) {
-      continue;
-    }
-
-    const filteredTools = await filterToolsByGroup(
-      lookupGroup,
-      serverInfo.name,
-      [tool],
-      serverConfig,
-    );
-    if (filteredTools.length === 0) {
-      continue;
-    }
-
-    // Retain the resolved identity when callers revalidate discovery after waking.
-    return { serverInfo, toolName: tool.name, tool };
-  }
-
-  return undefined;
-};
-
-const findEnabledPromptOnServer = async (
-  serverInfo: ServerInfo,
-  name: string,
-  allowRawName = false,
-) => {
-  if (serverInfo.status !== 'connected' || serverInfo.enabled === false) return undefined;
-  const prompt = serverInfo.prompts.find(
-    (item) =>
-      item.name === name ||
-      (allowRawName && item.name === `${serverInfo.name}${getNameSeparator()}${name}`),
-  );
-  if (!prompt) return undefined;
-  const config = await getServerDao().findById(serverInfo.name);
-  const promptConfig = findToolConfig(
-    config?.prompts,
-    serverInfo.name,
-    prompt.name,
-    serverInfo.prompts.map((item) => item.name),
-  );
-  return config?.enabled === false || promptConfig?.enabled === false ? undefined : prompt;
-};
-
-async function resolvePromptInGroup(
-  group: string | undefined,
-  promptName: string,
-): Promise<{ serverInfo: ServerInfo; promptName: string } | undefined> {
-  const lookupGroup = getGroupLookupName(group);
-  if (!lookupGroup) {
-    return undefined;
-  }
-
-  const { filteredServerInfos, serverConfigsByName } =
-    await getFilteredServerInfosForGroup(lookupGroup);
-
-  for (const serverInfo of filteredServerInfos) {
-    if (serverInfo.status !== 'connected' || serverInfo.enabled === false) {
-      continue;
-    }
-
-    const serverConfig = serverConfigsByName.get(serverInfo.name);
-    const internalPromptName = resolveNameFromGroup(promptName, serverInfo.name, serverConfig);
-    const prompt = await findEnabledPromptOnServer(serverInfo, internalPromptName);
-    if (!prompt) {
-      continue;
-    }
-
-    const filteredPrompts = await filterPromptsByGroup(
-      lookupGroup,
-      serverInfo.name,
-      [prompt],
-      serverConfig,
-    );
-    if (filteredPrompts.length === 0) {
-      continue;
-    }
-
-    return { serverInfo, promptName: internalPromptName };
-  }
-
-  return undefined;
+interface StagingToolTarget {
+  toolName: string;
+  inputParams: string[];
+  outputParams: string[];
 }
 
-const projectToolForDownstream = (
-  serverName: string,
-  tool: Tool,
-  appsRouteContext: McpAppsRouteContext,
-  serverConfig?: IGroupServerConfig,
-  useRawName = false,
-): Tool | undefined => {
-  if (!appsRouteContext.enabled && isAppOnlyTool(tool)) {
-    return undefined;
-  }
+interface StagingTarget {
+  serverName: string;
+  serverId: string;
+  shared: boolean;
+  tools: StagingToolTarget[];
+}
 
-  const projectedTool = appsRouteContext.enabled ? tool : stripMcpAppsMetadata(tool);
-
-  // Naming follows the route, independently of Apps capabilities or connection state.
-  if (useRawName) {
-    return {
-      ...projectedTool,
-      name: normalizeToolNameForServer(serverName, projectedTool.name),
-    };
-  }
-
-  // Group and aggregate routes keep qualified names, including single-member groups.
-  return {
-    ...projectedTool,
-    name: projectGroupToolName(projectedTool.name, serverName, serverConfig, getNameSeparator()),
-  };
+const stagingAskUsername = (extra: any): string | undefined => {
+  const requestContext = RequestContextService.getInstance();
+  // System/bearer-key callers have no per-user identity to own staged files.
+  if (requestContext.getKeyKindContext() === 'system') return undefined;
+  const current = UserContextService.getInstance().getCurrentUser() as
+    | (IUser & { credentialEligible?: boolean })
+    | null;
+  if (current?.credentialEligible === false) return undefined;
+  return requestContext.getUsernameContext() || current?.username || undefined;
 };
 
-const listGroupTools = async (
-  group: string | undefined,
-  filteredServerInfos: ServerInfo[],
-  serverConfigsByName: Map<string, IGroupServerConfig>,
-  appsRouteContext: McpAppsRouteContext,
-): Promise<Tool[]> => {
-  // If the startup prime of an on-demand server is still in flight, wait for it
-  // so this list reflects the freshly cached tools instead of returning empty.
-  // No wake is triggered from list itself; the prime handles that. See #1029.
-  await Promise.allSettled(
-    filteredServerInfos
-      .filter(
-        (si) =>
-          si.config?.startOnDemand === true &&
-          si.tools.length === 0 &&
-          si.capabilityCache?.state !== 'fresh' &&
-          si.spawningPromise,
-      )
-      .map((si) => si.spawningPromise as Promise<void>),
-  );
-
-  const useRawName = !!group && !isSmartRoutingGroup(group) && !(await findRouteGroup(group));
-  const allTools = [];
-  for (const serverInfo of filteredServerInfos) {
-    if (serverInfo.tools && serverInfo.tools.length > 0) {
-      const groupServerConfig = serverConfigsByName.get(serverInfo.name);
-
-      // Filter tools based on server configuration
-      let tools = await filterToolsByConfig(serverInfo.name, serverInfo.tools);
-      tools = await filterToolsByRisk(serverInfo.name, tools);
-
-      // If this is a group request, apply group-level tool filtering
-      tools = await filterToolsByGroup(group, serverInfo.name, tools, groupServerConfig);
-
-      // Apply custom descriptions and hidden parameters from server configuration
-      const serverConfig = await getServerDao().findById(serverInfo.name);
-      const runtimeNames = serverInfo.tools.map((tool) => tool.name);
-      const toolsWithCustomDescriptions = tools.map((tool) => {
-        const toolConfig = findToolConfig(
-          serverConfig?.tools,
-          serverInfo.name,
-          tool.name,
-          runtimeNames,
-        );
-        return {
-          ...applyHiddenParams(tool, toolConfig),
-          description: resolveDescriptionOverride(tool.description, toolConfig),
-        };
-      });
-
-      allTools.push(
-        ...toolsWithCustomDescriptions.flatMap((tool) => {
-          const projectedTool = projectToolForDownstream(
-            serverInfo.name,
-            tool,
-            appsRouteContext,
-            groupServerConfig,
-            useRawName,
-          );
-          return projectedTool ? [projectedTool] : [];
-        }),
-      );
-    }
-  }
-
-  if ([...serverConfigsByName.values()].some((config) => config.preserveToolNames)) {
-    assertValidGroupToolNames(allTools);
-  }
-  return allTools;
-};
-
-// Names the call handler always routes to a meta-tool on a Smart Routing session,
-// whichever of them the current mode lists (see handleCallToolRequestImpl)
-const SMART_ROUTING_META_TOOL_NAMES = new Set(['search_tools', 'describe_tool', 'call_tool']);
-
-// Each member's pinnedTools, narrowed to its tools selection. Empty when the
-// route is not a $smart/<group> or the group pins nothing.
-const resolvePinnedSmartRoutingServers = async (group: string | undefined) => {
+/**
+ * Servers that can be staged on this route. A target needs an enabled tool
+ * with fileStaging, a trusted server config, and (once connected) the pinned
+ * upstream version.
+ */
+const resolveStagingTargets = async (group: string | undefined): Promise<StagingTarget[]> => {
+  const settings = await getFileStagingSettings();
+  if (!settings.enabled || !isStagingRuntimeSupported()) return [];
   const lookupGroup = getGroupLookupName(group);
-  if (!lookupGroup) {
-    return undefined;
-  }
-
   const { filteredServerInfos, serverConfigsByName } =
     await getFilteredServerInfosForGroup(lookupGroup);
-  const pinnedConfigsByName = new Map<string, IGroupServerConfig>();
-  for (const [serverName, serverConfig] of serverConfigsByName) {
-    const selection = serverConfig.tools;
-    const pinnedTools = (serverConfig.pinnedTools ?? []).filter(
-      (toolName) => !Array.isArray(selection) || selection.includes(toolName),
-    );
-    if (pinnedTools.length > 0) {
-      pinnedConfigsByName.set(serverName, { ...serverConfig, tools: pinnedTools });
+  const targets: StagingTarget[] = [];
+
+  for (const serverInfo of filteredServerInfos) {
+    // Cheap pre-check: most routes have no staging server and must not pay a
+    // config read per server on every tools/list.
+    if (!serverInfo.config?.staging && !hasStagedTools(serverInfo.config ?? {})) continue;
+    const config = serverInfo.config ?? (await getServerDao().findById(serverInfo.name)) ?? undefined;
+    if (!config || !hasStagedTools(config)) continue;
+    const validation = validateSshServerConfig(config);
+    if (!validation.ok) {
+      logger.warn(`[staging] ${serverInfo.name} is not a staging target: ${validation.reason}`);
+      continue;
     }
-  }
-  if (pinnedConfigsByName.size === 0) {
-    return undefined;
-  }
-
-  return {
-    lookupGroup,
-    pinnedServerInfos: filteredServerInfos.filter((serverInfo) =>
-      pinnedConfigsByName.has(serverInfo.name),
-    ),
-    pinnedConfigsByName,
-  };
-};
-
-// Tools a $smart/<group> lists next to its meta-tools: each member's pinnedTools,
-// narrowed to its tools selection and then run through the same filtering and
-// projection as a direct group listing.
-const getPinnedSmartRoutingTools = async (
-  group: string | undefined,
-  appsRouteContext: McpAppsRouteContext = { enabled: false },
-): Promise<Tool[]> => {
-  const pinned = await resolvePinnedSmartRoutingServers(group);
-  if (!pinned) {
-    return [];
-  }
-
-  return listGroupTools(
-    pinned.lookupGroup,
-    pinned.pinnedServerInfos,
-    pinned.pinnedConfigsByName,
-    appsRouteContext,
-  );
-};
-
-const handleListToolsRequestImpl = async (_: any, extra: any) => {
-  const sessionId = extra.sessionId || '';
-  const group = getMcpRequestGroup(extra);
-  logger.log(`Handling ListToolsRequest for group: ${group}`);
-
-  // Special handling for $smart group to return smart routing tools
-  // Support both $smart and $smart/{group} patterns
-  if (isSmartRoutingGroup(group)) {
-    const smartRoutingTools = await getSmartRoutingTools(group);
-    let pinnedTools: Tool[] = [];
-    try {
-      const appsRouteContext = await getMcpAppsRouteContext(sessionId, group);
-      // A pin named like a meta-tool (e.g. alias "describe" + separator "_" +
-      // tool "tool") would be intercepted by it on call, even in a mode that
-      // does not list that meta-tool, so it is not listed at all
-      pinnedTools = (await getPinnedSmartRoutingTools(group, appsRouteContext)).filter(
-        (tool) => !SMART_ROUTING_META_TOOL_NAMES.has(tool.name),
+    if (isLegacyServerId(config.id, serverInfo.name)) {
+      logger.warn(
+        `[staging] ${serverInfo.name} still uses a name-derived id; save the server once to assign a stable UUID before enabling staging`,
       );
-    } catch (error) {
-      // Pins are an optimisation: failing to resolve them must not cost the meta-tools
-      logger.warn(`Failed to list pinned tools for ${group}; returning meta-tools only`, error);
+      continue;
     }
-    return pinnedTools.length > 0
-      ? { tools: [...smartRoutingTools.tools, ...pinnedTools] }
-      : smartRoutingTools;
-  }
-
-  const { filteredServerInfos, serverConfigsByName } = await getFilteredServerInfosForGroup(group);
-  const appsRouteContext = await getMcpAppsRouteContext(sessionId, group);
-
-  return {
-    tools: await listGroupTools(group, filteredServerInfos, serverConfigsByName, appsRouteContext),
-  };
-};
-
-const callToolImpl = async (request: any, extra: any, outcome: { info?: ServerInfo }) => {
-  logger.log('Handling CallToolRequest for tool', summarizeToolRequestForLogging(request.params));
-  const startTime = Date.now();
-  const activityLogger = getActivityLoggingService();
-
-  // Opt-in fail-closed guard for high-confidence command-injection / SSRF /
-  // cloud-credential-theft payloads in tool call arguments. Disabled by
-  // default (TOOL_CALL_GUARD_ENABLED=true to enable); see
-  // src/middlewares/toolCallGuard.ts.
-  if (isToolCallGuardEnabled()) {
-    try {
-      assertToolCallArgumentsSafe(request?.params?.arguments);
-    } catch (guardError) {
-      if (guardError instanceof ToolCallBlockedError) {
-        logger.warn(
-          `Tool call blocked by guard: server/tool=${
-            request?.params?.name ?? 'unknown'
-          }, rule=${guardError.ruleId}`,
-        );
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error: ${guardError.message}`,
-            },
-          ],
-          isError: true,
-          errorCode: -32001,
-        };
-      }
-      throw guardError;
-    }
-  }
-
-  // Get request context for activity logging
-  const requestContextService = RequestContextService.getInstance();
-  const bearerKeyContext = requestContextService.getBearerKeyContext();
-  const sessionId = extra.sessionId || '';
-
-  // For OpenAPI cookie-session isolation, use a real per-caller session id.
-  // Direct API controllers fall back to shared synthetic ids ('api-session' /
-  // 'openapi-session') when x-session-id is absent, which would leak cookies
-  // across callers, so only accept an explicitly-provided session header or a
-  // non-synthetic extra.sessionId. Fail-safe (undefined) otherwise.
-  const isSyntheticSessionFallback = (id: string) =>
-    id === 'api-session' || id === 'openapi-session';
-  const explicitXSessionId = extra?.headers?.['x-session-id'];
-  const cookieSessionId = [
-    requestContextService.getSessionId(),
-    typeof explicitXSessionId === 'string' ? explicitXSessionId : undefined,
-    typeof extra?.sessionId === 'string' ? extra.sessionId : undefined,
-  ].find(
-    (id): id is string =>
-      typeof id === 'string' && id.length > 0 && !isSyntheticSessionFallback(id),
-  );
-
-  // Extract group and key info from request context (set by SSE/HTTP handlers)
-  // Fallback to extra for backward compatibility (e.g., direct API calls)
-  const group = getMcpRequestGroup(extra);
-  const username =
-    requestContextService.getUsernameContext() ||
-    extra?.username ||
-    (requestContextService.getKeyKindContext() === 'system' ? 'system' : undefined) ||
-    undefined;
-  let appsRouteContext: McpAppsRouteContext;
-  const keyId = bearerKeyContext.keyId || extra?.keyId || undefined;
-  const keyName = bearerKeyContext.keyName || extra?.keyName || undefined;
-  const clientCredential = requestContextService.getRequestContext()?.credential;
-  const sourceIp = requestContextService.getRequestContext()?.remoteAddress || undefined;
-  let hostedReservation: HostedCreditReservation | null = null;
-  let releaseOnDemandToolCall: (() => void) | undefined;
-  let clientStateLease: ReturnType<typeof acquireClientState> | undefined;
-  const getToolStateId = (info: ServerInfo, legacyId: string | undefined): string | undefined => {
-    if (!requestContextService.getRequestContext()?.stateless) return legacyId;
-    clientStateLease ??= acquireClientState(info, request.params?._meta?.['openai/session']);
-    return clientStateLease.id;
-  };
-
-  const reserveHostedIfNeeded = async (serverName: string, toolName: string) => {
-    const hostedAuth = requestContextService.getHostedAuthContext();
-    assertHostedToolAllowed(hostedAuth, serverName, toolName);
-    hostedReservation = await reserveHostedToolCall(hostedAuth, serverName, toolName);
-  };
-
-  const settleHostedIfNeeded = async (input: {
-    success: boolean;
-    requestContent?: unknown;
-    responseContent?: unknown;
-  }) => {
-    const reservation = hostedReservation;
-    hostedReservation = null;
-    await settleHostedToolCall(reservation, {
-      success: input.success,
-      latencyMs: Date.now() - startTime,
-      requestContent: input.requestContent,
-      responseContent: input.responseContent,
-    });
-  };
-
-  try {
-    appsRouteContext = await getMcpAppsRouteContext(sessionId, group);
-
-    const lookupRoute = getGroupLookupName(group);
-    // Direct routes own their listed raw names, even when a tool is disabled.
-    const upstreamOwnsMetaName =
-      SMART_ROUTING_META_TOOL_NAMES.has(request.params.name) &&
-      !!lookupRoute &&
-      !isSmartRoutingGroup(group) &&
-      !(await findRouteGroup(lookupRoute)) &&
-      getVisibleServerByName(lookupRoute)?.tools.some(
-        (tool) => normalizeToolNameForServer(lookupRoute, tool.name) === request.params.name,
+    if (!serverVersionMatchesPinnedProfile(serverInfo.version)) {
+      logger.warn(
+        `[staging] ${serverInfo.name} reports version ${serverInfo.version}; expected the pinned staging profile`,
       );
-
-    // Special handling for smart routing tools
-    if (!upstreamOwnsMetaName && request.params.name === 'search_tools') {
-      const { query, limit = 10 } = request.params.arguments || {};
-      return await handleSearchToolsRequest(query, limit, sessionId, group);
+      continue;
     }
-
-    // Special handling for describe_tool (progressive disclosure mode)
-    if (!upstreamOwnsMetaName && request.params.name === 'describe_tool') {
-      const { toolName } = request.params.arguments || {};
-      return await handleDescribeToolRequest(toolName, sessionId, group);
-    }
-
-    // Special handling for call_tool
-    if (!upstreamOwnsMetaName && request.params.name === 'call_tool') {
-      const { toolName } = request.params.arguments || {};
-      if (!toolName) {
-        throw new Error('toolName parameter is required');
-      }
-
-      const { arguments: toolArgs } = request.params.arguments || {};
-      // Preserve legacy raw aggregate calls; explicit routes use the shared
-      // resolver so cached names still obey group filtering.
-      const singleServerAppsRoute = !getGroupLookupName(group) && !!appsRouteContext.serverInfo;
-      let targetServerInfo: ServerInfo | undefined;
-      let targetToolName = toolName;
-      let targetTool: Tool | undefined;
-      if (singleServerAppsRoute) {
-        targetServerInfo = appsRouteContext.serverInfo;
-      } else if (extra && extra.server) {
-        targetServerInfo = getVisibleServerByName(extra.server);
-      } else if (getGroupLookupName(group)) {
-        const groupTool = await resolveToolInGroup(group, toolName, appsRouteContext);
-        if (groupTool) {
-          targetServerInfo = groupTool.serverInfo;
-          targetToolName = groupTool.toolName;
-          targetTool = groupTool.tool;
-        }
-      } else {
-        // Find the first server that has this tool.
-        // On-demand servers may be sleeping (disconnected) but still advertise
-        // their cached tool list — include them as candidates.
-        targetServerInfo = getVisibleServerInfos().find(
-          (serverInfo) =>
-            serverInfo.enabled !== false &&
-            (serverInfo.status === 'connected' || serverInfo.config?.startOnDemand === true) &&
-            listsToolForRequester(serverInfo, toolName),
-        );
-      }
-
-      if (!targetServerInfo) {
-        throw new ToolUnavailableError(
-          `Tool not available: ${toolName}`,
-          classifyUnavailableReason(toolName),
-        );
-      }
-
-      setMetricsServer(targetServerInfo.name);
-      outcome.info = targetServerInfo;
-
-      // A sleeping on-demand server must not be started for a tool the requester may not
-      // call. When the cached tool list knows the tool, check it before waking anything.
-      if (
-        targetServerInfo.config?.startOnDemand &&
-        targetServerInfo.status !== 'connected' &&
-        targetServerInfo.tools.some((candidate) => candidate.name === targetToolName)
-      ) {
-        if (!findToolOnServer(targetServerInfo, targetToolName, singleServerAppsRoute)) {
-          throw new ToolUnavailableError(`Tool not available: ${toolName}`, 'tool-not-found');
-        }
-      }
-
-      // If the target is an on-demand server that is not yet running, wake it up now.
-      // Concurrent callers are serialised via ensureServerReady's singleton promise.
-      releaseOnDemandToolCall = beginOnDemandToolCall(targetServerInfo);
-      if (targetServerInfo.config?.startOnDemand && targetServerInfo.status !== 'connected') {
-        await ensureServerReady(targetServerInfo);
-        // Re-read status from the mutated serverInfo after async spawn
-        // Routing may have captured a tool from the persisted directory before wake.
-        targetTool = undefined;
-        const freshStatus = (targetServerInfo as ServerInfo).status;
-        if (freshStatus !== 'connected') {
-          throw new Error(
-            `Failed to start on-demand server '${targetServerInfo.name}' — check server logs`,
-          );
-        }
-      }
-
-      // Record activity timestamp for on-demand servers
-      targetServerInfo.lastUsedAt = Date.now();
-
-      // Check if the tool exists on the server
-      const tool =
-        targetTool ?? findToolOnServer(targetServerInfo, targetToolName, singleServerAppsRoute);
-      if (!tool) {
-        throw new ToolUnavailableError(`Tool not available: ${toolName}`, 'tool-not-found');
-      }
-      assertToolAvailableForRoute(tool, appsRouteContext);
-
-      // Handle OpenAPI servers differently
-      if (targetServerInfo.openApiClient) {
-        // For OpenAPI servers, use the OpenAPI client
-        const openApiClient = targetServerInfo.openApiClient;
-
-        // Use toolArgs if it has properties, otherwise fallback to request.params.arguments
-        const finalArgs = toolArgs && typeof toolArgs === 'object' ? toolArgs : {};
-
-        logger.log('Invoking OpenAPI tool', {
-          toolName: targetToolName,
-          serverName: targetServerInfo.name,
-          arguments: summarizeArgumentsForLogging(finalArgs),
-        });
-
-        // Remove server prefix from tool name if present
-        const cleanToolName = normalizeToolNameForServer(targetServerInfo.name, tool.name);
-
-        // Extract passthrough headers from extra or request context
-        let passthroughHeaders: Record<string, string> | undefined;
-        let requestHeaders: Record<string, string | string[] | undefined> | null = null;
-
-        // Try to get headers from extra parameter first (if available)
-        if (extra?.headers) {
-          requestHeaders = extra.headers;
-        } else {
-          // Fallback to request context service
-          const requestContextService = RequestContextService.getInstance();
-          requestHeaders = requestContextService.getHeaders();
-        }
-
-        if (requestHeaders && targetServerInfo.config?.openapi?.passthroughHeaders) {
-          passthroughHeaders = {};
-          for (const headerName of targetServerInfo.config.openapi.passthroughHeaders) {
-            if (!isSafePassthroughHeader(headerName)) continue;
-            // Handle different header name cases (Express normalizes headers to lowercase)
-            const headerValue =
-              requestHeaders[headerName] || requestHeaders[headerName.toLowerCase()];
-            if (headerValue) {
-              passthroughHeaders[headerName] = Array.isArray(headerValue)
-                ? headerValue[0]
-                : String(headerValue);
-            }
-          }
-        }
-
-        const stateId = targetServerInfo.config?.openapi?.cookieSession
-          ? getToolStateId(targetServerInfo, cookieSessionId)
-          : cookieSessionId;
-        if (targetServerInfo.config?.openapi?.cookieSession && !stateId) {
-          throw new Error(
-            `OpenAPI server '${targetServerInfo.name}' requires cookie-session state and is not yet available on stateless MCP requests`,
-          );
-        }
-
-        await reserveHostedIfNeeded(targetServerInfo.name, cleanToolName);
-        const result = await openApiClient.callTool(
-          cleanToolName,
-          withoutHiddenArguments(targetServerInfo, cleanToolName, finalArgs),
-          passthroughHeaders,
-          false,
-          stateId,
-        );
-        await settleHostedIfNeeded({
-          success: true,
-          requestContent: finalArgs,
-          responseContent: result,
-        });
-
-        logger.log('OpenAPI tool invocation result', {
-          serverName: targetServerInfo.name,
-          toolName: cleanToolName,
-          result: summarizeToolResultForLogging(result),
-        });
-
-        // Log successful activity
-        const duration = Date.now() - startTime;
-        await activityLogger.logToolCall({
-          server: targetServerInfo.name,
-          tool: cleanToolName,
-          duration,
-          status: 'success',
-          input: finalArgs,
-          output: result,
-          group,
-          username,
-          keyId,
-          keyName,
-          clientKind: clientCredential?.kind,
-          clientId: clientCredential?.id,
-          sourceIp,
-          hasCredentialTemplate: hasPersonalAuthentication(targetServerInfo.config),
-        });
-
-        return await maybeCompressToolResult(
-          {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify(result),
-              },
-            ],
-          },
-          {
-            serverName: targetServerInfo.name,
-            toolName: cleanToolName,
-            group,
-          },
-        );
-      }
-
-      // Call the tool on the target server (MCP servers)
-      // For servers with perSessionClient: true, use a per-session dedicated client
-      let isolatedCtx: IsolatedClientContext | undefined;
-      if (
-        targetServerInfo.config?.perSessionClient &&
-        !hasPersonalAuthentication(targetServerInfo.config)
-      ) {
-        const stateId = getToolStateId(targetServerInfo, sessionId);
-        if (!stateId) {
-          throw new Error(
-            `Server '${targetServerInfo.name}' requires per-session client isolation and is not yet available on stateless MCP requests`,
-          );
-        }
-        const isolated = await getOrCreateIsolatedClient(
-          stateId,
-          targetServerInfo,
-          extra.mcpReq && !requestContextService.getRequestContext()?.stateless
-            ? servers[sessionId]
-            : undefined,
-        );
-        isolatedCtx = {
-          sessionId: stateId,
-          client: isolated.client,
-          transport: isolated.transport,
-        };
-      } else if (!targetServerInfo.client) {
-        throw new Error(`Client not found for server: ${targetServerInfo.name}`);
-      }
-
-      // Use toolArgs if it has properties, otherwise fallback to request.params.arguments
-      const finalArgs = toolArgs && typeof toolArgs === 'object' ? toolArgs : {};
-
-      logger.log('Invoking tool', {
-        toolName: targetToolName,
-        serverName: targetServerInfo.name,
-        arguments: summarizeArgumentsForLogging(finalArgs),
-        perSessionClient: !!targetServerInfo.config?.perSessionClient,
-      });
-
-      const cleanToolName = normalizeToolNameForServer(targetServerInfo.name, tool.name);
-      await reserveHostedIfNeeded(targetServerInfo.name, cleanToolName);
-      const result = await callToolWithReconnect(
-        targetServerInfo,
-        {
-          name: cleanToolName,
-          arguments: finalArgs,
-        },
-        targetServerInfo.options || {},
-        1,
-        isolatedCtx,
-        extra,
-      );
-      await settleHostedIfNeeded({
-        success: !result.isError,
-        requestContent: finalArgs,
-        responseContent: result,
-      });
-
-      logger.log('Tool invocation result', {
-        serverName: targetServerInfo.name,
-        toolName: cleanToolName,
-        result: summarizeToolResultForLogging(result),
-      });
-
-      // Log successful activity
-      const duration = Date.now() - startTime;
-      await activityLogger.logToolCall({
-        server: targetServerInfo.name,
-        tool: cleanToolName,
-        duration,
-        status: result.isError ? 'error' : 'success',
-        input: finalArgs,
-        output: result,
-        group,
-        username,
-        keyId,
-        keyName,
-        clientKind: clientCredential?.kind,
-        clientId: clientCredential?.id,
-        sourceIp,
-        hasCredentialTemplate: hasPersonalAuthentication(targetServerInfo.config),
-        errorMessage: result.isError ? 'Tool returned error response' : undefined,
-      });
-
-      return await maybeCompressToolResult(result, {
-        serverName: targetServerInfo.name,
-        toolName: cleanToolName,
-        group,
-      });
-    }
-
-    // Regular tool handling
-    const lookupGroup = getGroupLookupName(group);
-    // Explicit routes share name resolution and group filtering regardless of
-    // Apps support; keep legacy raw aggregate calls compatible.
-    const singleServerAppsRoute = !getGroupLookupName(group) && !!appsRouteContext.serverInfo;
-    const groupTool =
-      !singleServerAppsRoute && lookupGroup
-        ? await resolveToolInGroup(group, request.params.name, appsRouteContext)
+    if (
+      serverInfo.tools.length === 0 &&
+      (serverInfo.config?.startOnDemand || hasCredentialTemplate(config))
+    ) {
+      // Config-only catalog (on-demand or per-user credential server): keep the
+      // configured parameter names, never guess. A credential server is never
+      // connected globally, so this is the only way its route lists the hub
+      // tools before the first per-user call.
+      const groupConfig = serverConfigsByName.get(serverInfo.name);
+      const selectedTools = Array.isArray(groupConfig?.tools)
+        ? new Set(groupConfig.tools)
         : undefined;
-    const serverInfo = singleServerAppsRoute
-      ? appsRouteContext.serverInfo
-      : (groupTool?.serverInfo ?? (lookupGroup ? undefined : getServerByTool(request.params.name)));
-    const routeToolName = groupTool?.toolName ?? request.params.name;
-    let tool =
-      groupTool?.tool ??
-      (serverInfo ? findToolOnServer(serverInfo, routeToolName, singleServerAppsRoute) : undefined);
-    if (!serverInfo || !tool) {
-      throw new ToolUnavailableError(
-        `Tool not available: ${request.params.name}`,
-        classifyUnavailableReason(request.params.name),
-      );
-    }
-    assertToolAvailableForRoute(tool, appsRouteContext);
-    setMetricsServer(serverInfo.name);
-    outcome.info = serverInfo;
-
-    // Wake the on-demand server before invoking the tool. It may be asleep with
-    // a cached tool list (visible above) but no live client. Mirrors the
-    // $smart call_tool path. See #1029.
-    releaseOnDemandToolCall = beginOnDemandToolCall(serverInfo);
-    if (serverInfo.config?.startOnDemand && serverInfo.status !== 'connected') {
-      await ensureServerReady(serverInfo);
-      tool = findToolOnServer(serverInfo, routeToolName, singleServerAppsRoute);
-      if (!tool)
-        throw new ToolUnavailableError(
-          `Tool not available: ${request.params.name}`,
-          'tool-not-found',
-        );
-      assertToolAvailableForRoute(tool, appsRouteContext);
-    }
-    serverInfo.lastUsedAt = Date.now();
-
-    // Handle OpenAPI servers differently
-    if (serverInfo.openApiClient) {
-      // For OpenAPI servers, use the OpenAPI client
-      const openApiClient = serverInfo.openApiClient;
-
-      // Remove server prefix from tool name if present
-      const cleanToolName = normalizeToolNameForServer(serverInfo.name, tool.name);
-
-      logger.log('Invoking OpenAPI tool', {
-        toolName: cleanToolName,
-        serverName: serverInfo.name,
-        arguments: summarizeArgumentsForLogging(request.params.arguments),
-      });
-
-      // Extract passthrough headers from extra or request context
-      let passthroughHeaders: Record<string, string> | undefined;
-      let requestHeaders: Record<string, string | string[] | undefined> | null = null;
-
-      // Try to get headers from extra parameter first (if available)
-      if (extra?.headers) {
-        requestHeaders = extra.headers;
-      } else {
-        // Fallback to request context service
-        const requestContextService = RequestContextService.getInstance();
-        requestHeaders = requestContextService.getHeaders();
-      }
-
-      if (requestHeaders && serverInfo.config?.openapi?.passthroughHeaders) {
-        passthroughHeaders = {};
-        for (const headerName of serverInfo.config.openapi.passthroughHeaders) {
-          if (!isSafePassthroughHeader(headerName)) continue;
-          // Handle different header name cases (Express normalizes headers to lowercase)
-          const headerValue =
-            requestHeaders[headerName] || requestHeaders[headerName.toLowerCase()];
-          if (headerValue) {
-            passthroughHeaders[headerName] = Array.isArray(headerValue)
-              ? headerValue[0]
-              : String(headerValue);
-          }
-        }
-      }
-
-      const finalArgs = request.params.arguments || {};
-      const stateId = serverInfo.config?.openapi?.cookieSession
-        ? getToolStateId(serverInfo, cookieSessionId)
-        : cookieSessionId;
-      if (serverInfo.config?.openapi?.cookieSession && !stateId) {
-        throw new Error(
-          `OpenAPI server '${serverInfo.name}' requires cookie-session state and is not yet available on stateless MCP requests`,
-        );
-      }
-
-      await reserveHostedIfNeeded(serverInfo.name, cleanToolName);
-      const result = await openApiClient.callTool(
-        cleanToolName,
-        withoutHiddenArguments(serverInfo, cleanToolName, finalArgs),
-        passthroughHeaders,
-        false,
-        stateId,
-      );
-      await settleHostedIfNeeded({
-        success: true,
-        requestContent: finalArgs,
-        responseContent: result,
-      });
-
-      logger.log('OpenAPI tool invocation result', {
-        serverName: serverInfo.name,
-        toolName: cleanToolName,
-        result: summarizeToolResultForLogging(result),
-      });
-
-      // Log successful activity
-      const duration = Date.now() - startTime;
-      await activityLogger.logToolCall({
-        server: serverInfo.name,
-        tool: cleanToolName,
-        duration,
-        status: 'success',
-        input: request.params.arguments,
-        output: result,
-        group,
-        username,
-        keyId,
-        keyName,
-        clientKind: clientCredential?.kind,
-        clientId: clientCredential?.id,
-        sourceIp,
-        hasCredentialTemplate: hasPersonalAuthentication(serverInfo.config),
-      });
-
-      return await maybeCompressToolResult(
-        {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result),
-            },
-          ],
-        },
-        {
+      const staged: StagingToolTarget[] = Object.entries(config.tools ?? {})
+        .filter(([toolName, toolConfig]) =>
+          (!selectedTools || selectedTools.has(toolName)) &&
+          toolConfig?.enabled !== false &&
+          toolConfig.fileStaging?.enabled,
+        )
+        .map(([toolName, toolConfig]) => ({
+          toolName,
+          inputParams: [...(toolConfig.fileStaging?.inputParams ?? [])],
+          outputParams: [...(toolConfig.fileStaging?.outputParams ?? [])],
+        }));
+      if (staged.length > 0) {
+        targets.push({
           serverName: serverInfo.name,
-          toolName: cleanToolName,
-          group,
-        },
-      );
-    }
-
-    // Handle MCP servers
-    // For servers with perSessionClient: true, use a per-session dedicated client
-    let isolatedCtx: IsolatedClientContext | undefined;
-    if (serverInfo.config?.perSessionClient && !hasPersonalAuthentication(serverInfo.config)) {
-      const stateId = getToolStateId(serverInfo, sessionId);
-      if (!stateId) {
-        throw new Error(
-          `Server '${serverInfo.name}' requires per-session client isolation and is not yet available on stateless MCP requests`,
-        );
+          serverId: resolveStagingServerId(config, serverInfo.name),
+          shared: config.staging?.shared === true,
+          tools: staged,
+        });
       }
-      const isolated = await getOrCreateIsolatedClient(
-        stateId,
-        serverInfo,
-        extra.mcpReq && !requestContextService.getRequestContext()?.stateless
-          ? servers[sessionId]
-          : undefined,
-      );
-      isolatedCtx = { sessionId: stateId, client: isolated.client, transport: isolated.transport };
-    } else if (!serverInfo.client) {
-      throw new Error(`Client not found for server: ${serverInfo.name}`);
+      continue;
     }
 
-    const cleanToolName = normalizeToolNameForServer(serverInfo.name, tool.name);
-    await reserveHostedIfNeeded(serverInfo.name, cleanToolName);
-    const result = await callToolWithReconnect(
-      serverInfo,
-      { ...request.params, name: cleanToolName },
-      serverInfo.options || {},
-      1,
-      isolatedCtx,
-      extra,
+    const runtimeNames = serverInfo.tools.map((tool) => tool.name);
+    let visibleTools = await filterToolsByConfig(serverInfo.name, serverInfo.tools);
+    visibleTools = await filterToolsByGroup(
+      lookupGroup,
+      serverInfo.name,
+      visibleTools,
+      serverConfigsByName.get(serverInfo.name),
     );
-    await settleHostedIfNeeded({
-      success: !result.isError,
-      requestContent: request.params.arguments,
-      responseContent: result,
-    });
-    logger.log('Tool call result', {
+    const staged: StagingToolTarget[] = [];
+    for (const tool of visibleTools) {
+      const toolConfig = findToolConfig(config.tools, serverInfo.name, tool.name, runtimeNames);
+      if (toolConfig?.enabled === false || !toolConfig?.fileStaging?.enabled) continue;
+      staged.push({
+        toolName: tool.name,
+        inputParams: [...(toolConfig.fileStaging.inputParams ?? [])],
+        outputParams: [...(toolConfig.fileStaging.outputParams ?? [])],
+      });
+    }
+    if (staged.length === 0) continue;
+    targets.push({
       serverName: serverInfo.name,
-      toolName: cleanToolName,
-      result: summarizeToolResultForLogging(result),
+      serverId: resolveStagingServerId(config, serverInfo.name),
+      shared: config.staging?.shared === true,
+      tools: staged,
     });
+  }
+  return targets;
+};
 
-    // Log successful activity
-    const duration = Date.now() - startTime;
-    await activityLogger.logToolCall({
-      server: serverInfo.name,
-      tool: cleanToolName,
-      duration,
-      status: result.isError ? 'error' : 'success',
-      input: request.params.arguments,
-      output: result,
-      group,
-      username,
-      keyId,
-      keyName,
-      clientKind: clientCredential?.kind,
-      clientId: clientCredential?.id,
-      sourceIp,
-      hasCredentialTemplate: hasPersonalAuthentication(serverInfo.config),
-      errorMessage: result.isError ? 'Tool returned error response' : undefined,
-    });
+const stagingErrorText = (error: unknown): string =>
+  // Only ledger errors are user-safe; an fs/DB message can carry absolute paths.
+  error instanceof StagingError ? error.message : 'File staging request failed';
 
-    return await maybeCompressToolResult(result, {
-      serverName: serverInfo.name,
-      toolName: cleanToolName,
-      group,
-    });
-  } catch (error) {
-    const unavailable =
-      error instanceof ToolUnavailableError
-        ? { message: error.message, reason: error.reason }
-        : undefined;
-    const activityToolName = getActivityToolNameFromRequest(request);
-    logger.error('Error handling CallToolRequest', {
-      group,
-      username,
-      callerId: keyId,
-      callerLabel: keyName,
-      toolName: activityToolName,
-      ...summarizeErrorForLogging(error),
-      ...(unavailable ? { reason: unavailable.reason } : {}),
-    });
+/** Prepend the hub's virtual tools when the route has a staging target. */
+const withStagingTools = async (
+  group: string | undefined,
+  tools: Tool[],
+  extra: any,
+): Promise<Tool[]> => {
+  // A route with no resolvable principal (system key, anonymous, hosted
+  // identity the hub cannot map) must not advertise tools it would refuse.
+  if (!stagingAskUsername(extra)) return tools;
+  const targets = await resolveStagingTargets(group);
+  if (targets.length === 0) return tools;
+  const shadowed = tools.filter((tool) => isReservedStagingName(tool.name));
+  if (shadowed.length > 0) {
+    // The hub name wins and fails closed, so the upstream tool is unreachable;
+    // never let a member silently impersonate a hub built-in.
+    logger.warn(
+      `[staging] upstream tools shadowed by the reserved hub namespace: ${shadowed
+        .map((tool) => tool.name)
+        .join(', ')}`,
+    );
+  }
+  // The reserved namespace always resolves to the hub definition: an upstream
+  // tool of the same name is dropped, never listed with a schema that would
+  // route somewhere else.
+  const injected = STAGING_TOOL_DEFINITIONS.map((tool) => ({
+    name: tool.name,
+    title: tool.title,
+    description: tool.description,
+    inputSchema: tool.inputSchema as Tool['inputSchema'],
+  }));
+  return [...injected, ...tools.filter((tool) => !isReservedStagingName(tool.name))];
+};
 
-    // Log error activity
-    const duration = Date.now() - startTime;
-    await settleHostedIfNeeded({
-      success: false,
-      requestContent: getActivityInputFromToolRequest(request),
-      responseContent: { error: formatErrorForLogging(error) },
-    });
-    const serverInfo =
-      (typeof extra?.server === 'string' ? getServerByName(extra.server) : undefined) ||
-      getServerByTool(activityToolName);
-    const cleanToolName = stripToolServerPrefix(activityToolName, serverInfo?.name);
-
-    await activityLogger.logToolCall({
-      server: serverInfo?.name || 'unknown',
-      tool: cleanToolName,
-      duration,
-      status: 'error',
-      input: getActivityInputFromToolRequest(request),
-      group,
-      username,
-      keyId,
-      keyName,
-      clientKind: clientCredential?.kind,
-      clientId: clientCredential?.id,
-      sourceIp,
-      hasCredentialTemplate: hasPersonalAuthentication(serverInfo?.config),
-      // The reason is an internal diagnostic; the caller-facing message stays
-      // identical for hidden and nonexistent targets.
-      errorMessage: unavailable
-        ? `${unavailable.message} (reason: ${unavailable.reason})`
-        : formatErrorForLogging(error),
-      statusCode: unavailable?.reason,
-    });
-
-    // A tool above the user's own risk ceiling is answered like a status: what to change, and
-    // where. Only reachable for tools the requester may otherwise use.
-    if (error instanceof ToolRiskNotEnabledError) {
+const handleHubStagingCall = async (request: any, extra: any) => {
+  const name = request?.params?.name;
+  if (!isStagingToolName(name)) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: 'Unknown hub built-in tool' }],
+    };
+  }
+  const settings = await getFileStagingSettings();
+  if (!settings.enabled || !isStagingRuntimeSupported()) {
+    return { isError: true, content: [{ type: 'text', text: 'File staging is not enabled' }] };
+  }
+  const group = getMcpRequestGroup(extra);
+  const username = stagingAskUsername(extra);
+  try {
+    const principal = await resolveStagingPrincipal(username);
+    const targets = await resolveStagingTargets(group);
+    if (name === 'mcphub_file_upload' && targets.length === 0) {
       return {
-        content: [{ type: 'text', text: error.message }],
         isError: true,
-        _meta: {
-          [STATUS_META_KEY]: {
-            server: error.server,
-            code: RISK_NOT_ENABLED_CODE,
-            action: ENABLE_RISK_ACTION,
-            risk: error.risk,
-          },
-        },
+        content: [{ type: 'text', text: 'This route has no staging-enabled stdio server' }],
       };
     }
-
-    // For unavailable-target errors, surface exactly the unified message (no
-    // error-class name, no reason) so hidden vs nonexistent is indistinguishable.
-    const safeErrorText = unavailable ? unavailable.message : formatErrorForLogging(error);
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: ${safeErrorText}`,
-        },
-      ],
-      isError: true,
-    };
-  } finally {
-    clientStateLease?.release();
-    releaseOnDemandToolCall?.();
+    const store = await getStagingStateStore();
+    // Activity logging is deliberately bypassed (no base64/ref payloads); this
+    // line is the audit trail for the hub's own tools.
+    // Metadata only: no base64 payloads, filenames or refs in the log.
+    logger.log('[staging] hub tool call', {
+      tool: name,
+      username: principal.username,
+      group,
+      hasRef: typeof request?.params?.arguments?.ref === 'string',
+    });
+    return await executeStagingTool(name, request?.params?.arguments ?? {}, {
+      targets: targets.map((target) => ({
+        serverName: target.serverName,
+        serverId: target.serverId,
+        shared: target.shared,
+      })),
+      principal,
+      settings,
+      store,
+      createDownloadUrl: async (ref) => {
+        const token = await store.createDownloadToken(
+          ref,
+          principal.ownerHash,
+          settings.downloadTtlSeconds,
+        );
+        const systemConfig = await getSystemConfigDao().get();
+        // A remote client cannot resolve the hub's localhost: staging links
+        // require the configured install base URL (design §8.1).
+        const baseUrl = resolveInstallBaseUrl(systemConfig);
+        // The dashboard default is localhost:3000, which no remote MCP client
+        // can resolve; minting a link on it fails later and silently.
+        if (!baseUrl || baseUrl.replace(/\/$/, '') === DEFAULT_INSTALL_BASE_URL) {
+          throw new StagingError(
+            'invalid-ref',
+            'Downloads require a configured install.baseUrl (the localhost default is not reachable by clients)',
+          );
+        }
+        return {
+          downloadUrl: `${baseUrl.replace(/\/$/, '')}${config.basePath}/staging/download/${token}`,
+          expiresAt: new Date(Date.now() + settings.downloadTtlSeconds * 1000).toISOString(),
+        };
+      },
+    });
+  } catch (error) {
+    return { isError: true, content: [{ type: 'text', text: stagingErrorText(error) }] };
   }
 };
+
+const {
+  handleListToolsRequestImpl,
+  handleCallToolRequestImpl: callToolImpl,
+  resolvePinnedSmartRoutingServers,
+} = createToolHandlers({
+  getVisibleServerInfos,
+  getVisibleServerByName,
+  getServerByName: (...args) => getServerByName(...args),
+  getDownstreamServer: (sessionId) => servers[sessionId],
+  getMcpAppsRouteContext,
+  getFilteredServerInfosForGroup: (...args) => getFilteredServerInfosForGroup(...args),
+  findRouteGroup: (...args) => findRouteGroup(...args),
+  filterToolsByConfig,
+  filterToolsByGroup: (...args) => filterToolsByGroup(...args),
+  resolveDescriptionOverride,
+  classifyUnavailableReason,
+  beginOnDemandToolCall,
+  ensureServerReady,
+  acquireClientState,
+  getOrCreateIsolatedClient,
+  callToolWithReconnect,
+  withoutHiddenArguments,
+  withStagingTools,
+  assessToolRisk: assessServerToolRisk,
+  listsToolForRequester,
+  filterToolsByRisk,
+});
 
 // Reads this call's own outcome, on every route, to keep the user's remembered state for
 // the server current. A tool result the upstream marks as a rejected credential keeps
 // its content; the status is added alongside it. Nothing else about the result changes.
 const handleCallToolRequestImpl = async (request: any, extra: any) => {
-  const outcome: { info?: ServerInfo } = {};
-  const result = await callToolImpl(request, extra, outcome);
+  const outcome: ToolCallOutcome = {};
+  const result: any = await callToolImpl(request, extra, outcome);
   const user = UserContextService.getInstance().getCurrentUser();
   if (!outcome.info || !user?.username || !isWorkspaceEnabled()) return result;
   // Only a personal credential can be "rejected" for this user; a shared server's tool
@@ -5413,441 +4301,35 @@ const handleCallToolRequestImpl = async (request: any, extra: any) => {
   };
 };
 
-const handleGetPromptRequestImpl = async (request: any, extra: any) => {
-  try {
-    const { name, arguments: promptArgs } = request.params;
-    const group = getMcpRequestGroup(extra);
+const { handleGetPromptRequestImpl, handleListPromptsRequestImpl } = createPromptHandlers({
+  getVisibleServerInfos,
+  getVisibleServerByName,
+  getFilteredServerInfosForGroup: (...args) => getFilteredServerInfosForGroup(...args),
+  filterPromptsByGroup: (...args) => filterPromptsByGroup(...args),
+  classifyUnavailableReason,
+});
 
-    // Check built-in prompts first
-    const builtinPrompt = !extra?.server && (await getBuiltinPromptDao().findByName(name));
-    if (builtinPrompt && builtinPrompt.enabled !== false) {
-      // Perform {{param}} template substitution
-      let content = builtinPrompt.template;
-      if (promptArgs) {
-        for (const [key, value] of Object.entries(promptArgs)) {
-          content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(value));
-        }
-      }
-      return {
-        messages: [
-          {
-            role: 'user',
-            content: { type: 'text', text: content },
-          },
-        ],
-      };
-    }
-
-    let server: ServerInfo | undefined;
-    let promptNameForServer = name;
-    const lookupGroup = getGroupLookupName(group);
-    if (extra && extra.server) {
-      const candidate = getVisibleServerByName(extra.server);
-      const prompt = candidate && (await findEnabledPromptOnServer(candidate, name, true));
-      if (prompt) {
-        server = candidate;
-        promptNameForServer = prompt.name;
-      }
-    } else if (lookupGroup) {
-      const groupPrompt = await resolvePromptInGroup(lookupGroup, name);
-      if (groupPrompt) {
-        server = groupPrompt.serverInfo;
-        promptNameForServer = groupPrompt.promptName;
-      }
-    } else {
-      for (const candidate of getVisibleServerInfos()) {
-        const prompt = await findEnabledPromptOnServer(candidate, name);
-        if (prompt) {
-          server = candidate;
-          promptNameForServer = prompt.name;
-          break;
-        }
-      }
-    }
-    if (!server) {
-      throw new ToolUnavailableError(
-        `Prompt not available: ${name}`,
-        classifyUnavailableReason(name),
-      );
-    }
-
-    // Remove server prefix from prompt name if present
-    const separator = getNameSeparator();
-    const prefix = `${server.name}${separator}`;
-    const cleanPromptName = promptNameForServer.startsWith(prefix)
-      ? promptNameForServer.substring(prefix.length)
-      : promptNameForServer;
-
-    const promptParams = {
-      name: cleanPromptName || '',
-      arguments: promptArgs,
-    };
-    // Log the final promptParams
-    logger.log('Calling getPrompt with params', {
-      name: cleanPromptName || '',
-      arguments: summarizeArgumentsForLogging(promptArgs),
-    });
-    const prompt = await server.client?.getPrompt(promptParams);
-    logger.log('Received prompt', summarizePromptForLogging(prompt));
-    if (!prompt) {
-      throw new Error(`Prompt not found: ${cleanPromptName}`);
-    }
-
-    return prompt;
-  } catch (error) {
-    const unavailable =
-      error instanceof ToolUnavailableError
-        ? { message: error.message, reason: error.reason }
-        : undefined;
-    logger.error('Error handling GetPromptRequest', {
-      ...summarizeErrorForLogging(error),
-      ...(unavailable ? { reason: unavailable.reason } : {}),
-    });
-    // Surface exactly the unified message for unavailable targets (see #1103).
-    const safeErrorText = unavailable ? unavailable.message : formatErrorForLogging(error);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: ${safeErrorText}`,
-        },
-      ],
-      isError: true,
-    };
-  }
-};
-
-const handleListPromptsRequestImpl = async (_: any, extra: any) => {
-  const group = getMcpRequestGroup(extra);
-  const lookupGroup = getGroupLookupName(group);
-  logger.log(`Handling ListPromptsRequest for group: ${group}`);
-
-  // Start with built-in prompts (only enabled ones)
-  const builtinPrompts = await getBuiltinPromptDao().findEnabled();
-  const allPrompts: any[] = builtinPrompts.map((bp) =>
-    normalizePromptForList({
-      name: bp.name,
-      title: bp.title,
-      description: bp.description,
-      arguments: bp.arguments,
-    }),
-  );
-
-  const { filteredServerInfos, serverConfigsByName } =
-    await getFilteredServerInfosForGroup(lookupGroup);
-
-  for (const serverInfo of filteredServerInfos) {
-    if (serverInfo.prompts && serverInfo.prompts.length > 0) {
-      const groupServerConfig = serverConfigsByName.get(serverInfo.name);
-
-      // Filter prompts based on server configuration
-      const serverConfig = await getServerDao().findById(serverInfo.name);
-
-      let enabledPrompts = serverInfo.prompts;
-      if (serverConfig && serverConfig.prompts) {
-        enabledPrompts = serverInfo.prompts.filter((prompt: any) => {
-          const promptConfig = findToolConfig(
-            serverConfig.prompts,
-            serverInfo.name,
-            prompt.name,
-            serverInfo.prompts.map((item) => item.name),
-          );
-          // If prompt is not in config, it's enabled by default
-          return promptConfig?.enabled !== false;
-        });
-      }
-
-      enabledPrompts = await filterPromptsByGroup(
-        lookupGroup,
-        serverInfo.name,
-        enabledPrompts,
-        groupServerConfig,
-      );
-
-      // Apply custom descriptions from server configuration
-      const promptsWithCustomDescriptions = enabledPrompts.map((prompt: any) => {
-        const promptConfig = serverConfig?.prompts?.[prompt.name];
-        return normalizePromptForList({
-          ...prompt,
-          name: projectNameForGroup(prompt.name, serverInfo.name, groupServerConfig),
-          description: promptConfig?.description || prompt.description, // Use custom description if available
-        });
-      });
-
-      allPrompts.push(...promptsWithCustomDescriptions);
-    }
-  }
-
-  return {
-    prompts: allPrompts,
-  };
-};
-
-const handleListResourcesRequestImpl = async (_: any, extra: any) => {
-  const sessionId = extra.sessionId || '';
-  const group = getMcpRequestGroup(extra);
-  const lookupGroup = getGroupLookupName(group);
-  logger.log(`Handling ListResourcesRequest for group: ${group}`);
-  const appsRouteContext = await getMcpAppsRouteContext(sessionId, group);
-
-  // Start with built-in resources (only enabled ones)
-  const builtinResources = await getBuiltinResourceDao().findEnabled();
-  const allResources: any[] = builtinResources.map((br) =>
-    normalizeResourceForList({
-      uri: br.uri,
-      name: br.name,
-      description: br.description,
-      mimeType: br.mimeType,
-    }),
-  );
-
-  const { filteredServerInfos, serverConfigsByName } =
-    await getFilteredServerInfosForGroup(lookupGroup);
-
-  for (const serverInfo of filteredServerInfos) {
-    if (serverInfo.resources && serverInfo.resources.length > 0) {
-      // Filter resources based on server configuration
-      const serverConfig = await getServerDao().findById(serverInfo.name);
-
-      let enabledResources = serverInfo.resources;
-      if (serverConfig && serverConfig.resources) {
-        enabledResources = serverInfo.resources.filter((resource: any) => {
-          const resourceConfig = serverConfig.resources?.[resource.uri];
-          return resourceConfig?.enabled !== false;
-        });
-      }
-
-      enabledResources = await filterResourcesByGroup(
-        lookupGroup,
-        serverInfo.name,
-        enabledResources,
-        serverConfigsByName.get(serverInfo.name),
-      );
-
-      // Apply custom descriptions from server configuration
-      const resourcesWithCustomDescriptions = enabledResources.map((resource: any) => {
-        const resourceConfig = serverConfig?.resources?.[resource.uri];
-        const normalizedResource = normalizeResourceForList({
-          ...resource,
-          description: resourceConfig?.description || resource.description,
-        });
-        return appsRouteContext.enabled
-          ? normalizedResource
-          : stripMcpAppsMetadata(normalizedResource);
-      });
-
-      allResources.push(...resourcesWithCustomDescriptions);
-    }
-  }
-
-  return {
-    resources: allResources,
-  };
-};
-
-const handleListResourceTemplatesRequestImpl = async (_: any, extra: any) => {
-  const sessionId = extra.sessionId || '';
-  const group = getMcpRequestGroup(extra);
-  const lookupGroup = getGroupLookupName(group);
-  logger.log(`Handling ListResourceTemplatesRequest for group: ${group}`);
-  const appsRouteContext = await getMcpAppsRouteContext(sessionId, group);
-
-  const { filteredServerInfos, serverConfigsByName } = await getFilteredServerInfosForGroup(
-    lookupGroup,
-    {
-      requireClient: true,
-    },
-  );
-
-  const snapshots: object[] = [];
-  const results = await Promise.allSettled(
-    filteredServerInfos.map(async (serverInfo) => {
-      if (!serverInfo.client?.listResourceTemplates) {
-        return [];
-      }
-
-      const templates = await serverInfo.client.listResourceTemplates({}, serverInfo.options || {});
-      snapshots.push(templates.resourceTemplates);
-      const filteredTemplates = await filterResourceTemplatesByGroup(
-        lookupGroup,
-        serverInfo.name,
-        templates.resourceTemplates || [],
-        serverConfigsByName.get(serverInfo.name),
-      );
-      return appsRouteContext.enabled
-        ? filteredTemplates
-        : filteredTemplates.map((template) => stripMcpAppsMetadata(template));
-    }),
-  );
-
-  const resourceTemplates = results.flatMap((result) =>
-    result.status === 'fulfilled' ? result.value : [],
-  );
-  if (
-    results.every((result) => result.status === 'fulfilled') &&
-    snapshots.length === filteredServerInfos.length
-  ) {
-    combineListFreshness(snapshots, resourceTemplates);
-  }
-  return { resourceTemplates };
-};
-
-const handleReadResourceRequestImpl = async (request: any, extra: any) => {
-  try {
-    const { uri } = request.params;
-    const sessionId = extra.sessionId || '';
-    const group = getMcpRequestGroup(extra);
-    const lookupGroup = getGroupLookupName(group);
-    const appsRouteContext = await getMcpAppsRouteContext(sessionId, group);
-
-    // Check built-in resources first
-    const builtinResource = await getBuiltinResourceDao().findByUri(uri);
-    if (builtinResource && builtinResource.enabled !== false) {
-      return {
-        contents: [
-          {
-            uri: builtinResource.uri,
-            mimeType: builtinResource.mimeType || 'text/plain',
-            text: builtinResource.content,
-          },
-        ],
-      };
-    }
-
-    const { filteredServerInfos, serverConfigsByName } =
-      await getFilteredServerInfosForGroup(lookupGroup);
-
-    let server: ServerInfo | undefined;
-    for (const serverInfo of filteredServerInfos) {
-      if (serverInfo.status !== 'connected') {
-        continue;
-      }
-      const serverConfig = await getServerDao().findById(serverInfo.name);
-      let enabledResources = serverInfo.resources;
-      if (serverConfig?.resources) {
-        enabledResources = enabledResources.filter(
-          (resource) => serverConfig.resources?.[resource.uri]?.enabled !== false,
-        );
-      }
-      enabledResources = await filterResourcesByGroup(
-        lookupGroup,
-        serverInfo.name,
-        enabledResources,
-        serverConfigsByName.get(serverInfo.name),
-      );
-      if (enabledResources.some((resource) => resource.uri === uri)) {
-        server = serverInfo;
-        break;
-      }
-    }
-
-    let result: any;
-    // A cached SDK body carries its original TTL, not the remaining lifetime.
-    // Fetch modern reads afresh so forwarding the TTL cannot renew stale content.
-    const readOptions = RequestContextService.getInstance().getRequestContext()?.stateless
-      ? { cacheMode: 'bypass' as const }
-      : undefined;
-
-    if (server?.client) {
-      // A widget URI the upstream also lists in resources/list is read here, not in
-      // the fallback loop below, so it needs the same idle guard: otherwise an
-      // idle timer armed by an earlier read can close an on-demand upstream while
-      // this read is still in flight.
-      const releaseOnDemandRead = beginOnDemandToolCall(server);
-      try {
-        result = readOptions
-          ? await server.client.readResource({ uri }, readOptions)
-          : await server.client.readResource({ uri });
-      } finally {
-        releaseOnDemandRead?.();
-      }
-      if (!result || !Array.isArray(result.contents)) {
-        throw new Error(`Failed to read resource: ${uri}`);
-      }
-    } else if (appsRouteContext.enabled && uri.startsWith('ui://')) {
-      // Not pre-registered in resources/list — common for MCP Apps servers
-      // that generate ui:// resources dynamically at tool-call time. A
-      // single-server route goes straight to that server. A multi-server
-      // route has no way to know which upstream owns the URI up front, so
-      // probe each connected candidate in turn and use the first one that
-      // answers.
-      const candidates = appsRouteContext.serverInfo
-        ? [appsRouteContext.serverInfo]
-        : (appsRouteContext.serverInfos ?? []);
-
-      for (const candidate of candidates) {
-        const config = await getServerDao().findById(candidate.name);
-        if (config?.resources?.[uri]?.enabled === false) continue;
-        const allowed = await filterResourcesByGroup(
-          lookupGroup,
-          candidate.name,
-          [{ uri }],
-          serverConfigsByName.get(candidate.name),
-        );
-        if (allowed.length === 0) continue;
-        // An on-demand candidate may be idle yet still advertise its cached widget
-        // link, so a host can read the ui:// resource before any tool call has
-        // woken it. Hold off its idle shutdown for every read, awake or not, so an
-        // armed idle timer or an overlapping read cannot close the server mid-read,
-        // then wake it the same way the call path does if it is not running.
-        let releaseOnDemandRead: (() => void) | undefined;
-        try {
-          if (candidate.config?.startOnDemand && candidate.enabled !== false) {
-            releaseOnDemandRead = beginOnDemandToolCall(candidate);
-            if (!candidate.client) {
-              await ensureServerReady(candidate);
-            }
-            candidate.lastUsedAt = Date.now();
-          }
-          if (!candidate.client) {
-            continue;
-          }
-          const candidateResult = readOptions
-            ? await candidate.client.readResource({ uri }, readOptions)
-            : await candidate.client.readResource({ uri });
-          if (candidateResult && Array.isArray(candidateResult.contents)) {
-            result = candidateResult;
-            break;
-          }
-        } catch {
-          // This candidate doesn't own the resource (or failed to wake); try the next one.
-        } finally {
-          releaseOnDemandRead?.();
-        }
-      }
-
-      if (!result) {
-        throw new Error(`Resource not found: ${uri}`);
-      }
-    } else {
-      throw new Error(`Resource not found: ${uri}`);
-    }
-
-    return appsRouteContext.enabled
-      ? result
-      : {
-          ...result,
-          contents: result.contents.map((content: { _meta?: Record<string, unknown> }) =>
-            stripMcpAppsMetadata(content),
-          ),
-        };
-  } catch (error) {
-    logger.error('Error handling ReadResourceRequest', summarizeErrorForLogging(error));
-    const safeErrorText = formatErrorForLogging(error);
-    return {
-      contents: [
-        {
-          uri: request.params?.uri || '',
-          mimeType: 'text/plain',
-          text: `Error: ${safeErrorText}`,
-        },
-      ],
-    };
-  }
-};
+const {
+  handleListResourcesRequestImpl,
+  handleListResourceTemplatesRequestImpl,
+  handleReadResourceRequestImpl,
+} = createResourceHandlers({
+  getMcpAppsRouteContext,
+  getGroupLookupName,
+  getFilteredServerInfosForGroup: (...args) => getFilteredServerInfosForGroup(...args),
+  getGroupServerConfig: (...args) => getGroupServerConfig(...args),
+  filterResourcesByGroup,
+  filterResourceTemplatesByGroup,
+  isHubSelfConnection,
+  updateServerResourceTemplatesCache,
+  refreshServerResourceTemplatesCache,
+  beginOnDemandToolCall,
+  ensureServerReady,
+});
 
 // Preserve credential-safe errors for personal clients in every discovery scope.
 const personalClientMethods = new Set([
+  'connect',
   'callTool',
   'getPrompt',
   'readResource',
@@ -5856,12 +4338,40 @@ const personalClientMethods = new Set([
   'listResources',
   'listResourceTemplates',
 ]);
+
+const protectReplicaOAuthClient = <T extends object>(
+  client: T,
+  name: string,
+  definition: ServerConfig,
+): T => {
+  if (!isReplicaMode() || !definition.url || !definition.oauth) return client;
+  return new Proxy(client, {
+    get(target, property) {
+      const value = Reflect.get(target, property);
+      if (typeof value !== 'function') return value;
+      if (!personalClientMethods.has(String(property))) return value.bind(target);
+      return (...args: unknown[]) => {
+        const personal = personalOAuthContexts.get(definition);
+        const scope = JSON.stringify(['oauth', name, personal?.username || 'shared']);
+        return withReplicaLock(scope, async () => {
+          if (personal) {
+            await personal.assertCurrent();
+            const binding = await getCredentialBindingDao().get(name, personal.username);
+            if (binding?.encryptedValues !== personal.version)
+              throw new Error('Personal authorization changed; retry with current credentials');
+          }
+          return value.apply(target, args);
+        });
+      };
+    },
+  });
+};
 const protectPersonalClient = <T extends object>(
   client: T,
   info: ServerInfo,
   resolvedConfig: ServerConfig,
 ): T =>
-  new Proxy(client, {
+  new Proxy(protectReplicaOAuthClient(client, info.name, resolvedConfig), {
     get(target, property) {
       const value = Reflect.get(target, property);
       if (typeof value !== 'function') return value;
@@ -5895,8 +4405,10 @@ const createPrincipalRuntime = async (
 ): Promise<ServerInfo | undefined> => {
   const info: ServerInfo = {
     name,
+    principalUsername: scope?.username,
     owner: resolvedConfig.owner,
     visibility: resolvedConfig.visibility,
+    sharedWithUserGroups: resolvedConfig.sharedWithUserGroups,
     sharedWithUsers: resolvedConfig.sharedWithUsers,
     enabled: true,
     config: resolvedConfig,
@@ -5920,7 +4432,13 @@ const createPrincipalRuntime = async (
   }
   try {
     if (resolvedConfig.type === 'openapi') {
-      const client = new OpenAPIClient(resolvedConfig);
+      const personal = personalOAuthContexts.get(resolvedConfig);
+      const provider = personal
+        ? await MCPHubOAuthProvider.create(name, resolvedConfig)
+        : undefined;
+      const client = new OpenAPIClient(resolvedConfig, {
+        getPersonalAccessToken: provider?.openApiAccessToken.bind(provider),
+      });
       await client.initialize();
       info.openApiClient = protectPersonalClient(client, info, resolvedConfig);
       info.tools = client.getTools().map((tool) => ({
@@ -5929,7 +4447,7 @@ const createPrincipalRuntime = async (
         inputSchema: cleanInputSchema(tool.inputSchema),
       }));
     } else {
-      const transport = await createTransportFromConfig(name, resolvedConfig);
+      const transport = await createTransportFromConfig(name, resolvedConfig, scope?.username);
       const client = new LegacyMcpClient(
         { name: `mcp-client-${name}`, version: '1.0.0' },
         {
@@ -5940,10 +4458,10 @@ const createPrincipalRuntime = async (
       );
       info.transport = transport;
       info.client = protectPersonalClient(client, info, resolvedConfig);
-      await client.connect(transport, resolvedConfig.options || {});
+      await info.client.connect(transport, resolvedConfig.options || {});
       const capabilities = client.getServerCapabilities();
       if (capabilities?.tools) {
-        const { tools } = await client.listTools({}, resolvedConfig.options);
+        const { tools } = await info.client.listTools({}, resolvedConfig.options);
         info.tools = preserveListFreshness(
           tools,
           tools.map((tool) => normalizeToolForCache(name, tool)),
@@ -5961,8 +4479,15 @@ const createPrincipalRuntime = async (
         );
       }
       if (capabilities?.resources) {
+        // The raw client: the protected one holds the replica credential lock while listing.
+        void refreshServerResourceTemplatesCache(
+          () => info,
+          client,
+          resolvedConfig.options,
+          info.client,
+        );
         const { resources } = await client.listResources({}, resolvedConfig.options);
-        info.resources = preserveListFreshness(resources, resources.map(normalizeResourceForCache));
+        info.resources = preserveListFreshness(resources, normalizeResourcesForCache(resources));
       }
       info.version = client.getServerVersion()?.version;
       // Record the resolved npx/uvx package version backing this server.
@@ -6044,9 +4569,7 @@ const withModernLists =
   (handler: McpHandler, fields: Array<Exclude<UpstreamList, 'templates'>>): McpHandler =>
   async (request, extra) => {
     if (
-      !(principalServerScope.getStore() ?? serverInfos).some(
-        (info) => info.client?.getProtocolEra?.() === 'modern',
-      )
+      !getRequestServers(serverInfos).some((info) => info.client?.getProtocolEra?.() === 'modern')
     ) {
       return handler(request, extra);
     }
@@ -6085,9 +4608,7 @@ const withModernLists =
         .sort((a, b) => b.prefix.length - a.prefix.length);
       if (targets.length) selected = [targets[0].info];
     }
-    const scoped = new Map(
-      (principalServerScope.getStore() ?? serverInfos).map((info) => [info.name, info]),
-    );
+    const scoped = createRequestServerProjection(serverInfos);
     const requestClients: Client[] = [];
     try {
       await Promise.all(
@@ -6102,7 +4623,11 @@ const withModernLists =
             ) {
               // Reuse neither snapshots nor pending work across forwarded identities.
               // A disposable modern client also isolates SDK tool definitions and read caches.
-              const transport = await createTransportFromConfig(info.name, serverConfig);
+              const transport = await createTransportFromConfig(
+                info.name,
+                serverConfig,
+                info.principalUsername,
+              );
               const client = new LegacyMcpClient(
                 { name: `mcp-client-${info.name}`, version: '1.0.0' },
                 {
@@ -6140,7 +4665,7 @@ const withModernLists =
           }
         }),
       );
-      return await principalServerScope.run([...scoped.values()], () => handler(request, extra));
+      return await withRequestServers([...scoped.values()], () => handler(request, extra));
     } finally {
       await Promise.all(
         [
@@ -6161,7 +4686,15 @@ const withModernLists =
 
 type McpOperation = 'list' | 'tools-list' | 'tool' | 'prompt' | 'resource';
 
-const STATUS_META_KEY = 'mcphub/status';
+// Every server the requester may see, ignoring selection, pause and maintenance (those are
+// what the status gates report). A bearer key's excluded servers stay hidden here too.
+const getAccessibleServerInfos = (): ServerInfo[] => {
+  const visible = getDataService().filterData(serverInfos);
+  const excludedServers = RequestContextService.getInstance().getBearerKeyExclusions();
+  if (!excludedServers?.length) return visible;
+  const excluded = new Set(excludedServers);
+  return visible.filter((info) => !excluded.has(info.name));
+};
 
 const statusSubjectOf = (info: ServerInfo): UserServerStatusSubject => ({
   name: info.name,
@@ -6202,7 +4735,7 @@ const findWorkspaceCallTarget = (
   selected: Set<string>,
   username: string,
 ): ServerInfo | undefined => {
-  const visible = getDataService().filterData(serverInfos);
+  const visible = getAccessibleServerInfos();
   const lookupGroup = getGroupLookupName(getMcpRequestGroup(extra));
   if (lookupGroup) return visible.find((info) => info.name === lookupGroup);
 
@@ -6323,7 +4856,7 @@ const findAccessCallTargets = async (
   operation: McpOperation,
   username: string,
 ): Promise<ServerInfo[]> => {
-  const visible = getDataService().filterData(serverInfos);
+  const visible = getAccessibleServerInfos();
   if (typeof extra?.server === 'string')
     return visible.filter((info) => info.name === extra.server);
   const lookupGroup = getGroupLookupName(getMcpRequestGroup(extra));
@@ -6518,7 +5051,7 @@ const withPrincipalRuntimes =
     if (!templated.length) return handler(request, extra);
     const user = UserContextService.getInstance().getCurrentUser() as RequestPrincipal | null;
     const releases: Array<() => void> = [];
-    const scoped = new Map(serverInfos.map((info) => [info.name, info]));
+    const scoped = createRequestServerProjection(serverInfos);
     const failures = new Map<string, Error>();
     const ineligible =
       !user?.username ||
@@ -6611,9 +5144,25 @@ const withPrincipalRuntimes =
               : { ...request, params: { ...request.params, name: `${prefix}${requestedName}` } };
         }
       }
-      return await principalServerScope.run([...scoped.values()], () =>
+      const result = await withRequestServers([...scoped.values()], () =>
         handler(resolvedRequest, extra),
       );
+      if (operation === 'tools-list' && result.tools?.length === 0) {
+        const authorizationFailures = [...failures].filter(
+          ([, error]) => error instanceof PersonalAuthorizationRequiredError,
+        );
+        if (authorizationFailures.length) {
+          throw new ProtocolError(
+            -32000,
+            authorizationFailures.map(([, error]) => error.message).join(' '),
+            {
+              code: 'PERSONAL_AUTHORIZATION_REQUIRED',
+              servers: authorizationFailures.map(([name]) => name),
+            },
+          );
+        }
+      }
+      return result;
     } finally {
       for (const release of releases) release();
     }
@@ -6661,6 +5210,7 @@ const listProjectionInputs = async (group: string | undefined, field: ListField)
       enabled: info.enabled,
       owner: info.owner,
       visibility: info.visibility,
+      sharedWithUserGroups: info.sharedWithUserGroups,
       sharedWithUsers: info.sharedWithUsers,
       config: info.config,
     })),
@@ -6701,7 +5251,9 @@ const withCacheHints =
             (listField === 'resourceTemplates' || info[listField] === snapshots[index]),
         );
       const generated =
-        (listField === 'tools' && isSmartRoutingGroup(group)) ||
+        (listField === 'tools' &&
+          (isSmartRoutingGroup(group) ||
+            (result as { stagingTools?: boolean }).stagingTools === true)) ||
         (listField === 'prompts' && (await getBuiltinPromptDao().findEnabled()).length > 0) ||
         (listField === 'resources' && (await getBuiltinResourceDao().findEnabled()).length > 0);
       const unknownPermissions = RequestContextService.getInstance().getHostedAuthContext();
@@ -6729,7 +5281,7 @@ const withCacheHints =
     return { ...result, ttlMs, cacheScope: 'private' };
   };
 
-export const handleListToolsRequest = withPrincipalServers(
+const listToolsWithPrincipal = withPrincipalServers(
   withModernLists(withCacheHints(handleListToolsRequestImpl, false, 'tools'), ['tools']),
   'tools-list',
 );
@@ -6737,8 +5289,221 @@ const callToolWithPrincipal = withPrincipalServers(
   withModernLists(handleCallToolRequestImpl, ['tools']),
   'tool',
 );
-export const handleCallToolRequest = (request: any, extra: any) =>
-  observeToolCall(() => callToolWithPrincipal(request, extra));
+// Run before personal-runtime acquisition: rejected targets must not resolve credentials.
+const withToolPolicy = async (
+  handler: McpHandler,
+  request: any,
+  extra: any,
+  invocation: boolean,
+) => {
+  const group = getMcpRequestGroup(extra);
+  const policy = await getToolPolicy(group);
+  if (!policy.active) return handler(request, extra);
+  const { filteredServerInfos: candidates, serverConfigsByName } =
+    await getFilteredServerInfosForGroup(getGroupLookupName(group));
+  const username = UserContextService.getInstance().getCurrentUser()?.username;
+  const preflightInfo = (info: ServerInfo): ServerInfo => {
+    const tools = username ? principalRuntimes.peekTools(info.name, username) : undefined;
+    return tools ? { ...info, tools } : info;
+  };
+  const lookup = getGroupLookupName(group);
+  const direct = !!lookup && !isSmartRoutingGroup(group) && !(await findRouteGroup(lookup));
+  const upstreamOwnsName =
+    direct &&
+    candidates.map(preflightInfo).some((info) =>
+      info.tools.length
+        ? info.tools.some(
+            (tool) => normalizeToolNameForServer(info.name, tool.name) === request.params?.name,
+          )
+        : // Until discovery disambiguates a raw meta-name, require it to be authorized too.
+          hasPersonalAuthentication(info.config) &&
+          policy.authorize(info.name, request.params?.name).decision === 'deny',
+    );
+  const wrapper =
+    !upstreamOwnsName && ['call_tool', 'describe_tool'].includes(request.params?.name);
+  const requested = wrapper ? request.params.arguments?.toolName : request.params?.name;
+  const targetCall = invocation && (upstreamOwnsName || request.params?.name !== 'search_tools');
+  let denied: { server: ServerInfo; tool: string; decision: ToolPolicyAudit } | undefined;
+  const eligible = candidates.filter((info) => {
+    if (extra?.server && info.name !== extra.server) return false;
+    const config = serverConfigsByName.get(info.name);
+    const internal =
+      typeof requested === 'string'
+        ? config?.preserveToolNames
+          ? `${info.name}${getNameSeparator()}${requested}`
+          : resolveNameFromGroup(requested, info.name, config)
+        : undefined;
+    const known = internal
+      ? findToolOnServer(
+          preflightInfo(info),
+          internal,
+          direct || !!extra?.server || candidates.length === 1,
+          direct,
+        )
+      : undefined;
+    const prefix = `${info.name}${getNameSeparator()}`;
+    const tool = known
+      ? normalizeToolNameForServer(info.name, known.name)
+      : internal?.startsWith(prefix)
+        ? internal.slice(prefix.length)
+        : direct || extra?.server || candidates.length === 1 || config?.preserveToolNames
+          ? internal
+          : undefined;
+    if (targetCall && !tool) return false;
+    let decision = policy.authorize(info.name, targetCall ? tool : undefined, !targetCall);
+    if (
+      targetCall &&
+      direct &&
+      !preflightInfo(info).tools.length &&
+      hasPersonalAuthentication(info.config)
+    ) {
+      // Without a catalog, both raw and prefixed/wrapper interpretations must be allowed.
+      for (const alternative of [requested, request.params?.name]) {
+        const alternativeDecision = policy.authorize(info.name, alternative);
+        if (alternativeDecision.decision === 'deny') decision = alternativeDecision;
+      }
+    }
+    if (decision.decision === 'deny') {
+      denied = {
+        server: info,
+        tool: tool || requested || 'unknown',
+        decision: { ...decision, serverId: policy.serverId(info.name), groupId: policy.groupId },
+      };
+      return false;
+    }
+    return true;
+  });
+  if (targetCall && !eligible.length && denied) {
+    const context = RequestContextService.getInstance();
+    const { keyId, keyName } = context.getBearerKeyContext();
+    const username = UserContextService.getInstance().getCurrentUser()?.username;
+    logger.log('Tool policy decision', {
+      username,
+      callerId: keyId,
+      server: denied.server.name,
+      tool: denied.tool,
+      ...denied.decision,
+    });
+    await getActivityLoggingService().logToolCall({
+      server: denied.server.name,
+      tool: denied.tool,
+      duration: 0,
+      status: 'error',
+      username,
+      keyId,
+      keyName,
+      group,
+      policy: denied.decision,
+      sourceIp: context.getRequestContext()?.remoteAddress,
+      hasCredentialTemplate: hasPersonalAuthentication(denied.server.config),
+    });
+    return {
+      content: [{ type: 'text', text: `Error: Tool not available: ${requested}` }],
+      isError: true,
+    };
+  }
+  return withRequestServers(eligible, () => handler(request, extra));
+};
+
+export const handleListToolsRequest = async (request: any, extra: any) => {
+  const result = await withToolPolicy(listToolsWithPrincipal, request, extra, false);
+  if ((await getSystemConfigDao().get())?.normalizeToolNames !== true) return result;
+  const aliases = compatibleToolNames(result.tools);
+  return {
+    ...result,
+    tools: result.tools.map((tool: Tool) => ({ ...tool, name: aliases.get(tool.name)! })),
+  };
+};
+
+// Polling refreshes connections; authorization always reads the current shared records.
+const withReplicaServerScope = async <T>(action: () => Promise<T>): Promise<T> => {
+  if (!isReplicaMode()) return action();
+  const context = UserContextService.getInstance();
+  const current = context.getCurrentUser() as (IUser & RequestPrincipal) | null;
+  const externalPrincipal =
+    current?.credentialEligible === false ||
+    RequestContextService.getInstance().getHostedAuthContext();
+  const user = current
+    ? externalPrincipal
+      ? current
+      : await getUserDao().findByUsername(current.username)
+    : null;
+  if (current && !user) throw new Error('User no longer exists');
+  const definitions = getDataService().filterData(
+    await getServerDao().findAll(),
+    user ?? undefined,
+  );
+  const byName = new Map<string, ServerConfigWithName>(
+    definitions.map((server) => [server.name, server]),
+  );
+  const visible = getRequestServers(serverInfos).flatMap((info) => {
+    const live = byName.get(info.name);
+    if (!live || live.enabled === false) return [];
+    if (hasPersonalAuthentication(live) !== hasPersonalAuthentication(info.config)) return [];
+    // Project request authorization while keeping all lifecycle reads/writes on the runtime.
+    return [
+      new Proxy(info, {
+        get(target, property) {
+          switch (property) {
+            case 'owner':
+            case 'visibility':
+            case 'sharedWithUsers':
+            case 'sharedWithUserGroups':
+              return live[property];
+            case 'config':
+              return {
+                ...target.config,
+                tools: live.tools,
+                prompts: live.prompts,
+                resources: live.resources,
+              };
+            default:
+              return Reflect.get(target, property);
+          }
+        },
+      }),
+    ];
+  });
+  return context.runWithContext(() => withRequestServers(visible, action), user ?? null);
+};
+const handleOriginalToolCallRequest = (request: any, extra: any) => {
+  // A nested `call_tool`/`describe_tool` must not smuggle a reserved hub name
+  // past the outer dispatch, and the hub namespace is never reachable from a
+  // non-MCP caller (the OpenAPI controller rejects it as well).
+  if (isReservedStagingName(request?.params?.arguments?.toolName)) {
+    return Promise.resolve({
+      isError: true,
+      content: [{ type: 'text', text: 'Hub built-in tools cannot be called through call_tool' }],
+    });
+  }
+  // The reserved hub namespace is dispatched before replica/policy/principal
+  // wrappers: a virtual tool must never acquire a per-user runtime, refresh an
+  // unrelated upstream list, or be filtered as an upstream tool.
+  return isReservedStagingName(request?.params?.name)
+    ? handleHubStagingCall(request, extra)
+    : observeToolCall(() =>
+        withReplicaServerScope(() => withToolPolicy(callToolWithPrincipal, request, extra, true)),
+      );
+};
+export const handleCallToolRequest = async (request: any, extra: any) => {
+  if (
+    isReservedStagingName(request?.params?.name) ||
+    isReservedStagingName(request?.params?.arguments?.toolName)
+  ) {
+    return handleOriginalToolCallRequest(request, extra);
+  }
+  if ((await getSystemConfigDao().get())?.normalizeToolNames === true && !extra?.server) {
+    // Resolve through the caller's current catalog; never retain aliases across principals.
+    const catalog = await withToolPolicy(listToolsWithPrincipal, {}, extra, false);
+    const aliases = compatibleToolNames(catalog.tools);
+    const original = [...aliases].find(([, alias]) => alias === request.params?.name)?.[0];
+    if (original !== undefined) {
+      request = { ...request, params: { ...request.params, name: original } };
+    }
+  }
+  return handleOriginalToolCallRequest(request, extra);
+};
+
 export const handleGetPromptRequest = withPrincipalServers(
   withModernLists(handleGetPromptRequestImpl, ['prompts']),
   'prompt',
@@ -6794,6 +5559,10 @@ export const createMcpServer = (
         prompts: { listChanged: true },
         resources: { listChanged: true },
         ...MCP_APPS_CAPABILITIES,
+        experimental: {
+          ...MCP_APPS_CAPABILITIES.experimental,
+          ...MCPHUB_INSTANCE_CAPABILITIES.experimental,
+        },
       },
       ...(normalizedOptions.instructions !== undefined
         ? { instructions: normalizedOptions.instructions }
@@ -6808,11 +5577,6 @@ export const createMcpServer = (
   server.setRequestHandler('resources/templates/list', handleListResourceTemplatesRequest);
   server.setRequestHandler('resources/read', handleReadResourceRequest);
   return server;
-};
-
-type FilteredGroupServersResult = {
-  filteredServerInfos: ServerInfo[];
-  serverConfigsByName: Map<string, IGroupServerConfig>;
 };
 
 // The group a route segment names: by name, or by id when it is a UUID.
@@ -6907,7 +5671,11 @@ async function filterToolsByGroup(
   }
 
   const hostedAuth = RequestContextService.getInstance().getHostedAuthContext();
-  return filterHostedTools(hostedAuth, serverName, tools, getNameSeparator());
+  const policy = await getToolPolicy(getMcpRequestGroup() || group);
+  return policy.filterTools(
+    serverName,
+    filterHostedTools(hostedAuth, serverName, tools, getNameSeparator()),
+  );
 }
 
 const normalizePromptNameForGroup = (serverName: string, promptName: string) => {
@@ -6983,12 +5751,14 @@ const resourceTemplateMatchesSelection = (uriTemplate: string, allowedResources:
   return false;
 };
 
-export async function filterResourceTemplatesByGroup(
+export async function filterResourceTemplatesByGroup<
+  T extends { uriTemplate?: string; _meta?: Record<string, unknown> },
+>(
   group: string | undefined,
   serverName: string,
-  resourceTemplates: Array<{ uriTemplate?: string; _meta?: Record<string, unknown> }>,
+  resourceTemplates: T[],
   serverConfig?: IGroupServerConfig,
-) {
+): Promise<T[]> {
   if (group) {
     const resolvedServerConfig = await getGroupServerConfig(group, serverName, serverConfig);
     if (
@@ -7013,3 +5783,33 @@ export async function filterResourceTemplatesByGroup(
 
   return resourceTemplates;
 }
+
+/**
+ * Wait (bounded) for a server's in-flight connect to settle.
+ *
+ * `reconnectServer` resolves as soon as the entry is published and the
+ * handshake is fired; a caller that reports "restarted" must not treat that
+ * as success. Returns whether the connect settled within the budget; the
+ * caller still reads `status`/`error` to learn the outcome.
+ */
+export const waitForServerConnect = async (
+  serverName: string,
+  timeoutMs = 5000,
+): Promise<boolean> => {
+  const pending = getServerByName(serverName)?.connectingPromise;
+  if (!pending) return true;
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), timeoutMs);
+    timer.unref?.();
+  });
+  const settled = pending.then(
+    () => true,
+    () => true,
+  );
+  try {
+    return await Promise.race([settled, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};

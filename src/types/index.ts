@@ -1,3 +1,5 @@
+import type { FakeIpException } from './network.js';
+import type { ToolPolicyRule, PolicyDecision } from './toolPolicy.js';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import {
   Client,
@@ -23,16 +25,22 @@ export interface CapabilityCacheStatus {
 
 // User interface
 export interface IUser {
+  userGroups?: string[];
   username: string;
   password: string;
   isAdmin?: boolean;
   email?: string | null;
   ssoUserId?: string | null;
+  /** Stable identity for per-principal paths (DB users); never rendered. */
+  id?: string;
+  /** File-mode stable salt for per-principal paths; generated on first use. */
+  stagingSalt?: string;
 }
 
 // Group interface for server grouping
 export interface IGroup {
   visibility?: 'private' | 'group' | 'public';
+  sharedWithUserGroups?: string[];
   sharedWithUsers?: string[];
   id: string; // Unique UUID for the group
   name: string; // Display name of the group
@@ -246,6 +254,7 @@ export interface ForwardAuthJwksConfig {
   issuer?: string; // Expected `iss` claim; tokens with this issuer are verified and never fall back
   audience?: string | string[]; // Accepted `aud` claim value(s)
   algorithms?: string[]; // Allowed asymmetric algorithms (default: RS256, ES256)
+  tokenHeader?: string; // Header carrying the JWT, raw or as `Bearer <jwt>` (default: the bearer auth header)
 }
 
 export interface ForwardAuthConfig {
@@ -266,9 +275,35 @@ export interface ToolResultCompressionConfig {
   strategy?: ToolResultCompressionStrategy;
 }
 
+export type { ToolPolicyRule, PolicyDecision } from './toolPolicy.js';
+
+export interface ToolPolicyAudit extends PolicyDecision {
+  serverId?: string;
+  groupId?: string;
+}
+
+/**
+ * Global file staging settings (#1056). Disabled by default; PR1 exposes them
+ * through the API only, the dashboard UI ships in PR2.
+ */
+export interface FileStagingSettings {
+  enabled: boolean;
+  maxFileBytes: number;
+  inlineMaxBytes: number;
+  perUserQuotaBytes: number;
+  globalQuotaBytes: number;
+  ttlHours: number;
+  downloadTtlSeconds: number;
+  maxFilesPerUser: number;
+  cleanupIntervalMinutes: number;
+}
+
 export interface SystemConfig {
+  dashboardName?: string;
+  toolPolicies?: ToolPolicyRule[];
   network?: {
     allowedCidrs?: string[]; // Admin-managed ranges reachable by non-admin-owned upstreams.
+    fakeIpExceptions?: FakeIpException[];
   };
   routing?: {
     enableGlobalRoute?: boolean; // Controls whether the /sse endpoint without group is enabled
@@ -276,6 +311,7 @@ export interface SystemConfig {
     enableBearerAuth?: boolean; // Controls whether MCP endpoints require bearer authentication
     bearerAuthKey?: string; // Legacy bearer auth key (used for one-time migration)
     bearerAuthHeaderName?: string; // Header name used to receive bearer credentials for MCP/API requests (default: 'Authorization')
+    allowAuthorizationPassthrough?: boolean; // Admin opt-in; requires a separate MCPHub auth header.
     jsonBodyLimit?: string; // JSON request body size limit used by Express parser (default: '1mb'), including OpenAPI schema uploads
     skipAuth?: boolean; // Controls whether the dashboard requires login
     allowTokenInQuery?: boolean; // Accept ?token= credentials on MCP/SSE and dashboard routes (default: true)
@@ -293,6 +329,7 @@ export interface SystemConfig {
     title?: string; // Title header for MCPRouter API requests
     baseUrl?: string; // Base URL for MCPRouter API (default: https://api.mcprouter.to/v1)
   };
+  normalizeToolNames?: boolean; // Opt-in OpenAI-compatible downstream tool names (default: false)
   nameSeparator?: string; // Separator used between server name and tool/prompt name (default: '-')
   oauth?: OAuthProviderConfig; // OAuth provider configuration for upstream MCP servers
   oauthServer?: OAuthServerConfig; // OAuth authorization server configuration for MCPHub itself
@@ -334,6 +371,7 @@ export interface SystemConfig {
     // so enabling the mode cannot expire credentials that predate usage tracking.
     enabledAt?: string;
   };
+  fileStaging?: FileStagingSettings;
 }
 
 export interface UserConfig {
@@ -366,6 +404,48 @@ export interface IOAuthClient {
   };
 }
 
+export interface OAuthClientApproval {
+  id: string;
+  username: string;
+  sessionVersion: string;
+  clientId: string;
+  clientFingerprint: string;
+  redirectUri: string;
+  resource: string;
+  scopes: string[];
+  approvedAt: string;
+  expiresAt: string;
+}
+
+/**
+ * A WebAuthn credential (passkey) registered to a local dashboard user. Runtime
+ * state like OAuth approvals: kept out of declarative settings and exports.
+ */
+export interface UserPasskey {
+  id: string;
+  username: string;
+  /** Base64URL credential ID reported by the authenticator. */
+  credentialId: string;
+  /** Base64URL COSE public key. */
+  publicKey: string;
+  counter: number;
+  transports?: string[] | null;
+  /** Base64URL WebAuthn user handle, shared by all passkeys of one user. */
+  userHandle: string;
+  /** RP ID the credential is scoped to. */
+  rpId: string;
+  /**
+   * The owner's session version at registration. Like JWTs and OAuth grants, a
+   * passkey stops working when the password changes or the account is recreated.
+   */
+  sessionVersion: string;
+  name: string;
+  deviceType: 'singleDevice' | 'multiDevice';
+  backedUp: boolean;
+  createdAt: string;
+  lastUsedAt?: string | null;
+}
+
 // OAuth Authorization Code (for MCPHub's authorization server)
 export interface IOAuthAuthorizationCode {
   code: string; // Authorization code
@@ -373,6 +453,7 @@ export interface IOAuthAuthorizationCode {
   redirectUri: string; // Redirect URI used in the authorization request
   scope?: string; // Granted scopes
   clientId: string; // Client ID
+  approvalId?: string; // Revocable consent grant associated with this authorization
   sessionVersion?: string; // Credential version at authorization
   username: string; // User who authorized
   codeChallenge?: string; // PKCE code challenge
@@ -388,6 +469,7 @@ export interface IOAuthToken {
   refreshTokenExpiresAt?: Date; // Refresh token expiration
   scope?: string; // Granted scopes
   clientId: string; // Client ID
+  approvalId?: string; // Preserved through refresh-token rotation
   sessionVersion?: string; // Credential version at issuance
   username: string; // Username
   grantCreatedAt?: string; // ISO time the grant (client + user) was first authorized; carried across refresh rotation
@@ -411,6 +493,8 @@ export interface OAuthServerConfig {
   externalResources?: ExternalResource[]; // Administrator-only; see docs/adr/0014-external-resource-tokens.md
   externalTokenLifetimeSeconds?: number; // Cap on external-resource JWT lifetime (default 900)
   signingKeyActivationDelaySeconds?: number; // Delay before a rotated-in signing key signs (default 900)
+  alwaysShowApprovalScreen?: boolean; // Default true; false enables remembered consent
+  approvalLifetime?: number; // Fixed consent lifetime in seconds (default 1209600)
   enabled?: boolean; // Enable/disable OAuth authorization server
   accessTokenLifetime?: number; // Access token lifetime in seconds (default: 3600)
   refreshTokenLifetime?: number; // Refresh token lifetime in seconds (default: 1209600 = 14 days)
@@ -434,23 +518,25 @@ export interface OAuthServerConfig {
 }
 
 // Bearer authentication key configuration
-export type BearerKeyAccessType = 'all' | 'groups' | 'servers' | 'custom';
+export type BearerKeyAccessType = 'all' | 'groups' | 'servers' | 'custom' | 'exclude';
 export type BearerKeyKind = 'system' | 'user';
 
 export interface BearerKey {
   id: string; // Unique identifier for the key
   name: string; // Human readable key name
-  token?: string; // Plaintext token: only on the create result and on legacy keys not yet hashed
-  tokenHash?: string; // SHA-256 of the token; the only stored form after migration
-  tokenPrefix?: string; // Short non-secret prefix for display
+  token?: string; // Raw token: only present in the creation response (or on legacy, not yet hashed keys)
+  tokenHash?: string; // SHA-256 hex of the token; what is stored and compared
+  tokenPrefix?: string; // First characters of the token, safe to display
   enabled: boolean; // Whether this key is enabled
   kind?: BearerKeyKind; // Defaults to 'system' for keys created before user-level keys existed
   owner?: string; // Required for user-level keys
   accessType: BearerKeyAccessType; // Access scope type
-  allowedGroups?: string[]; // Allowed group names when accessType === 'groups' or 'custom'
+  allowedGroups?: string[]; // Allowed group names or IDs when accessType === 'groups' or 'custom'
   allowedServers?: string[]; // Allowed server names when accessType === 'servers' or 'custom'
   createdAt?: string; // ISO creation time; absent on keys created before it was recorded
   lastUsedAt?: string; // ISO time the key last authenticated an MCP request
+  excludedGroups?: string[]; // Excluded group names when accessType === 'exclude' (system keys only)
+  excludedServers?: string[]; // Excluded server names when accessType === 'exclude' (system keys only)
 }
 
 // Represents the settings for MCP servers
@@ -484,6 +570,33 @@ export interface ProxychainsConfig {
 // 'group' is restricted sharing for explicitly selected users. Group membership
 // can extend the same scope in a future change.
 export type ServerVisibility = 'private' | 'group' | 'public';
+
+/**
+ * Per-tool file staging opt-in (#1056). A tool becomes a staging target only
+ * when the server is eligible and `enabled` is true. `inputParams` accept a
+ * ready `mcpfile://` ref (read-only tool input); `outputParams` accept a
+ * reserved ref that the tool writes to. Params are JSON Schema property names
+ * or dot paths for nested objects; they must not overlap.
+ */
+export interface ToolFileStagingConfig {
+  enabled: boolean;
+  inputParams?: string[];
+  outputParams?: string[];
+}
+
+/** Staging adapter a server trusts to enforce a per-principal local root. */
+export type StagingAdapterId = 'ssh';
+
+/**
+ * Server-level staging trust (#1056). `shared` is admin-only and lets a
+ * shared/group/public route use staging; `adapter` is required for any staging
+ * (owner-only included). An owner may declare the adapter on their own private
+ * server; only an admin may enable `shared`.
+ */
+export interface ServerStagingConfig {
+  shared?: boolean;
+  adapter?: StagingAdapterId;
+}
 
 export interface CredentialSlot {
   target: 'env' | 'headers' | 'args' | 'url';
@@ -555,7 +668,9 @@ export type WorkspaceEndpointState = 'normal' | 'partial' | 'empty';
 
 // Configuration details for an individual server
 export interface ServerConfig {
+  id?: string; // Stable policy identity; runtime routing remains name-based.
   credentialTemplate?: CredentialSlot[]; // Metadata only; every slot requires a personal binding.
+  staging?: ServerStagingConfig; // Server-level file staging trust (#1056); adapter required, shared is admin-only.
   type?: 'stdio' | 'sse' | 'streamable-http' | 'openapi'; // Type of server
   description?: string; // Optional server note/description for management UI
   manageUrl?: string; // Optional https URL of the upstream service's account or token page, shown to users
@@ -570,9 +685,10 @@ export interface ServerConfig {
   // Per-server visibility for non-admin users.
   //   'private' — only the owner (or admins) can see this server. Default.
   //   'public'  — every authenticated user can see this server.
-  //   'group'   — explicitly selected users can see this server.
+  //   'group'   — selected users and user-group members can see this server.
   // See issues #817 and #1037.
   visibility?: ServerVisibility;
+  sharedWithUserGroups?: string[];
   sharedWithUsers?: string[]; // Local MCPHub usernames allowed when visibility is 'group'.
   // Runtime admin state, effective only under Workspace Mode (stored but ignored otherwise).
   // Never exposed to non-admin users, excluded from templates and settings-sync declarations.
@@ -594,7 +710,10 @@ export interface ServerConfig {
   protocolNegotiation?: 'auto' | 'legacy'; // Streamable HTTP defaults to auto; other transports remain legacy.
   enableKeepAlive?: boolean; // Enable remote health checks; disconnected remote servers always retry
   keepAliveInterval?: number; // Health check interval in milliseconds (default: 60000ms for SSE servers)
-  tools?: Record<string, { enabled: boolean; description?: string; hiddenParams?: string[] }>; // Tool-specific configurations: enable/disable state, custom description, top-level input parameters hidden from models
+  tools?: Record<
+    string,
+    { enabled: boolean; description?: string; hiddenParams?: string[]; fileStaging?: ToolFileStagingConfig }
+  >; // Tool-specific configurations: enable/disable state, custom description, top-level input parameters hidden from models, optional file staging (#1056)
   prompts?: Record<string, { enabled: boolean; description?: string }>; // Prompt-specific configurations with enable/disable state and custom descriptions
   resources?: Record<string, { enabled: boolean; description?: string }>; // Resource-specific configurations with enable/disable state and custom descriptions
   options?: Partial<
@@ -658,6 +777,7 @@ export interface ServerConfig {
 
     // Explicit authorization-server metadata replaces SDK discovery for this upstream.
     authorizationServerMetadata?: NonNullable<OAuthDiscoveryState['authorizationServerMetadata']>;
+    authorizationRelay?: { allowedRedirectOrigins: string[] };
     // Authorization endpoint for user authorization (for authorization code flow)
     authorizationEndpoint?: string;
     // Token endpoint for exchanging authorization codes for tokens
@@ -738,6 +858,10 @@ export interface ServerInfo {
   capabilityCache?: CapabilityCacheStatus;
   name: string; // Unique name of the server
   protocolVersion?: string; // Negotiated MCP protocol version for the current connection
+  // Principal whose per-user runtime this is (#1056); set only on personal
+  // runtimes, never persisted, and used to give staged stdio children the
+  // matching per-principal cwd on reconnect.
+  principalUsername?: string;
   version?: string; // Upstream server version reported during MCP initialization
   // Resolved package version for stdio servers launched via npx/uvx (see #1166).
   // Read from the runner's install cache (npm _npx / uv tool environments),
@@ -751,6 +875,7 @@ export interface ServerInfo {
   instructions?: string; // Upstream server instructions reported during MCP initialization
   owner?: string; // Owner of the server, defaults to 'admin' user
   visibility?: ServerVisibility; // Carried over from ServerConfig so dataService.filterData can apply #817 visibility rules at runtime.
+  sharedWithUserGroups?: string[];
   sharedWithUsers?: string[]; // Carried over for restricted user-sharing authorization.
   maintenance?: ServerMaintenance; // Reported in list responses only while a window is in force under Workspace Mode.
   status: 'connected' | 'connecting' | 'disconnected' | 'oauth_required'; // Current connection status
@@ -758,6 +883,7 @@ export interface ServerInfo {
   tools: Tool[]; // List of tools available on the server
   prompts: Prompt[]; // List of prompts available on the server
   resources: Resource[]; // List of resources available on the server
+  resourceTemplates?: UpstreamResourceTemplate[]; // Last listed resource templates; undefined until a listing succeeds
   client?: Client; // Client instance for communication (MCP clients)
   transport?: SSEClientTransport | StdioClientTransport | StreamableHTTPClientTransport; // Transport mechanism used
   openApiClient?: any; // OpenAPI client instance for openapi type servers
@@ -769,6 +895,18 @@ export interface ServerInfo {
   config?: ServerConfig; // Reference to the original server configuration for OpenAPI passthrough headers
   // On-demand spawning runtime state
   spawningPromise?: Promise<void>; // Singleton promise: concurrent callers await this instead of double-spawning
+  /**
+   * Bumped on every reconnect. A cold start captures the value it began with
+   * and refuses to publish its client/status once the entry has moved on, so a
+   * superseded spawn cannot resurrect the pre-reconnect runtime (#1056).
+   */
+  runtimeGeneration?: number;
+  /**
+   * The in-flight connect for this entry, if any. `reconnectServer` returns
+   * before the handshake finishes, so a caller that must know whether the
+   * child actually came up awaits this instead of reading `status` once.
+   */
+  connectingPromise?: Promise<void>;
   activeToolCalls?: number; // Calls holding the on-demand runtime awake, including cold starts
   idleTimeoutId?: NodeJS.Timeout; // Timer ID for idle-shutdown (cleared/reset on each tool call)
   lastUsedAt?: number; // Timestamp of last tool call (ms since epoch)
@@ -795,6 +933,7 @@ export interface Tool {
   defaultDescription?: string; // Upstream tool description before any MCPHub override is applied
   hasDescriptionOverride?: boolean; // Whether MCPHub is currently overriding the upstream description
   hiddenParams?: string[]; // Configured top-level input parameters hidden from models (dashboard/API projection)
+  fileStaging?: ToolFileStagingConfig; // Configured staging direction for this tool (#1056)
   inputSchema: Record<string, unknown>; // Input schema for the tool
   outputSchema?: Record<string, unknown>; // Optional schema for structured output
   annotations?: Record<string, unknown>; // Standard MCP tool annotations
@@ -820,6 +959,11 @@ export interface PromptArgument {
   description?: string; // Brief description of the argument
   required?: boolean; // Whether the argument is required
 }
+
+// Resource template listed by a connected MCP server
+export type UpstreamResourceTemplate = Awaited<
+  ReturnType<import('@modelcontextprotocol/client').Client['listResourceTemplates']>
+>['resourceTemplates'][number];
 
 // Resource exposed by a connected MCP server
 export interface Resource {
@@ -892,6 +1036,7 @@ export interface BatchCreateServersResponse {
 // Request payload for adding a new group
 export interface AddGroupRequest {
   visibility?: IGroup['visibility'];
+  sharedWithUserGroups?: string[];
   sharedWithUsers?: string[];
   name: string; // Name of the group to add
   description?: string; // Optional description of the group
@@ -924,6 +1069,7 @@ export type ActivityStatus = 'success' | 'error';
 
 // Activity interface for tracking tool calls
 export interface IActivity {
+  policy?: ToolPolicyAudit;
   id?: string; // Unique identifier (auto-generated for DB)
   timestamp: Date; // When the tool was called
   server: string; // Server name that handled the call

@@ -1,3 +1,4 @@
+import { validateToolPolicies } from '../utils/toolPolicy.js';
 import { migrateLegacySmartRoutingConfig, SystemConfigDao } from './SystemConfigDao.js';
 import { SystemConfig } from '../types/index.js';
 import { SystemConfigRepository } from '../db/repositories/SystemConfigRepository.js';
@@ -22,6 +23,8 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
     }
 
     return {
+      dashboardName: config.dashboardName,
+      toolPolicies: config.toolPolicies ?? [],
       network: config.network,
       routing: config.routing as any,
       install: config.install as any,
@@ -29,6 +32,7 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
       toolResultCompression: config.toolResultCompression as any,
       mcpRouter: config.mcpRouter as any,
       nameSeparator: config.nameSeparator,
+      normalizeToolNames: config.normalizeToolNames,
       oauth: config.oauth as any,
       oauthServer: config.oauthServer as any,
       auth: config.auth as any,
@@ -36,12 +40,16 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
       discovery: config.discovery as any,
       activityLog: config.activityLog as any,
       workspace: config.workspace as any,
+      fileStaging: config.fileStaging as any,
     };
   }
 
   async update(config: Partial<SystemConfig>): Promise<SystemConfig> {
+    if (config.toolPolicies !== undefined) validateToolPolicies(config.toolPolicies);
     const updated = await this.repository.update(config as any);
     return {
+      dashboardName: updated.dashboardName,
+      toolPolicies: updated.toolPolicies ?? [],
       network: updated.network,
       routing: updated.routing as any,
       install: updated.install as any,
@@ -49,6 +57,7 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
       toolResultCompression: updated.toolResultCompression as any,
       mcpRouter: updated.mcpRouter as any,
       nameSeparator: updated.nameSeparator,
+      normalizeToolNames: updated.normalizeToolNames,
       oauth: updated.oauth as any,
       oauthServer: updated.oauthServer as any,
       auth: updated.auth as any,
@@ -56,12 +65,15 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
       discovery: updated.discovery as any,
       activityLog: updated.activityLog as any,
       workspace: updated.workspace as any,
+      fileStaging: updated.fileStaging as any,
     };
   }
 
   async reset(): Promise<SystemConfig> {
     const config = await this.repository.reset();
     return {
+      dashboardName: config.dashboardName,
+      toolPolicies: config.toolPolicies ?? [],
       network: config.network,
       routing: config.routing as any,
       install: config.install as any,
@@ -69,6 +81,7 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
       toolResultCompression: config.toolResultCompression as any,
       mcpRouter: config.mcpRouter as any,
       nameSeparator: config.nameSeparator,
+      normalizeToolNames: config.normalizeToolNames,
       oauth: config.oauth as any,
       oauthServer: config.oauthServer as any,
       auth: config.auth as any,
@@ -76,6 +89,7 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
       discovery: config.discovery as any,
       activityLog: config.activityLog as any,
       workspace: config.workspace as any,
+      fileStaging: config.fileStaging as any,
     };
   }
 
@@ -87,6 +101,7 @@ export class SystemConfigDaoDbImpl implements SystemConfigDao {
     section: K,
     value: SystemConfig[K],
   ): Promise<boolean> {
+    if (section === 'toolPolicies') validateToolPolicies(value);
     await this.repository.updateSection(section, value as any);
     return true;
   }

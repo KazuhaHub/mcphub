@@ -1,9 +1,22 @@
+import { isApprovalGrantValid } from '../services/oauthApprovalService.js';
 import { resolveUserSession } from '../utils/userSession.js';
 import crypto from 'crypto';
-import { getOAuthClientDao, getOAuthTokenDao, getSystemConfigDao } from '../dao/index.js';
+import {
+  getOAuthApprovalDao,
+  getOAuthClientDao,
+  getOAuthTokenDao,
+  getSystemConfigDao,
+} from '../dao/index.js';
 import { IOAuthClient, IOAuthAuthorizationCode, IOAuthToken } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 import { noteGrantRevocation } from '../utils/grantRevocation.js';
+import { LessThanOrEqual, MoreThan } from 'typeorm';
+import { getAppDataSource } from '../db/connection.js';
+import { OAuthState } from '../db/entities/OAuthState.js';
+import { isReplicaMode } from '../utils/replicaMode.js';
+
+const stateRepository = () => getAppDataSource().getRepository<OAuthState>('oauth_state');
+const tokenHash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
 // In-memory storage for authorization codes (short-lived, no persistence needed)
 const authorizationCodes = new Map<string, IOAuthAuthorizationCode>();
@@ -66,6 +79,7 @@ export const updateOAuthClient = async (
  */
 export const deleteOAuthClient = async (clientId: string): Promise<boolean> => {
   const clientDao = getOAuthClientDao();
+  await getOAuthApprovalDao().deleteByClientId(clientId);
   return clientDao.delete(clientId);
 };
 
@@ -73,11 +87,18 @@ export const deleteOAuthClient = async (clientId: string): Promise<boolean> => {
  * Generate a registration access token for a dynamically-registered client
  * (RFC 7591 §3.2). The token is stored in memory and expires after `ttlMs`.
  */
-export const createRegistrationToken = (
+export const createRegistrationToken = async (
   clientId: string,
   ttlMs: number = REGISTRATION_TOKEN_TTL_MS,
-): string => {
+): Promise<string> => {
   const token = crypto.randomBytes(32).toString('hex');
+  if (isReplicaMode()) {
+    await stateRepository().insert({
+      tokenHash: tokenHash(token), kind: 'registration', clientId, payload: {},
+      expiresAt: new Date(Date.now() + ttlMs),
+    });
+    return token;
+  }
   registrationTokens.set(token, {
     clientId,
     expiresAt: new Date(Date.now() + ttlMs),
@@ -89,7 +110,13 @@ export const createRegistrationToken = (
  * Verify a registration access token. Returns the client ID it was issued to,
  * or null if the token is unknown or expired (expired tokens are removed).
  */
-export const verifyRegistrationToken = (token: string): string | null => {
+export const verifyRegistrationToken = async (token: string): Promise<string | null> => {
+  if (isReplicaMode()) {
+    const row = await stateRepository().findOneBy({
+      tokenHash: tokenHash(token), kind: 'registration', expiresAt: MoreThan(new Date()),
+    });
+    return row?.clientId ?? null;
+  }
   const data = registrationTokens.get(token);
   if (!data) {
     return null;
@@ -106,7 +133,11 @@ export const verifyRegistrationToken = (token: string): string | null => {
 /**
  * Delete a registration access token (e.g. when the client registration is deleted)
  */
-export const deleteRegistrationToken = (token: string): void => {
+export const deleteRegistrationToken = async (token: string): Promise<void> => {
+  if (isReplicaMode()) {
+    await stateRepository().delete({ tokenHash: tokenHash(token), kind: 'registration' });
+    return;
+  }
   registrationTokens.delete(token);
 };
 
@@ -125,12 +156,19 @@ const generateToken = (length: number = 32): string => {
 /**
  * Save authorization code
  */
-export const saveAuthorizationCode = (
+export const saveAuthorizationCode = async (
   code: Omit<IOAuthAuthorizationCode, 'code' | 'expiresAt'>,
   expiresIn: number = 300,
-): string => {
+): Promise<string> => {
   const authCode = generateToken();
   const expiresAt = new Date(Date.now() + expiresIn * 1000);
+  if (isReplicaMode()) {
+    await stateRepository().insert({
+      tokenHash: tokenHash(authCode), kind: 'authorization_code',
+      clientId: code.clientId, username: code.username, payload: code, expiresAt,
+    });
+    return authCode;
+  }
 
   authorizationCodes.set(authCode, {
     code: authCode,
@@ -144,7 +182,13 @@ export const saveAuthorizationCode = (
 /**
  * Get authorization code
  */
-export const getAuthorizationCode = (code: string): IOAuthAuthorizationCode | undefined => {
+export const getAuthorizationCode = async (code: string): Promise<IOAuthAuthorizationCode | undefined> => {
+  if (isReplicaMode()) {
+    const row = await stateRepository().findOneBy({
+      tokenHash: tokenHash(code), kind: 'authorization_code', expiresAt: MoreThan(new Date()),
+    });
+    return row ? { ...row.payload, code, expiresAt: row.expiresAt } as IOAuthAuthorizationCode : undefined;
+  }
   const authCode = authorizationCodes.get(code);
   if (!authCode) {
     return undefined;
@@ -162,8 +206,14 @@ export const getAuthorizationCode = (code: string): IOAuthAuthorizationCode | un
 /**
  * Revoke authorization code
  */
-export const revokeAuthorizationCode = (code: string): void => {
-  authorizationCodes.delete(code);
+export const revokeAuthorizationCode = async (code: string): Promise<boolean> => {
+  if (isReplicaMode()) {
+    const result = await stateRepository().delete({
+      tokenHash: tokenHash(code), kind: 'authorization_code', expiresAt: MoreThan(new Date()),
+    });
+    return result.affected === 1;
+  }
+  return authorizationCodes.delete(code);
 };
 
 /**
@@ -227,7 +277,10 @@ export const getToken = async (token: string): Promise<IOAuthToken | undefined> 
     return undefined;
   }
 
-  return (await resolveUserSession(tokenData)) ? tokenData : undefined;
+  return (await resolveUserSession(tokenData)) &&
+    (await isApprovalGrantValid(tokenData, tokenData.clientId))
+    ? tokenData
+    : undefined;
 };
 
 /**
@@ -242,6 +295,7 @@ export const revokeUserTokens = async (username: string): Promise<void> => {
   // Noted before and after the delete: an exchange that read its grant in between must
   // still be refused when it tries to save.
   noteGrantRevocation(username);
+  if (isReplicaMode()) await stateRepository().delete({ username });
   for (const [code, authorization] of authorizationCodes) {
     if (authorization.username === username) authorizationCodes.delete(code);
   }
@@ -261,6 +315,9 @@ export const revokeUserClientTokens = async (
   clientId: string,
 ): Promise<number> => {
   noteGrantRevocation(username, clientId);
+  if (isReplicaMode()) {
+    await stateRepository().delete({ username, clientId, kind: 'authorization_code' });
+  }
   for (const [code, authorization] of authorizationCodes) {
     if (authorization.username === username && authorization.clientId === clientId) {
       authorizationCodes.delete(code);
@@ -283,6 +340,18 @@ export const revokeUserClientResourceTokens = async (
   resource: string,
 ): Promise<number> => {
   noteGrantRevocation(username, clientId);
+  if (isReplicaMode()) {
+    // The resource lives in the JSON payload, so match it here rather than in the query.
+    const pending = await stateRepository().findBy({
+      username,
+      clientId,
+      kind: 'authorization_code',
+    });
+    const matching = pending.filter((state) => state.payload?.resource === resource);
+    if (matching.length > 0) {
+      await stateRepository().delete(matching.map((state) => state.tokenHash));
+    }
+  }
   for (const [code, authorization] of authorizationCodes) {
     if (
       authorization.username === username &&
@@ -304,6 +373,7 @@ export const revokeUserClientResourceTokens = async (
  */
 export const cleanupExpired = async (): Promise<void> => {
   const now = new Date();
+  if (isReplicaMode()) await stateRepository().delete({ expiresAt: LessThanOrEqual(now) });
 
   // Clean up expired authorization codes
   for (const [code, authCode] of authorizationCodes.entries()) {
@@ -342,6 +412,10 @@ const cleanupIdleDynamicClients = async (now: Date): Promise<void> => {
     // Client IDs that are still in use: they have a live token or an unexpired
     // authorization code (an in-progress authorization flow).
     const liveClientIds = new Set<string>();
+    if (isReplicaMode()) {
+      const pending = await stateRepository().findBy({ kind: 'authorization_code', expiresAt: MoreThan(now) });
+      for (const state of pending) liveClientIds.add(state.clientId);
+    }
 
     for (const [, authCode] of authorizationCodes.entries()) {
       liveClientIds.add(authCode.clientId);
@@ -371,7 +445,7 @@ const cleanupIdleDynamicClients = async (now: Date): Promise<void> => {
     );
 
     for (const client of stale) {
-      await clientDao.delete(client.clientId);
+      await deleteOAuthClient(client.clientId);
     }
     if (stale.length > 0) {
       logger.log(`Reaped ${stale.length} idle dynamically-registered OAuth client(s)`);
@@ -401,5 +475,19 @@ export const stopCleanup = (): void => {
   if (cleanupIntervalId) {
     clearInterval(cleanupIntervalId);
     cleanupIntervalId = null;
+  }
+};
+
+/** Invalidate pending codes when an application is revoked. */
+export const revokeUserClientAuthorizationCodes = async (
+  username: string,
+  clientId: string,
+): Promise<void> => {
+  if (isReplicaMode()) {
+    await stateRepository().delete({ username, clientId, kind: 'authorization_code' });
+    return;
+  }
+  for (const [value, code] of authorizationCodes) {
+    if (code.username === username && code.clientId === clientId) authorizationCodes.delete(value);
   }
 };

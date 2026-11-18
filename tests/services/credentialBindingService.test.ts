@@ -9,6 +9,8 @@ import {
   resolveCredentialBinding,
   deleteCredentialBindings,
   copyCredentialBindings,
+  copyPersonalCredentialBinding,
+  decryptCredentialValues,
   credentialBindingEvents,
   missingCredentialError,
 } from '../../src/services/credentialBindingService.js';
@@ -35,18 +37,25 @@ const stdio: ServerConfig = {
 let directory: string;
 const originalPath = process.env.MCPHUB_SETTING_PATH;
 const originalKey = process.env.MCPHUB_CREDENTIAL_ENCRYPTION_KEY;
+const originalUseDb = process.env.USE_DB;
+const originalDbUrl = process.env.DB_URL;
 
 beforeAll(async () => {
   await initI18n();
 });
 
 beforeEach(() => {
+  process.env.USE_DB = 'false';
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mcphub-credentials-'));
   process.env.MCPHUB_SETTING_PATH = path.join(directory, 'settings.json');
   process.env.MCPHUB_CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('base64');
 });
 afterEach(() => {
   fs.rmSync(directory, { recursive: true, force: true });
+  if (originalUseDb === undefined) delete process.env.USE_DB;
+  else process.env.USE_DB = originalUseDb;
+  if (originalDbUrl === undefined) delete process.env.DB_URL;
+  else process.env.DB_URL = originalDbUrl;
   if (originalPath === undefined) delete process.env.MCPHUB_SETTING_PATH;
   else process.env.MCPHUB_SETTING_PATH = originalPath;
   if (originalKey === undefined) delete process.env.MCPHUB_CREDENTIAL_ENCRYPTION_KEY;
@@ -61,7 +70,10 @@ test('encrypts at rest, isolates email principals, and returns status only', asy
   );
   const file = `${process.env.MCPHUB_SETTING_PATH}.credentials.json`;
   expect(fs.readFileSync(file, 'utf8')).not.toContain('-sentinel');
-  expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  if (process.platform !== 'win32') {
+    // Windows has no POSIX permission bits; Node reports 0o666 for every regular file.
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  }
   expect(
     (await resolveCredentialBinding('shared', 'alice@example.com', stdio)).config.env?.PERSONAL_KEY,
   ).toBe('alice@example.com-sentinel');
@@ -83,6 +95,41 @@ test('encrypts at rest, isolates email principals, and returns status only', asy
     presentServerForPrincipal(stdio, { username: 'alice@example.com' }).data,
   ).not.toHaveProperty('env');
 });
+
+test.each([
+  ['personal-key-abcd', '••••abcd'],
+  ['a', '••••'],
+  ['ab', '••••b'],
+  ['abc', '••••c'],
+  ['abcd', '••••d'],
+  ['abcde', '••••de'],
+  ['abcdefgh', '••••gh'],
+  ['abcdefghi', '••••fghi'],
+  ['🔑🔒🔐🗝', '••••🗝'],
+])(
+  'returns masked previews only when requested: %s',
+  async (value, preview) => {
+    await saveCredentialBinding('shared', 'alice', stdio, { 'env.PERSONAL_KEY': value });
+    expect(await getCredentialBindingStatus('shared', 'alice', stdio)).not.toHaveProperty(
+      'valuePreviews',
+    );
+    const status = await getCredentialBindingStatus('shared', 'alice', stdio, true);
+    expect(status).toHaveProperty('valuePreviews', {
+      'env.PERSONAL_KEY': preview,
+    });
+    expect(JSON.stringify(status)).not.toContain(`"${value}"`);
+    await saveCredentialBinding('shared', 'alice', stdio, { 'env.PERSONAL_KEY': 'replacement-WXYZ' });
+    expect(await getCredentialBindingStatus('shared', 'alice', stdio, true)).toHaveProperty(
+      'valuePreviews',
+      { 'env.PERSONAL_KEY': '••••WXYZ' },
+    );
+    await deleteCredentialBindings({ serverName: 'shared', username: 'alice' });
+    expect(await getCredentialBindingStatus('shared', 'alice', stdio, true)).toHaveProperty(
+      'valuePreviews',
+      {},
+    );
+  },
+);
 
 test('requires all declared slots without implicit organization fallback', async () => {
   await expect(resolveCredentialBinding('shared', 'alice', stdio)).rejects.toThrow('Credentials');
@@ -265,7 +312,9 @@ test('generates one private persistent key and reuses it after loading a fresh s
   const keyFile = `${process.env.MCPHUB_SETTING_PATH}.credentials.key`;
   const key = fs.readFileSync(keyFile, 'utf8').trim();
   expect(Buffer.from(key, 'base64')).toHaveLength(32);
-  expect(fs.statSync(keyFile).mode & 0o777).toBe(0o600);
+  if (process.platform !== 'win32') {
+    expect(fs.statSync(keyFile).mode & 0o777).toBe(0o600);
+  }
   expect(process.env.MCPHUB_CREDENTIAL_ENCRYPTION_KEY).toBeUndefined();
   await jest.isolateModulesAsync(async () => {
     const fresh = await import('../../src/services/credentialBindingService.js');
@@ -587,4 +636,162 @@ test.each([
     credentialTemplate: [{ target: 'url', name: 'region', allowed: ['us'] }],
   };
   expect(validateCredentialTemplate(config)).toEqual(config.credentialTemplate);
+});
+
+test.each(['explicit', 'auto-detected'])(
+  'requires a configured key before saving credentials in %s database mode',
+  async (mode) => {
+    if (mode === 'explicit') process.env.USE_DB = 'true';
+    else {
+      delete process.env.USE_DB;
+      process.env.DB_URL = 'postgres://localhost/mcphub';
+    }
+    delete process.env.MCPHUB_CREDENTIAL_ENCRYPTION_KEY;
+    await expect(
+      saveCredentialBinding('shared', 'alice', stdio, { 'env.PERSONAL_KEY': 'secret' }),
+    ).rejects.toThrow('MCPHUB_CREDENTIAL_ENCRYPTION_KEY');
+    expect(fs.readdirSync(directory)).toEqual([]);
+    expect(await new CredentialBindingDaoImpl().get('shared', 'alice')).toBeNull();
+  },
+);
+
+test.each(['environment', 'existing file'])(
+  'supports the %s key in database mode',
+  async (source) => {
+    process.env.USE_DB = 'true';
+    if (source === 'existing file') {
+      fs.writeFileSync(
+        `${process.env.MCPHUB_SETTING_PATH}.credentials.key`,
+        process.env.MCPHUB_CREDENTIAL_ENCRYPTION_KEY!,
+        { mode: 0o600 },
+      );
+      delete process.env.MCPHUB_CREDENTIAL_ENCRYPTION_KEY;
+    }
+    await saveCredentialBinding('shared', 'alice', stdio, { 'env.PERSONAL_KEY': 'secret' });
+    expect(
+      (await resolveCredentialBinding('shared', 'alice', stdio)).config.env?.PERSONAL_KEY,
+    ).toBe('secret');
+    expect(fs.existsSync(`${process.env.MCPHUB_SETTING_PATH}.credentials.key`)).toBe(
+      source === 'existing file',
+    );
+  },
+);
+
+test('allows local key generation when USE_DB explicitly disables DB_URL auto-detection', async () => {
+  process.env.DB_URL = 'postgres://localhost/mcphub';
+  delete process.env.MCPHUB_CREDENTIAL_ENCRYPTION_KEY;
+  await saveCredentialBinding('shared', 'alice', stdio, { 'env.PERSONAL_KEY': 'secret' });
+  expect(fs.existsSync(`${process.env.MCPHUB_SETTING_PATH}.credentials.key`)).toBe(true);
+});
+
+describe('copying personal credentials', () => {
+  test('re-encrypts for the destination, invalidates its runtime, and remains independent', async () => {
+    await saveCredentialBinding('source', 'alice', stdio, {
+      'env.PERSONAL_KEY': 'original-secret',
+    });
+    const invalidate = jest.fn();
+    credentialBindingEvents.on('invalidate', invalidate);
+    try {
+      await copyPersonalCredentialBinding('source', 'target', 'alice', stdio, stdio);
+      const dao = new CredentialBindingDaoImpl();
+      const source = (await dao.get('source', 'alice'))!;
+      const target = (await dao.get('target', 'alice'))!;
+      expect(target.encryptedValues).not.toBe(source.encryptedValues);
+      expect(await decryptCredentialValues(target)).toEqual({
+        'env.PERSONAL_KEY': 'original-secret',
+      });
+      expect(invalidate).toHaveBeenCalledWith({ serverName: 'target', username: 'alice' });
+      await deleteCredentialBindings({ serverName: 'source', username: 'alice' });
+      expect(
+        (await resolveCredentialBinding('target', 'alice', stdio)).config.env?.PERSONAL_KEY,
+      ).toBe('original-secret');
+      expect(await dao.get('target', 'bob')).toBeNull();
+    } finally {
+      credentialBindingEvents.off('invalidate', invalidate);
+    }
+  });
+
+  test('requires explicit overwrite and preserves the target on decryption failure', async () => {
+    await saveCredentialBinding('source', 'alice', stdio, { 'env.PERSONAL_KEY': 'new-secret' });
+    await saveCredentialBinding('target', 'alice', stdio, { 'env.PERSONAL_KEY': 'old-secret' });
+    await expect(
+      copyPersonalCredentialBinding('source', 'target', 'alice', stdio, stdio),
+    ).rejects.toThrow('Confirm overwriting');
+    await copyPersonalCredentialBinding('source', 'target', 'alice', stdio, stdio, true);
+    const dao = new CredentialBindingDaoImpl();
+    const target = await dao.get('target', 'alice');
+    await dao.save({ ...(await dao.get('source', 'alice'))!, encryptedValues: 'damaged' });
+    await expect(
+      copyPersonalCredentialBinding('source', 'target', 'alice', stdio, stdio, true),
+    ).rejects.toThrow('Unable to unlock');
+    expect(await dao.get('target', 'alice')).toEqual(target);
+  });
+
+  test('matches headers case-insensitively and drops extra source slots', async () => {
+    const source: ServerConfig = {
+      type: 'streamable-http',
+      url: 'https://example.com/mcp',
+      credentialTemplate: [
+        { target: 'headers', name: 'X-API-Key' },
+        { target: 'headers', name: 'X-Extra' },
+      ],
+    };
+    const target: ServerConfig = {
+      ...source,
+      credentialTemplate: [{ target: 'headers', name: 'x-api-key' }],
+    };
+    await saveCredentialBinding('source', 'alice', source, {
+      'headers.X-API-Key': 'secret',
+      'headers.X-Extra': 'extra',
+    });
+    await copyPersonalCredentialBinding('source', 'target', 'alice', source, target);
+    expect(
+      await decryptCredentialValues((await new CredentialBindingDaoImpl().get('target', 'alice'))!),
+    ).toEqual({ 'headers.x-api-key': 'secret' });
+  });
+
+  test('rejects missing sources, same-server copies, incompatible slots and disallowed URL values', async () => {
+    await expect(
+      copyPersonalCredentialBinding('source', 'target', 'alice', stdio, stdio),
+    ).rejects.toThrow('not configured');
+    await expect(
+      copyPersonalCredentialBinding('source', 'source', 'alice', stdio, stdio),
+    ).rejects.toThrow('different source');
+    const other: ServerConfig = {
+      ...stdio,
+      credentialTemplate: [{ target: 'env', name: 'OTHER_KEY' }],
+    };
+    await expect(
+      copyPersonalCredentialBinding('source', 'target', 'alice', stdio, other),
+    ).rejects.toThrow('incompatible');
+    const regional: ServerConfig = {
+      type: 'streamable-http',
+      url: 'https://example.com/{{url.region}}',
+      credentialTemplate: [{ target: 'url', name: 'region', allowed: ['us', 'eu'] }],
+    };
+    await saveCredentialBinding('source', 'alice', regional, { 'url.region': 'eu' });
+    const target = {
+      ...regional,
+      credentialTemplate: [{ target: 'url' as const, name: 'region', allowed: ['us'] }],
+    };
+    await expect(
+      copyPersonalCredentialBinding('source', 'target', 'alice', regional, target),
+    ).rejects.toThrow('URL');
+    expect(await new CredentialBindingDaoImpl().get('target', 'alice')).toBeNull();
+  });
+
+  test('does not overwrite a target changed while copying', async () => {
+    await saveCredentialBinding('source', 'alice', stdio, { 'env.PERSONAL_KEY': 'source-secret' });
+    const compare = jest
+      .spyOn(CredentialBindingDaoImpl.prototype, 'compareAndSave')
+      .mockResolvedValueOnce(false);
+    try {
+      await expect(
+        copyPersonalCredentialBinding('source', 'target', 'alice', stdio, stdio),
+      ).rejects.toThrow('Target credentials changed');
+      expect(await new CredentialBindingDaoImpl().get('target', 'alice')).toBeNull();
+    } finally {
+      compare.mockRestore();
+    }
+  });
 });

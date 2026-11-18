@@ -51,10 +51,13 @@ export class Server {
   // Per-server visibility for non-admin users.
   //   'private' — only the owner (or admins) can see this server. Default.
   //   'public'  — every authenticated user can see this server.
-  //   'group'   — explicitly selected users can see this server.
+  //   'group'   — selected users and user-group members can see this server.
   // See issues #817 and #1037.
   @Column({ type: 'varchar', length: 16, default: 'private' })
   visibility: 'private' | 'group' | 'public';
+
+  @Column({ type: 'text', array: true, nullable: true })
+  sharedWithUserGroups?: string[];
 
   @Column({ type: 'text', array: true, nullable: true })
   sharedWithUsers?: string[];
@@ -69,7 +72,10 @@ export class Server {
   protocolNegotiation?: 'auto' | 'legacy';
 
   @Column({ type: 'simple-json', nullable: true })
-  tools?: Record<string, { enabled: boolean; description?: string; hiddenParams?: string[] }>;
+  tools?: import('../../types/index.js').ServerConfig['tools'];
+
+  @Column({ type: 'simple-json', nullable: true })
+  staging?: import('../../types/index.js').ServerStagingConfig;
 
   @Column({ type: 'simple-json', nullable: true })
   prompts?: Record<string, { enabled: boolean; description?: string }>;
