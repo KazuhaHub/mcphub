@@ -249,7 +249,7 @@ const MarketPage: React.FC = () => {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-end justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="hub-h1">{t('nav.market')}</h1>
           <p className="hub-sub">
@@ -261,14 +261,14 @@ const MarketPage: React.FC = () => {
       {/* Tabs */}
       <div className="mb-5">
         <div style={{ borderBottom: '1px solid var(--hub-line)' }}>
-          <nav className="flex -mb-px gap-1.5">
+          <nav className="flex -mb-px gap-1.5 overflow-x-auto overflow-y-hidden">
             {tabs.map((tab) => {
               const active = currentTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => switchTab(tab.id)}
-                  className="py-2 px-3 transition-colors text-[14px]"
+                  className="shrink-0 whitespace-nowrap py-2 px-3 transition-colors text-[14px]"
                   style={{
                     borderBottom: '2px solid ' + (active ? 'var(--hub-ink)' : 'transparent'),
                     color: active ? 'var(--hub-ink)' : 'var(--hub-ink-3)',
@@ -342,15 +342,16 @@ const MarketPage: React.FC = () => {
         </form>
       )}
 
-      <div className={isLocalTab ? 'grid gap-5' : ''} style={isLocalTab ? { gridTemplateColumns: '180px 1fr' } : undefined}>
+      <div className={isLocalTab ? 'grid grid-cols-1 gap-5 md:grid-cols-[180px_minmax(0,1fr)]' : ''}>
         {/* Categories sidebar (local only) */}
         {isLocalTab && (
-          <div>
+          <div className="min-w-0">
             <h3 className="hub-sect mb-2">{t('market.categories')}</h3>
-            <div className="flex flex-col gap-0.5">
+            {/* A scrolling chip row on phones, a vertical list from md up. */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
               <button
                 onClick={() => filterLocalByCategory('')}
-                className="flex items-center justify-between transition-colors text-[13px]"
+                className="flex shrink-0 items-center justify-between gap-2 whitespace-nowrap transition-colors text-[13px]"
                 style={{
                   padding: '6px 10px',
                   borderRadius: 6,
@@ -368,7 +369,7 @@ const MarketPage: React.FC = () => {
                 <button
                   key={cat}
                   onClick={() => handleCategoryClick(cat)}
-                  className="flex items-center justify-between transition-colors text-[13px]"
+                  className="flex shrink-0 items-center justify-between whitespace-nowrap transition-colors text-[13px]"
                   style={{
                     padding: '6px 10px',
                     borderRadius: 6,
@@ -416,10 +417,10 @@ const MarketPage: React.FC = () => {
               </div>
 
               <div
-                className="flex items-center mt-4 text-[12px]"
+                className="flex flex-wrap items-center mt-4 gap-y-2 text-[12px]"
                 style={{ color: 'var(--hub-ink-3)' }}
               >
-                <div className="flex-[2]">
+                <div className="flex-[2] max-md:flex-1">
                   {isLocalTab
                     ? t('market.showing', {
                         from: (currentPage - 1) * serversPerPage + 1,
@@ -432,7 +433,7 @@ const MarketPage: React.FC = () => {
                         total: allServers.length + (registryHasNextPage ? '+' : ''),
                       })}
                 </div>
-                <div className="flex-[4] flex justify-center">
+                <div className="flex-[4] flex justify-center max-md:order-3 max-md:basis-full">
                   {isRegistryTab ? (
                     <CursorPagination
                       currentPage={currentPage}
@@ -449,7 +450,7 @@ const MarketPage: React.FC = () => {
                     />
                   )}
                 </div>
-                <div className="flex-[2] flex items-center justify-end gap-2">
+                <div className="flex-[2] flex items-center justify-end gap-2 max-md:flex-none">
                   <label htmlFor="perPage">
                     {isLocalTab ? t('market.perPage') : t('registry.perPage')}:
                   </label>
