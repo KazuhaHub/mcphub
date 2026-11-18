@@ -5,6 +5,7 @@ import {
   publicBranding,
   validateBrandingImage,
   validateBrandingUpdate,
+  withBrandingUrls,
 } from '../../src/utils/brandingImage.js';
 
 const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('rest')]);
@@ -111,5 +112,17 @@ describe('mergeBranding and publicBranding', () => {
     expect(asset?.mime).toBe('image/svg+xml');
     expect(asset?.bytes.equals(svg)).toBe(true);
     expect(getBrandingAsset({}, 'icon')).toBeNull();
+  });
+});
+
+describe('withBrandingUrls', () => {
+  it('replaces stored image data by URLs without modifying the stored config', () => {
+    const stored = { nameSeparator: '-', dashboardBranding: { icon: url('image/png', png) } };
+    const out = withBrandingUrls(stored, '');
+    expect(out.dashboardBranding.icon).toMatch(/^\/api\/branding\/icon\?v=/);
+    expect(JSON.stringify(out)).not.toContain('data:');
+    expect(stored.dashboardBranding.icon.startsWith('data:')).toBe(true);
+    const bare = { nameSeparator: '-' };
+    expect(withBrandingUrls(bare, '')).toBe(bare);
   });
 });

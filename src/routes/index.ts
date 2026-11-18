@@ -628,7 +628,9 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
   app.get(`${config.basePath}/public-config`, getPublicConfig);
 
   // Public dashboard branding images (icon and logos); the public config links to these.
-  app.get(`${config.basePath}/api/branding/:slot`, getBrandingImage);
+  // The slot names are fixed so other /api/branding/... paths (for example a group named
+  // "branding" with its OpenAPI routes) still fall through to their own handlers.
+  app.get(`${config.basePath}/api/branding/:slot(icon|logoLight|logoDark)`, getBrandingImage);
 
   // Public marketplace discovery API (issue #809). Off by default; enable via
   // systemConfig.discovery.enabled. When disabled, all of these return 404 to

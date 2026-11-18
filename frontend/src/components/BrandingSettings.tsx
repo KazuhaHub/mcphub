@@ -53,10 +53,23 @@ const BrandingSlotEditor: React.FC<SlotProps> = ({ slot, maxSide, backgrounds })
     setBusy(true);
     try {
       const result = await apiPut('/system-config', { dashboardBranding: { [slot]: value } });
-      if (!result.success) throw new Error(result.message || result.error);
-      // Re-read the public config so every brand mark switches to the new versioned URL.
-      const publicConfig = await getPublicConfig();
-      setBranding({ [slot]: publicConfig.dashboardBranding?.[slot] ?? '' });
+      if (!result.success) {
+        const detail = result.message || result.error;
+        showToast(
+          detail ? `${t('settings.branding.saveFailed')}: ${detail}` : t('settings.branding.saveFailed'),
+          'error',
+        );
+        return;
+      }
+      // The save succeeded, so never blank the slot afterwards. Prefer the server's versioned
+      // URL (from the response, else the public config); if neither is available keep the
+      // image we just saved so the brand marks still show it.
+      let next: string | undefined = result.data?.dashboardBranding?.[slot];
+      if (typeof next !== 'string') {
+        const publicConfig = await getPublicConfig();
+        next = publicConfig.dashboardBranding?.[slot];
+      }
+      setBranding({ [slot]: typeof next === 'string' ? next : value });
       setPending('');
       showToast(t(successKey));
     } catch {

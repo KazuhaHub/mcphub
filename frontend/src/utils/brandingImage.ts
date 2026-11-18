@@ -56,7 +56,9 @@ export const prepareBrandingImage = async (file: File, maxSide: number): Promise
     if (file.size > BRANDING_MAX_BYTES && file.type !== 'image/svg+xml') {
       dataUrl = await downscale(dataUrl, file.type, maxSide);
     }
-    if (!dataUrl.startsWith(`data:${file.type};base64,`)) {
+    // Accept the type the encoder actually produced: some browsers (Safari) return PNG when
+    // asked for WebP.
+    if (!/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,/.test(dataUrl)) {
       return { ok: false, error: 'type' };
     }
     return dataUrlBytes(dataUrl) > BRANDING_MAX_BYTES

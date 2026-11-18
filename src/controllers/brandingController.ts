@@ -1,7 +1,12 @@
 import { Request, Response } from 'express';
 import { getSystemConfigDao } from '../dao/DaoFactory.js';
 import { getCachedSystemConfig } from '../utils/systemConfigCache.js';
-import { BRANDING_SLOTS, BrandingSlot, getBrandingAsset } from '../utils/brandingImage.js';
+import {
+  BRANDING_SLOTS,
+  BrandingAsset,
+  BrandingSlot,
+  getBrandingAsset,
+} from '../utils/brandingImage.js';
 import { logger } from '../utils/logger.js';
 
 const notFound = (res: Response, message: string): void => {
@@ -14,9 +19,14 @@ const matchesEtag = (header: string | undefined, etag: string): boolean =>
   (header.trim() === '*' ||
     header.split(',').some((candidate) => candidate.trim().replace(/^W\//, '') === etag));
 
+const versionMatches = (asset: BrandingAsset | null, version: string): boolean =>
+  asset !== null && /^[0-9a-f]{12}$/.test(version) && asset.sha256.startsWith(version);
+
 /**
  * Serves one uploaded branding image without authentication. The public config links here
- * with a content-derived `v` query, so the response can be cached for a year.
+ * with a content-derived `v` query. The year-long immutable cache is sent only when the
+ * bytes served really are the version asked for, so a lagging config cache (replica mode)
+ * can never store old bytes under a new URL.
  */
 export const getBrandingImage = async (req: Request, res: Response): Promise<void> => {
   const slot = req.params.slot as BrandingSlot;
@@ -25,8 +35,15 @@ export const getBrandingImage = async (req: Request, res: Response): Promise<voi
     return;
   }
   try {
-    const systemConfig = getCachedSystemConfig() ?? (await getSystemConfigDao().get());
-    const asset = getBrandingAsset(systemConfig?.dashboardBranding, slot);
+    const requested = typeof req.query?.v === 'string' ? req.query.v : undefined;
+    const cached = getCachedSystemConfig();
+    let asset = getBrandingAsset(cached?.dashboardBranding, slot);
+    // The in-memory copy can lag the database: re-read it when the caller asks for another
+    // version than the one it holds, or when it holds nothing for this slot.
+    if (!cached || (requested !== undefined && !versionMatches(asset, requested)) || !asset) {
+      const fresh = await getSystemConfigDao().get();
+      asset = getBrandingAsset(fresh?.dashboardBranding, slot);
+    }
     if (!asset) {
       notFound(res, 'Branding image not set');
       return;
@@ -34,7 +51,14 @@ export const getBrandingImage = async (req: Request, res: Response): Promise<voi
 
     const etag = `"${asset.sha256}"`;
     res.setHeader('ETag', etag);
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    if (requested === undefined) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (versionMatches(asset, requested)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else {
+      // A stale or unknown version: still show the current image, but never store it.
+      res.setHeader('Cache-Control', 'no-store');
+    }
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (asset.mime === 'image/svg+xml') {
       // Opening the SVG directly must not run scripts.

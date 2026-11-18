@@ -30,7 +30,7 @@ import { Card, Cards } from 'mintlify';
   - `logoLight` (string): 浅色主题的宽幅 Logo（展开的侧栏、登录页）。
   - `logoDark` (string): 深色主题的宽幅 Logo；未设置时使用 `logoLight`。
 
-每张图片必须是 base64 `data:` URL，类型为 `image/png`、`image/jpeg`、`image/webp` 或 `image/svg+xml`，解码后不超过 256 KB，且内容与声明的类型一致。其他情况（远程 URL、其他类型、无效 base64、超出大小、未知槽位）会返回 HTTP 400，并在消息中指出槽位，例如 `dashboardBranding.icon must be at most 256 KB`。
+每张图片必须是 base64 `data:` URL，类型为 `image/png`、`image/jpeg`、`image/webp` 或 `image/svg+xml`，解码后不超过 256 KB，且内容与声明的类型一致。`PUT /api/system-config` 和 `GET /api/settings` 以相同的带版本 URL 返回各槽位，而不是图片数据；设置导出仍保留图片数据以便恢复。其他情况（远程 URL、其他类型、无效 base64、超出大小、未知槽位）会返回 HTTP 400，并在消息中指出槽位，例如 `dashboardBranding.icon must be at most 256 KB`。
 
 ```json
 { "dashboardBranding": { "icon": "data:image/png;base64,iVBORw0KGgo...", "logoDark": "" } }
@@ -163,4 +163,4 @@ import { Card, Cards } from 'mintlify';
 
 - **端点**: `/api/branding/{slot}`，`slot` 为 `icon`、`logoLight` 或 `logoDark`
 - **方法**: `GET`（无需身份验证）
-- **响应**: 原始图片及其 `Content-Type`、`X-Content-Type-Options: nosniff`、强 `ETag`（字节的 SHA-256）、`Cache-Control: public, max-age=31536000, immutable`；SVG 还带有 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`。`If-None-Match` 匹配时返回 `304`，槽位未知或未设置时返回 JSON `404`。
+- **响应**: 原始图片及其 `Content-Type`、`X-Content-Type-Options: nosniff`、强 `ETag`（字节的 SHA-256）、仅当 `v` 查询参数与所返回的内容一致时才使用 `Cache-Control: public, max-age=31536000, immutable`（不带 `v` 时为 `no-cache`，版本不是当前版本时为 `no-store`）；SVG 还带有 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`。`If-None-Match` 匹配时返回 `304`，槽位未知或未设置时返回 JSON `404`。

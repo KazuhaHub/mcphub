@@ -1202,6 +1202,18 @@ describe('serverController - updateSystemConfig', () => {
       expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
     });
 
+    it('returns versioned URLs, never the image data, in the update response', async () => {
+      mockRequest.body = { dashboardBranding: { icon: png } };
+      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+      const body = mockJson.mock.calls[0][0];
+      expect(body.data.dashboardBranding.icon).toMatch(/\/api\/branding\/icon\?v=[0-9a-f]{12}$/);
+      expect(JSON.stringify(body)).not.toContain('data:image');
+      // What is stored keeps the data.
+      expect(mockSystemConfigDao.update).toHaveBeenCalledWith(
+        expect.objectContaining({ dashboardBranding: { icon: png } }),
+      );
+    });
+
     it('rejects unknown slots and non-objects', async () => {
       for (const dashboardBranding of [{ favicon: png }, 'x', null]) {
         mockRequest.body = { dashboardBranding };

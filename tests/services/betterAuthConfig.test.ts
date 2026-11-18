@@ -593,14 +593,20 @@ describe('betterAuthConfig', () => {
       expect(isApiAuthExemptPath('/auth/better', { basePath: '/api/auth/better' })).toBe(true);
     });
 
-    it('exempts the public branding image endpoint only', async () => {
+    it('exempts only GET/HEAD of the three branding slots', async () => {
       const isApiAuthExemptPath = await loadHelper();
       const config = { basePath: '/api/auth/better' };
 
-      expect(isApiAuthExemptPath('/branding/icon', config)).toBe(true);
-      expect(isApiAuthExemptPath('/branding/unknown', config)).toBe(true);
-      expect(isApiAuthExemptPath('/branding', config)).toBe(false);
-      expect(isApiAuthExemptPath('/branding/icon/extra', config)).toBe(false);
+      for (const slot of ['icon', 'logoLight', 'logoDark']) {
+        expect(isApiAuthExemptPath(`/branding/${slot}`, config, 'GET')).toBe(true);
+        expect(isApiAuthExemptPath(`/branding/${slot}`, config, 'HEAD')).toBe(true);
+        expect(isApiAuthExemptPath(`/branding/${slot}`, config, 'POST')).toBe(false);
+        expect(isApiAuthExemptPath(`/branding/${slot}`, config, 'PUT')).toBe(false);
+        expect(isApiAuthExemptPath(`/branding/${slot}`, config)).toBe(false);
+      }
+      for (const path of ['/branding/unknown', '/branding', '/branding/icon/extra', '/branding/%69con', '/branding/icon/', '/branding/ICON']) {
+        expect(isApiAuthExemptPath(path, config, 'GET')).toBe(false);
+      }
     });
 
     it('exempts the legacy /better-auth prefix', async () => {

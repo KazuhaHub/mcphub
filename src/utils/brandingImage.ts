@@ -102,6 +102,19 @@ export const mergeBranding = (
   return next;
 };
 
+/**
+ * A copy of the system config that is safe to return from the API: the branding slots are
+ * the versioned public URLs, never the stored image data (up to ~1 MB). The stored config
+ * is not modified. Exports keep the data so a settings export can be restored.
+ */
+export const withBrandingUrls = <T extends { dashboardBranding?: DashboardBranding }>(
+  systemConfig: T,
+  basePath: string,
+): T =>
+  systemConfig.dashboardBranding
+    ? { ...systemConfig, dashboardBranding: publicBranding(systemConfig.dashboardBranding, basePath) }
+    : systemConfig;
+
 export interface BrandingAsset {
   mime: string;
   bytes: Buffer;
