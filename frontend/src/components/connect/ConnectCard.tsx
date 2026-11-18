@@ -120,7 +120,7 @@ const ConnectCard: React.FC = () => {
   return (
     <section className="hub-card space-y-4 p-4" aria-labelledby="connect-ai-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1 basis-64">
           <h2 id="connect-ai-title" className="hub-card-title">
             {t('connect.title')}
           </h2>

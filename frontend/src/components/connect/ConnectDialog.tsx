@@ -153,7 +153,7 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="hub-card flex h-full w-full flex-col !rounded-none sm:h-auto sm:max-h-[90vh] sm:max-w-xl sm:!rounded-md"
+        className="hub-card flex h-full w-full flex-col outline-none !rounded-none sm:h-auto sm:max-h-[90vh] sm:max-w-xl sm:!rounded-md"
         data-testid="connect-dialog"
       >
         <div
