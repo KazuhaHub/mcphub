@@ -1,10 +1,4 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHmac,
-  randomBytes,
-  randomUUID,
-} from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -29,7 +23,10 @@ import {
   credentialSlotId,
   validateCredentialTemplate,
 } from '../utils/credentialTemplate.js';
-import { ORPHANED_FINGERPRINT, canonicalCredentialDestination } from '../utils/credentialDestination.js';
+import {
+  ORPHANED_FINGERPRINT,
+  canonicalCredentialDestination,
+} from '../utils/credentialDestination.js';
 import { isWorkspaceEnabled } from './userServerSelectionService.js';
 
 export const credentialBindingEvents = new EventEmitter();
@@ -122,10 +119,7 @@ export const sealSecretWithCredentialKey = async (
 };
 
 /** Open what `sealSecretWithCredentialKey` sealed. Throws when the key or the data is wrong. */
-export const openSecretWithCredentialKey = async (
-  aad: string,
-  sealed: string,
-): Promise<string> => {
+export const openSecretWithCredentialKey = async (aad: string, sealed: string): Promise<string> => {
   const key = await encryptionKey();
   const [version, iv, tag, ciphertext] = sealed.split('.');
   if (version !== 'v1') throw new Error('Unsupported version');
@@ -196,10 +190,13 @@ export const missingCredentialError = (serverName: string): CredentialBindingErr
   const fallback = workspace
     ? `Personal credentials required for '${serverName}'. Add them from your workspace.`
     : defaultMissingCredentialMessage(serverName);
-  const message = getT(requestLanguage())(workspace ? 'credentials.missingWorkspace' : 'credentials.missing', {
-    serverName,
-    defaultValue: fallback,
-  });
+  const message = getT(requestLanguage())(
+    workspace ? 'credentials.missingWorkspace' : 'credentials.missing',
+    {
+      serverName,
+      defaultValue: fallback,
+    },
+  );
   return new MissingCredentialError(message || fallback);
 };
 
@@ -336,6 +333,7 @@ export const copyPersonalCredentialBinding = async (
   sourceConfig: ServerConfig,
   targetConfig: ServerConfig,
   overwrite = false,
+  options: { requireSameDestination?: boolean } = {},
 ): Promise<void> => {
   if (sourceName === targetName)
     throw new CredentialBindingError('Choose a different source server');
@@ -353,8 +351,18 @@ export const copyPersonalCredentialBinding = async (
   const source = await dao.get(sourceName, username);
   if (!source) throw new CredentialBindingError('Source credentials are not configured');
   // Values saved for a destination the source no longer points at are never carried anywhere.
-  if (isStaleBinding(source, await computeDestinationFingerprint(sourceConfig)))
+  const sourceFingerprint = await computeDestinationFingerprint(sourceConfig);
+  if (isStaleBinding(source, sourceFingerprint))
     throw new CredentialBindingError('Source credentials are not configured');
+  // A copy made on someone else's behalf must not carry their secret to a destination they
+  // never bound it to (ADR 0011): only between servers that send it to the same place.
+  if (
+    options.requireSameDestination &&
+    (await computeDestinationFingerprint(targetConfig)) !== sourceFingerprint
+  )
+    throw new CredentialBindingError(
+      "Another user's credentials can only be copied between servers with the same destination",
+    );
   const existing = await dao.get(targetName, username);
   if (existing && !overwrite)
     throw new CredentialBindingError('Confirm overwriting the existing target credentials');
@@ -517,7 +525,10 @@ export const stampLegacyBindings = async (): Promise<{
     for (const binding of legacy) {
       try {
         if (!servers.has(binding.serverName))
-          servers.set(binding.serverName, (await getServerDao().findById(binding.serverName)) ?? null);
+          servers.set(
+            binding.serverName,
+            (await getServerDao().findById(binding.serverName)) ?? null,
+          );
         const server = servers.get(binding.serverName);
         let fingerprint = ORPHANED_FINGERPRINT;
         if (server) {
@@ -546,7 +557,8 @@ export const stampLegacyBindings = async (): Promise<{
         });
       }
     }
-    if (legacy.length) logger.log('Stamped personal credential bindings with their destination', counts);
+    if (legacy.length)
+      logger.log('Stamped personal credential bindings with their destination', counts);
   } catch (error) {
     logger.error('Failed to stamp personal credential bindings at startup', {
       error: error instanceof Error ? error.message : String(error),

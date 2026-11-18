@@ -191,6 +191,7 @@ const copyCredential = async (req: Request, res: Response, managed: boolean): Pr
       source,
       target,
       overwrite,
+      { requireSameDestination: managed },
     );
     await notifyWorkspaceUser(user.username);
     res.json({ success: true });

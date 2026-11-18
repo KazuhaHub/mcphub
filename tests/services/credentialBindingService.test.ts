@@ -106,30 +106,27 @@ test.each([
   ['abcdefgh', '••••gh'],
   ['abcdefghi', '••••fghi'],
   ['🔑🔒🔐🗝', '••••🗝'],
-])(
-  'returns masked previews only when requested: %s',
-  async (value, preview) => {
-    await saveCredentialBinding('shared', 'alice', stdio, { 'env.PERSONAL_KEY': value });
-    expect(await getCredentialBindingStatus('shared', 'alice', stdio)).not.toHaveProperty(
-      'valuePreviews',
-    );
-    const status = await getCredentialBindingStatus('shared', 'alice', stdio, true);
-    expect(status).toHaveProperty('valuePreviews', {
-      'env.PERSONAL_KEY': preview,
-    });
-    expect(JSON.stringify(status)).not.toContain(`"${value}"`);
-    await saveCredentialBinding('shared', 'alice', stdio, { 'env.PERSONAL_KEY': 'replacement-WXYZ' });
-    expect(await getCredentialBindingStatus('shared', 'alice', stdio, true)).toHaveProperty(
-      'valuePreviews',
-      { 'env.PERSONAL_KEY': '••••WXYZ' },
-    );
-    await deleteCredentialBindings({ serverName: 'shared', username: 'alice' });
-    expect(await getCredentialBindingStatus('shared', 'alice', stdio, true)).toHaveProperty(
-      'valuePreviews',
-      {},
-    );
-  },
-);
+])('returns masked previews only when requested: %s', async (value, preview) => {
+  await saveCredentialBinding('shared', 'alice', stdio, { 'env.PERSONAL_KEY': value });
+  expect(await getCredentialBindingStatus('shared', 'alice', stdio)).not.toHaveProperty(
+    'valuePreviews',
+  );
+  const status = await getCredentialBindingStatus('shared', 'alice', stdio, true);
+  expect(status).toHaveProperty('valuePreviews', {
+    'env.PERSONAL_KEY': preview,
+  });
+  expect(JSON.stringify(status)).not.toContain(`"${value}"`);
+  await saveCredentialBinding('shared', 'alice', stdio, { 'env.PERSONAL_KEY': 'replacement-WXYZ' });
+  expect(await getCredentialBindingStatus('shared', 'alice', stdio, true)).toHaveProperty(
+    'valuePreviews',
+    { 'env.PERSONAL_KEY': '••••WXYZ' },
+  );
+  await deleteCredentialBindings({ serverName: 'shared', username: 'alice' });
+  expect(await getCredentialBindingStatus('shared', 'alice', stdio, true)).toHaveProperty(
+    'valuePreviews',
+    {},
+  );
+});
 
 test('requires all declared slots without implicit organization fallback', async () => {
   await expect(resolveCredentialBinding('shared', 'alice', stdio)).rejects.toThrow('Credentials');
@@ -162,7 +159,8 @@ test('localizes missing credential guidance from the request language', async ()
 });
 
 test('points missing credential guidance at the workspace only under Workspace Mode', async () => {
-  const off = "Personal credentials required for 'amap'. Bind all required slots in Dashboard → Credentials.";
+  const off =
+    "Personal credentials required for 'amap'. Bind all required slots in Dashboard → Credentials.";
   expect(missingCredentialError('amap').message).toBe(off);
   expect(personalAuthorizationRequired('amap').message).toBe(
     "Personal authorization required for 'amap'. Connect in Dashboard → Servers.",
@@ -748,6 +746,23 @@ describe('copying personal credentials', () => {
     expect(
       await decryptCredentialValues((await new CredentialBindingDaoImpl().get('target', 'alice'))!),
     ).toEqual({ 'headers.x-api-key': 'secret' });
+  });
+
+  test('copies on behalf of another user only between servers with the same destination', async () => {
+    await saveCredentialBinding('source', 'alice', stdio, { 'env.PERSONAL_KEY': 'secret' });
+    const elsewhere: ServerConfig = { ...stdio, command: 'attacker-controlled' };
+    await expect(
+      copyPersonalCredentialBinding('source', 'target', 'alice', stdio, elsewhere, false, {
+        requireSameDestination: true,
+      }),
+    ).rejects.toThrow('same destination');
+    expect(await new CredentialBindingDaoImpl().get('target', 'alice')).toBeNull();
+    await copyPersonalCredentialBinding('source', 'target', 'alice', stdio, stdio, false, {
+      requireSameDestination: true,
+    });
+    expect(
+      await decryptCredentialValues((await new CredentialBindingDaoImpl().get('target', 'alice'))!),
+    ).toEqual({ 'env.PERSONAL_KEY': 'secret' });
   });
 
   test('rejects missing sources, same-server copies, incompatible slots and disallowed URL values', async () => {
