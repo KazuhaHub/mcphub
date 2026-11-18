@@ -64,6 +64,10 @@ A personal-OAuth server whose `url` is an external resource of this hub (`resolv
 
 A credential-slot binding stores `destinationFingerprint` (see `src/utils/credentialDestination.ts` for the exact field list). A binding whose fingerprint differs from the current declaration must never be injected: `resolveCredentialBinding` throws `StaleCredentialError` (a `MissingCredentialError`) before reading any value. Any new `ServerConfig` option that changes where traffic goes (a proxy, TLS or agent option, a working directory) belongs in that list. The binding functions take the stored definition and expand it themselves, once, through `expandServerConfig` (never skip it, never pass an already expanded or resolved config); startup runs `stampLegacyBindings`, and a binding without a fingerprint is stale. Applies with Workspace Mode off too; see [ADR 0011](../adr/0011-credential-destination-binding.md).
 
+## MCP resource-server challenges
+
+`src/utils/bearerChallenge.ts` builds every `WWW-Authenticate: Bearer` value for MCP/SSE routes (`sendBearerAuthError` in `sseService.ts`, `sseUserContextMiddleware`). A request with no credentials gets `resource_metadata` and `scope` and no `error` code (RFC 6750 3.1); an invalid token adds `error="invalid_token"`. `scope` and the protected resource metadata's `scopes_supported` both come from `getResourceScopes`: `oauthServer.allowedScopes` minus `offline_access` and `credentials:write:*`. MCP routes enforce no scope today, so there is no `insufficient_scope` path; if one is added, build its 403 with the same helper. The owner-mismatch 403 deliberately has no challenge.
+
 ## Routing surface
 
 - `/mcp/{group|server}` routes to a group, server, or `$smart`. `SMART_ROUTING_PATH` adds a reserved alias for `$smart`; transport middleware normalizes the alias before authentication while preserving the original OAuth resource URL.
