@@ -133,6 +133,8 @@ interface BetterAuthConfig {
   loginMode: LoginMode;
   /** Read-only, from GET /settings: the layout in use and any BETTER_AUTH_LOGIN_MODE override. */
   loginModeStatus?: { effective: LoginMode; envOverride: LoginMode | null };
+  /** Read-only, from GET /settings: password login is disabled right now (after the env override). */
+  passwordLoginStatus?: { disabled: boolean };
   providers: {
     google: BetterAuthProviderToggle;
     github: BetterAuthProviderToggle;
@@ -326,6 +328,7 @@ const normalizeBetterAuthConfig = (config?: Partial<BetterAuthConfig>): BetterAu
     disablePasswordLogin: config?.disablePasswordLogin ?? defaults.disablePasswordLogin,
     adminPasswordLogin: config?.adminPasswordLogin === true,
     loginModeStatus: config?.loginModeStatus,
+    passwordLoginStatus: config?.passwordLoginStatus,
     loginMode: LOGIN_MODES.includes(config?.loginMode as LoginMode)
       ? (config?.loginMode as LoginMode)
       : defaults.loginMode,
@@ -1107,6 +1110,10 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       if (data.success) {
         setBetterAuthConfig((current) => mergeBetterAuthConfig(current, updates));
         showToast(t('settings.systemConfigUpdated'));
+        // The effective status the server computes may change with these; reload it
+        if (updates.disablePasswordLogin !== undefined || updates.loginMode !== undefined) {
+          void fetchSettings();
+        }
         return true;
       } else {
         setError(data.error || 'Failed to update Better Auth config');

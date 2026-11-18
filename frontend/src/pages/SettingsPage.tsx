@@ -3984,7 +3984,11 @@ const SettingsPage: React.FC = () => {
                   <p className="text-sm text-gray-500">
                     {t('settings.adminPasswordLoginDescription')}
                   </p>
-                  {betterAuthConfig.adminPasswordLogin && !betterAuthConfig.disablePasswordLogin && (
+                  {betterAuthConfig.adminPasswordLogin &&
+                    !(
+                      betterAuthConfig.passwordLoginStatus?.disabled ??
+                      betterAuthConfig.disablePasswordLogin
+                    ) && (
                     <p className="mt-1 text-sm text-gray-500">
                       {t('settings.adminPasswordLoginInactive')}
                     </p>

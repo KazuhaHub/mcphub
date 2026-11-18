@@ -600,6 +600,7 @@ export const getAllSettings = async (req: Request, res: Response): Promise<void>
       };
     }
 
+    const betterAuthRuntime = resolveBetterAuthRuntimeConfig(systemConfig);
     const systemConfigForResponse = withResolvedInstallBaseUrl(
       {
         ...withBrandingUrls(systemConfig, appConfig.basePath),
@@ -622,9 +623,12 @@ export const getAllSettings = async (req: Request, res: Response): Promise<void>
           betterAuth: {
             ...systemConfig.auth?.betterAuth,
             loginModeStatus: {
-              effective: resolveBetterAuthRuntimeConfig(systemConfig).loginMode,
+              effective: betterAuthRuntime.loginMode,
               envOverride: getLoginModeEnvOverride() ?? null,
             },
+            // Whether password login is really disabled right now, after
+            // BETTER_AUTH_DISABLE_PASSWORD_LOGIN and the mounted-provider rule
+            passwordLoginStatus: { disabled: betterAuthRuntime.disablePasswordLogin },
           } as NonNullable<SystemConfig['auth']>['betterAuth'],
         },
       },

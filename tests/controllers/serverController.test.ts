@@ -779,6 +779,70 @@ describe('serverController - getAllSettings', () => {
       expect((await adminSettings()).loginModeStatus.envOverride).toBe('sso_redirect');
     });
 
+    describe('effective password login', () => {
+      const envKeys = [
+        'USE_DB',
+        'OIDC_CLIENT_ID',
+        'OIDC_CLIENT_SECRET',
+        'BETTER_AUTH_DISABLE_PASSWORD_LOGIN',
+      ];
+      const saved: Record<string, string | undefined> = {};
+      const status = async (disablePasswordLogin: boolean) => {
+        mockSystemConfigDao.get.mockResolvedValue({
+          auth: {
+            betterAuth: {
+              enabled: true,
+              disablePasswordLogin,
+              adminPasswordLogin: true,
+              providers: {
+                oidc: {
+                  enabled: true,
+                  discoveryUrl: 'https://idp.example.com/.well-known/openid-configuration',
+                },
+              },
+            },
+          },
+        });
+        const res = { json: jest.fn(), status: jest.fn().mockReturnThis() } as unknown as Response;
+        await getAllSettings(
+          { user: { username: 'admin', isAdmin: true } } as unknown as Request,
+          res,
+        );
+        return (res.json as jest.Mock).mock.calls[0][0].data.systemConfig.auth.betterAuth;
+      };
+
+      beforeEach(async () => {
+        for (const key of envKeys) saved[key] = process.env[key];
+        process.env.USE_DB = 'true';
+        process.env.OIDC_CLIENT_ID = 'id';
+        process.env.OIDC_CLIENT_SECRET = 'secret';
+        delete process.env.BETTER_AUTH_DISABLE_PASSWORD_LOGIN;
+        const { setMountedSsoProviders } = await import('../../src/services/betterAuthConfig.js');
+        setMountedSsoProviders(['oidc']);
+      });
+
+      afterEach(async () => {
+        for (const key of envKeys) {
+          if (saved[key] === undefined) delete process.env[key];
+          else process.env[key] = saved[key];
+        }
+        const { setMountedSsoProviders } = await import('../../src/services/betterAuthConfig.js');
+        setMountedSsoProviders([]);
+      });
+
+      it('reports the stored switch when nothing overrides it', async () => {
+        expect((await status(true)).passwordLoginStatus).toEqual({ disabled: true });
+        expect((await status(false)).passwordLoginStatus).toEqual({ disabled: false });
+      });
+
+      it('follows BETTER_AUTH_DISABLE_PASSWORD_LOGIN over the stored switch', async () => {
+        process.env.BETTER_AUTH_DISABLE_PASSWORD_LOGIN = 'false';
+        const betterAuth = await status(true);
+        expect(betterAuth.disablePasswordLogin).toBe(true);
+        expect(betterAuth.passwordLoginStatus).toEqual({ disabled: false });
+      });
+    });
+
     it('does not persist the status', async () => {
       delete process.env.BETTER_AUTH_LOGIN_MODE;
       await adminSettings();
