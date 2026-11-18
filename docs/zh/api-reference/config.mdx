@@ -18,7 +18,23 @@ import { Card, Cards } from 'mintlify';
 
 - **端点**: `/api/system-config`
 - **方法**: `PUT`
-- **正文**: 一个 JSON 对象，包含以下一个或多个顶级键：`routing`、`install`、`smartRouting`、`toolResultCompression`、`mcpRouter`。
+- **正文**: 一个 JSON 对象，包含以下一个或多个顶级键：`routing`、`install`、`smartRouting`、`toolResultCompression`、`mcpRouter`、`dashboardName`、`dashboardBranding`。
+
+#### 控制台品牌 (`dashboardName`、`dashboardBranding`)
+
+仅管理员可用。
+
+- `dashboardName` (string): 显示在侧栏、登录页和浏览器标签中的名称，去除首尾空格后最多 100 个字符。空字符串恢复默认名称。
+- `dashboardBranding` (object): 可选图片。只需发送要修改的槽位；省略的槽位保持不变，空字符串清空该槽位。
+  - `icon` (string): 方形标志，用于折叠侧栏、浏览器标签页图标和 OAuth 授权页。
+  - `logoLight` (string): 浅色主题的宽幅 Logo（展开的侧栏、登录页）。
+  - `logoDark` (string): 深色主题的宽幅 Logo；未设置时使用 `logoLight`。
+
+每张图片必须是 base64 `data:` URL，类型为 `image/png`、`image/jpeg`、`image/webp` 或 `image/svg+xml`，解码后不超过 256 KB，且内容与声明的类型一致。其他情况（远程 URL、其他类型、无效 base64、超出大小、未知槽位）会返回 HTTP 400，并在消息中指出槽位，例如 `dashboardBranding.icon must be at most 256 KB`。
+
+```json
+{ "dashboardBranding": { "icon": "data:image/png;base64,iVBORw0KGgo...", "logoDark": "" } }
+```
 
 #### 路由配置 (`routing`)
 
@@ -133,8 +149,12 @@ import { Card, Cards } from 'mintlify';
   {
     "success": true,
     "data": {
+      "dashboardName": "",
+      "dashboardBranding": { "icon": "", "logoLight": "", "logoDark": "" },
       "skipAuth": false,
       "permissions": {}
     }
   }
   ```
+
+`dashboardName` 和 `dashboardBranding` 让登录页在登录前即可显示已配置的品牌。未设置的图片为空字符串，已设置的为 `data:` URL。

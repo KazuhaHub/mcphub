@@ -18,7 +18,23 @@ Updates various parts of the system configuration. You only need to provide the 
 
 - **Endpoint**: `/api/system-config`
 - **Method**: `PUT`
-- **Body**: A JSON object containing one or more of the following top-level keys: `routing`, `install`, `smartRouting`, `toolResultCompression`, `mcpRouter`.
+- **Body**: A JSON object containing one or more of the following top-level keys: `routing`, `install`, `smartRouting`, `toolResultCompression`, `mcpRouter`, `dashboardName`, `dashboardBranding`.
+
+#### Dashboard Branding (`dashboardName`, `dashboardBranding`)
+
+Administrator only.
+
+- `dashboardName` (string): Name shown in the sidebar, login page and browser tab, at most 100 characters after trimming. An empty string restores the default.
+- `dashboardBranding` (object): Optional images. Send only the slots you want to change; slots you omit keep their value and an empty string clears a slot.
+  - `icon` (string): Square mark for the collapsed sidebar, favicon and OAuth authorization page.
+  - `logoLight` (string): Wide logo for light theme (expanded sidebar, login page).
+  - `logoDark` (string): Wide logo for dark theme; falls back to `logoLight`.
+
+Each image must be a base64 `data:` URL of type `image/png`, `image/jpeg`, `image/webp` or `image/svg+xml`, at most 256 KB decoded, whose content matches its declared type. Anything else (remote URLs, other types, invalid base64, oversize images, unknown slots) is rejected with HTTP 400 and a message naming the slot, for example `dashboardBranding.icon must be at most 256 KB`.
+
+```json
+{ "dashboardBranding": { "icon": "data:image/png;base64,iVBORw0KGgo...", "logoDark": "" } }
+```
 
 #### Routing Configuration (`routing`)
 
@@ -137,11 +153,15 @@ Retrieves public configuration, primarily to check if authentication is skipped.
   {
     "success": true,
     "data": {
+      "dashboardName": "",
+      "dashboardBranding": { "icon": "", "logoLight": "", "logoDark": "" },
       "skipAuth": false,
       "permissions": {}
     }
   }
   ```
+
+`dashboardName` and `dashboardBranding` let the login page show the configured branding before sign-in. Unset images are empty strings; set ones are `data:` URLs.
 
 ## Session rebuild
 
