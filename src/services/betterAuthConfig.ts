@@ -306,6 +306,24 @@ export const resolveBetterAuthRuntimeConfig = (
   };
 };
 
+/**
+ * Who may sign in with a username and password right now:
+ * - `all`: password login is not disabled (or `BETTER_AUTH_DISABLE_PASSWORD_LOGIN=false`);
+ * - `admins`: disabled, but the break-glass `adminPasswordLogin` setting lets admin accounts in;
+ * - `none`: disabled.
+ * Deliberately not part of `BetterAuthRuntimeConfig`, which is published to anonymous callers.
+ */
+export type PasswordLoginPolicy = 'all' | 'admins' | 'none';
+
+export const getPasswordLoginPolicy = async (
+  systemConfigOverride?: SystemConfig | null,
+): Promise<PasswordLoginPolicy> => {
+  const systemConfig =
+    systemConfigOverride !== undefined ? systemConfigOverride : await getSystemConfigDao().get();
+  if (!resolveBetterAuthRuntimeConfig(systemConfig).disablePasswordLogin) return 'all';
+  return systemConfig?.auth?.betterAuth?.adminPasswordLogin === true ? 'admins' : 'none';
+};
+
 export const getBetterAuthRuntimeConfig = async (
   systemConfigOverride?: SystemConfig | null,
 ): Promise<BetterAuthRuntimeConfig> => {

@@ -36,10 +36,14 @@ export const parseLoginModeEnv = (
  */
 export const validateLoginPresentationUpdate = (betterAuth: unknown): string | null => {
   if (!betterAuth || typeof betterAuth !== 'object') return null;
-  const { loginMode, providers } = betterAuth as {
+  const { loginMode, adminPasswordLogin, providers } = betterAuth as {
     loginMode?: unknown;
+    adminPasswordLogin?: unknown;
     providers?: { oidc?: { displayName?: unknown } };
   };
+  if (adminPasswordLogin !== undefined && typeof adminPasswordLogin !== 'boolean') {
+    return 'auth.betterAuth.adminPasswordLogin must be a boolean';
+  }
   if (loginMode !== undefined && loginMode !== null && !isLoginMode(loginMode)) {
     return `auth.betterAuth.loginMode must be one of ${LOGIN_MODES.join(', ')}`;
   }

@@ -2886,6 +2886,7 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
         Array.isArray(auth.betterAuth.trustedOrigins) ||
         typeof auth.betterAuth.disablePasswordLogin === 'boolean' ||
         auth.betterAuth.loginMode !== undefined ||
+        typeof auth.betterAuth.adminPasswordLogin === 'boolean' ||
         (auth.betterAuth.providers &&
           (typeof auth.betterAuth.providers.google?.enabled === 'boolean' ||
             typeof auth.betterAuth.providers.github?.enabled === 'boolean' ||
@@ -3526,6 +3527,10 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
 
       if (typeof auth.betterAuth.disablePasswordLogin === 'boolean') {
         target.disablePasswordLogin = auth.betterAuth.disablePasswordLogin;
+      }
+
+      if (typeof auth.betterAuth.adminPasswordLogin === 'boolean') {
+        target.adminPasswordLogin = auth.betterAuth.adminPasswordLogin;
       }
 
       // Validated above; null clears it back to the default layout

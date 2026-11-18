@@ -246,6 +246,9 @@ export interface BetterAuthConfig {
   disableAutoCreate?: boolean; // When true, SSO login will not auto-create new users
   disablePasswordLogin?: boolean; // When true and an SSO provider is enabled, username/password login is refused
   loginMode?: LoginMode; // Login page presentation; see LoginMode
+  // Break-glass: while disablePasswordLogin is in effect, still accept password sign-in for admin
+  // accounts (through the unlinked /login?local=1). Never published in the public config.
+  adminPasswordLogin?: boolean;
   providers?: {
     google?: BetterAuthProviderToggle;
     github?: BetterAuthProviderToggle;

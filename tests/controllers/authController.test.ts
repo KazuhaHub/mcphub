@@ -4,6 +4,7 @@ import { jest } from '@jest/globals';
 const createUserMock = jest.fn();
 const findUserByUsernameMock = jest.fn();
 const getBetterAuthRuntimeConfigMock = jest.fn();
+const getPasswordLoginPolicyMock = jest.fn();
 
 jest.mock('../../src/models/User.js', () => ({
   createUser: createUserMock,
@@ -33,6 +34,7 @@ jest.mock('../../src/utils/version.js', () => ({
 
 jest.mock('../../src/services/betterAuthConfig.js', () => ({
   getBetterAuthRuntimeConfig: getBetterAuthRuntimeConfigMock,
+  getPasswordLoginPolicy: getPasswordLoginPolicyMock,
 }));
 
 jest.mock('../../src/dao/DaoFactory.js', () => ({
@@ -99,8 +101,8 @@ describe('authController.login with password login disabled', () => {
     findUserByUsernameMock.mockResolvedValue(undefined);
   });
 
-  it('refuses the login with 403 before looking the user up', async () => {
-    getBetterAuthRuntimeConfigMock.mockResolvedValue({ disablePasswordLogin: true });
+  it('refuses the login with 403', async () => {
+    getPasswordLoginPolicyMock.mockResolvedValue('none');
 
     const { json, status } = await callLogin();
 
@@ -109,11 +111,10 @@ describe('authController.login with password login disabled', () => {
       success: false,
       message: 'api.errors.password_login_disabled',
     });
-    expect(findUserByUsernameMock).not.toHaveBeenCalled();
   });
 
   it('checks the credentials as before when it is not disabled', async () => {
-    getBetterAuthRuntimeConfigMock.mockResolvedValue({ disablePasswordLogin: false });
+    getPasswordLoginPolicyMock.mockResolvedValue('all');
 
     const { status } = await callLogin();
 

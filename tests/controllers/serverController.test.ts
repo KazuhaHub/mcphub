@@ -2082,6 +2082,20 @@ describe('serverController - updateSystemConfig', () => {
       );
     });
 
+    it.each([true, false])('persists adminPasswordLogin %s on its own', async (adminPasswordLogin) => {
+      await update({ adminPasswordLogin }, { disablePasswordLogin: true });
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth()).toEqual(
+        expect.objectContaining({ disablePasswordLogin: true, adminPasswordLogin }),
+      );
+    });
+
+    it.each(['true', 1, null])('rejects adminPasswordLogin %p', async (adminPasswordLogin) => {
+      await update({ adminPasswordLogin });
+      expect(mockStatus).toHaveBeenCalledWith(400);
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+    });
+
     it('clears loginMode with null', async () => {
       await update({ loginMode: null }, { loginMode: 'sso_redirect' });
       expect(mockStatus).not.toHaveBeenCalledWith(400);

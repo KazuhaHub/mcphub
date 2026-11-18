@@ -8,6 +8,7 @@ import OAuth2Server from '@node-oauth/oauth2-server';
 import { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { getSystemConfigDao } from '../dao/index.js';
 import { findUserByUsername, verifyPassword } from '../models/User.js';
+import { getPasswordLoginPolicy } from './betterAuthConfig.js';
 import {
   findOAuthClientById,
   saveAuthorizationCode,
@@ -658,13 +659,20 @@ export const authenticateUser = async (
   username: string,
   password: string,
 ): Promise<OAuth2Server.User | null> => {
+  // Same rule as POST /api/auth/login: no password sign-in while it is disabled, except for
+  // admin accounts when the break-glass setting is on
+  const policy = await getPasswordLoginPolicy();
+  if (policy === 'none') {
+    return null;
+  }
+
   const user = await findUserByUsername(username);
   if (!user) {
     return null;
   }
 
   const isValid = await verifyPassword(password, user.password);
-  if (!isValid) {
+  if (!isValid || (policy === 'admins' && user.isAdmin !== true)) {
     return null;
   }
 
