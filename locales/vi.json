@@ -38,24 +38,6 @@
     "viewProfile": "Xem hồ sơ",
     "userCenter": "Trung tâm người dùng"
   },
-  "sponsor": {
-    "label": "Tài trợ",
-    "title": "Ủng hộ dự án",
-    "rewardAlt": "Mã QR ủng hộ",
-    "supportMessage": "Hỗ trợ quá trình phát triển MCPHub bằng cách mời tôi một ly cà phê!",
-    "supportButton": "Ủng hộ trên Ko-fi"
-  },
-  "wechat": {
-    "label": "WeChat",
-    "title": "Kết nối qua WeChat",
-    "qrCodeAlt": "Mã QR WeChat",
-    "scanMessage": "Quét mã QR này để kết nối với chúng tôi trên WeChat"
-  },
-  "discord": {
-    "label": "Discord",
-    "title": "Tham gia máy chủ Discord của chúng tôi",
-    "community": "Tham gia cộng đồng ngày càng lớn mạnh trên Discord để được hỗ trợ, thảo luận và nhận thông tin cập nhật!"
-  },
   "theme": {
     "title": "Giao diện",
     "light": "Sáng",
@@ -398,8 +380,6 @@
     "false": "Sai (False)",
     "dismiss": "Bỏ qua",
     "github": "GitHub",
-    "wechat": "WeChat",
-    "discord": "Discord",
     "required": "Bắt buộc",
     "itemsPerPage": "Mục mỗi trang",
     "showing": "Đang hiển thị {{start}}-{{end}} trong tổng số {{total}}",

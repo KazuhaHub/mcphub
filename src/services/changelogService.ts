@@ -1,15 +1,26 @@
-import { ChangelogUpdateInfo } from '../types/index.js';
+import { ChangelogEntry, ChangelogUpdateInfo } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 
-const DEFAULT_CHANGELOG_API_BASE = 'https://www.mcphub.app/api/v1/changelog';
-const DEFAULT_NPM_LATEST_URL = 'https://registry.npmjs.org/@samanhappy/mcphub/latest';
+// Releases of this fork are published as GitHub Releases, not to npm.
+const DEFAULT_UPDATE_REPO = 'KazuhaHub/mcphub';
+const GITHUB_API_BASE = 'https://api.github.com';
+const GITHUB_WEB_BASE = 'https://github.com';
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_CACHE_TTL_SECONDS = 21600;
+const MAX_HIGHLIGHTS = 5;
 
 interface ApiEnvelope<T> {
   success: boolean;
   data?: T;
   message?: string;
+}
+
+interface GitHubRelease {
+  tag_name?: string;
+  name?: string | null;
+  html_url?: string;
+  published_at?: string | null;
+  body?: string | null;
 }
 
 interface CachedUpdateInfo {
@@ -31,7 +42,7 @@ export async function getChangelogUpdateInfo(input: {
 }): Promise<ChangelogUpdateInfo> {
   const locale = normalizeLocale(input.locale);
   const currentVersion = input.currentVersion || 'dev';
-  const allChangelogUrl = defaultChangelogUrl(locale);
+  const allChangelogUrl = releasesPageUrl();
 
   if (process.env.DISABLE_UPDATE_CHECK === 'true') {
     return {
@@ -51,12 +62,15 @@ export async function getChangelogUpdateInfo(input: {
     return cachedUpdateInfo.data;
   }
 
-  const data = await fetchUpdateInfoFromMcphubWeb(currentVersion, locale).catch(async (error) => {
-    logger.warn('[changelog] mcphub-web update check failed, falling back to npm latest', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return fetchNpmFallback(currentVersion, locale);
-  });
+  const apiBase = changelogApiBase();
+  const data = apiBase
+    ? await fetchUpdateInfoFromMcphubWeb(apiBase, currentVersion, locale).catch((error) => {
+        logger.warn('[changelog] changelog API update check failed, falling back to GitHub', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return fetchLatestGitHubRelease(currentVersion, locale);
+      })
+    : await fetchLatestGitHubRelease(currentVersion, locale);
 
   cachedUpdateInfo = {
     key: cacheKey,
@@ -67,11 +81,13 @@ export async function getChangelogUpdateInfo(input: {
   return data;
 }
 
+// Opt-in: a service speaking the mcphub-web changelog API, set via
+// MCPHUB_CHANGELOG_API_BASE. Unset by default.
 async function fetchUpdateInfoFromMcphubWeb(
+  apiBase: string,
   currentVersion: string,
   locale: 'en' | 'zh',
 ): Promise<ChangelogUpdateInfo> {
-  const apiBase = changelogApiBase();
   const url = new URL(`${apiBase}/update-info`);
   url.searchParams.set('currentVersion', currentVersion);
   url.searchParams.set('locale', locale);
@@ -91,50 +107,118 @@ async function fetchUpdateInfoFromMcphubWeb(
   return envelope.data;
 }
 
-async function fetchNpmFallback(
+async function fetchLatestGitHubRelease(
   currentVersion: string,
   locale: 'en' | 'zh',
 ): Promise<ChangelogUpdateInfo> {
-  const allChangelogUrl = defaultChangelogUrl(locale);
-  const response = await fetch(process.env.MCPHUB_NPM_LATEST_URL || DEFAULT_NPM_LATEST_URL, {
-    headers: { Accept: 'application/json' },
+  const allChangelogUrl = releasesPageUrl();
+  const response = await fetch(`${GITHUB_API_BASE}/repos/${updateRepo()}/releases/latest`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'mcphub-update-check',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
     signal: AbortSignal.timeout(timeoutMs()),
   });
   if (!response.ok) {
-    throw new Error(`npm latest request failed: ${response.status}`);
+    throw new Error(`GitHub latest release request failed: ${response.status}`);
   }
 
-  const payload = (await response.json().catch(() => ({}))) as { version?: string };
-  const latestVersion = payload.version || null;
+  const release = (await response.json().catch(() => ({}))) as GitHubRelease;
+  const latestVersion = release.tag_name ? release.tag_name.replace(/^v/i, '') : null;
   const hasUpdate =
     latestVersion !== null &&
     currentVersion !== 'dev' &&
     compareStableVersions(latestVersion, currentVersion) > 0;
+  const releaseUrl = release.html_url || allChangelogUrl;
 
   return {
     latestVersion,
     hasUpdate,
-    entries: [],
+    entries:
+      hasUpdate && latestVersion
+        ? [toChangelogEntry(release, latestVersion, releaseUrl, locale)]
+        : [],
     totalUpdateCount: hasUpdate ? 1 : 0,
-    changelogUrl: latestVersion ? `${allChangelogUrl}/${latestVersion}` : allChangelogUrl,
+    changelogUrl: hasUpdate ? releaseUrl : allChangelogUrl,
     allChangelogUrl,
-    source: 'npm-fallback',
+    source: 'github-release',
   };
+}
+
+function toChangelogEntry(
+  release: GitHubRelease,
+  version: string,
+  releaseUrl: string,
+  locale: 'en' | 'zh',
+): ChangelogEntry {
+  const body = (release.body || '').replace(/\r\n?/g, '\n');
+  const localized = localizedSection(body, locale);
+  return {
+    product: 'mcphub',
+    version,
+    tagName: release.tag_name || `v${version}`,
+    publishedAt: release.published_at || '',
+    url: releaseUrl,
+    changelogUrl: releaseUrl,
+    title: release.name || `v${version}`,
+    summary: firstParagraph(localized),
+    highlights: bulletHighlights(localized),
+    fixes: [],
+    breakingChanges: [],
+    upgradeNotes: [],
+    categories: [],
+    locale,
+    bodyMarkdown: body,
+    isStructured: false,
+  };
+}
+
+// Release notes are bilingual: the English half comes first and the Chinese
+// half starts at the "## 摘要" heading.
+function localizedSection(body: string, locale: 'en' | 'zh'): string {
+  const zhStart = body.search(/^##\s*摘要\s*$/m);
+  if (zhStart < 0) return body;
+  return locale === 'zh' ? body.slice(zhStart) : body.slice(0, zhStart);
+}
+
+function firstParagraph(markdown: string): string {
+  // Drop heading lines so a heading followed directly by text still yields that text.
+  const paragraphs = markdown.split(/\n\s*\n/).map((block) => block.replace(/^#.*$/gm, '').trim());
+  const paragraph = paragraphs.find((block) => block && !/^[-*]\s/.test(block));
+  return paragraph ? paragraph.replace(/\s*\n\s*/g, ' ') : '';
+}
+
+function bulletHighlights(markdown: string): string[] {
+  return markdown
+    .split('\n')
+    .map((line) => line.match(/^\s*[-*]\s+(.*)$/)?.[1]?.trim())
+    .filter((item): item is string => Boolean(item))
+    .map((item) => {
+      const bold = item.match(/^\*\*(.+?)\*\*/);
+      const text = bold ? bold[1] : item.replace(/\s+by @\S+ in https?:\/\/\S+$/i, '');
+      return text.replace(/[\s:：.。]+$/, '');
+    })
+    .filter(Boolean)
+    .slice(0, MAX_HIGHLIGHTS);
 }
 
 function normalizeLocale(value: string | undefined): 'en' | 'zh' {
   return value?.toLowerCase().startsWith('zh') ? 'zh' : 'en';
 }
 
-function changelogApiBase(): string {
-  return (process.env.MCPHUB_CHANGELOG_API_BASE || DEFAULT_CHANGELOG_API_BASE).replace(/\/+$/, '');
+function updateRepo(): string {
+  const repo = process.env.MCPHUB_UPDATE_REPO?.trim().replace(/^\/+|\/+$/g, '');
+  return repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? repo : DEFAULT_UPDATE_REPO;
 }
 
-function defaultChangelogUrl(locale: 'en' | 'zh'): string {
-  const siteBase = changelogApiBase()
-    .replace(/\/api\/v1\/changelog$/i, '')
-    .replace(/\/+$/, '');
-  return `${siteBase}${locale === 'zh' ? '/zh' : ''}/changelog`;
+function releasesPageUrl(): string {
+  return `${GITHUB_WEB_BASE}/${updateRepo()}/releases`;
+}
+
+function changelogApiBase(): string | null {
+  const value = process.env.MCPHUB_CHANGELOG_API_BASE?.trim();
+  return value ? value.replace(/\/+$/, '') : null;
 }
 
 function timeoutMs(): number {
