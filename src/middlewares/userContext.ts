@@ -1,3 +1,4 @@
+import { buildBearerChallenge, getChallengeContext } from '../utils/bearerChallenge.js';
 import { resolveJwtUser } from '../utils/userSession.js';
 import { Request, Response, NextFunction } from 'express';
 import { getSystemConfigDao } from '../dao/index.js';
@@ -83,6 +84,20 @@ export const userContextMiddleware = async (
   }
 };
 
+const setBearerChallenge = (
+  req: Request,
+  res: Response,
+  systemConfig: SystemConfig | null | undefined,
+  error?: 'invalid_token',
+  errorDescription?: string,
+): void => {
+  const { resourceMetadata, scopes } = getChallengeContext(req, systemConfig);
+  res.setHeader(
+    'WWW-Authenticate',
+    buildBearerChallenge({ error, errorDescription, resourceMetadata, scopes }),
+  );
+};
+
 /**
  * User context middleware for SSE/MCP endpoints
  * Extracts user from URL path parameter and sets user context
@@ -95,13 +110,18 @@ export const sseUserContextMiddleware = async (
   try {
     const userContextService = UserContextService.getInstance();
     const username = req.params.user;
-    const rejectedQueryParam = rejectsQueryCredential(
-      req.query,
-      getCachedSystemConfig() ?? (await getSystemConfigDao().get()),
-    );
+    const routingConfig = getCachedSystemConfig() ?? (await getSystemConfigDao().get());
+    const rejectedQueryParam = rejectsQueryCredential(req.query, routingConfig);
     if (rejectedQueryParam) {
       logger.warn(
         `Rejected an MCP/SSE request carrying a credential in the URL query (${rejectedQueryParam})`,
+      );
+      setBearerChallenge(
+        req,
+        res,
+        routingConfig,
+        'invalid_token',
+        QUERY_CREDENTIAL_REJECTED_MESSAGE,
       );
       res.status(401).json({ success: false, message: QUERY_CREDENTIAL_REJECTED_MESSAGE });
       return;
@@ -120,6 +140,8 @@ export const sseUserContextMiddleware = async (
             return;
           }
 
+          // No credentials at all: a challenge without an error code (RFC 6750 3.1).
+          setBearerChallenge(req, res, systemConfig);
           res.status(401).json({
             success: false,
             message: 'Authentication is required for user-scoped SSE routes',

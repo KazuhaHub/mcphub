@@ -1,3 +1,4 @@
+import { getResourceScopes } from '../utils/bearerChallenge.js';
 import { findReusableApproval, resolveConsentScopes } from '../services/oauthApprovalService.js';
 import { getUserSessionVersion, resolveJwtUser } from '../utils/userSession.js';
 import { Request, Response } from 'express';
@@ -1165,13 +1166,12 @@ export const getProtectedResourceMetadata = async (req: Request, res: Response):
       res.status(404).json({ error: 'Protected resource not found' });
       return;
     }
-    const allowedScopes = oauthConfig.allowedScopes || ['read', 'write'];
-
     // Return protected resource metadata according to RFC 9728
     res.json({
       resource,
       authorization_servers: [baseUrl],
-      scopes_supported: allowedScopes,
+      // Same set the 401 challenge advertises (see getResourceScopes).
+      scopes_supported: getResourceScopes(systemConfig),
       bearer_methods_supported: ['header'],
     });
   } catch (error) {

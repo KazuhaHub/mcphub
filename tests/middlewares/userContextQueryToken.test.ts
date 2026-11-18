@@ -25,12 +25,14 @@ const run = async (query: Record<string, string>, headers: Record<string, string
   const req = {
     params: { user: 'alice' },
     query,
-    headers,
+    headers: { host: 'hub.example', ...headers },
+    originalUrl: '/alice/mcp',
     header: (name: string) => headers[name.toLowerCase()],
   } as unknown as Request;
   const res = {
     status: jest.fn().mockReturnThis(),
     json: jest.fn().mockReturnThis(),
+    setHeader: jest.fn(),
   } as unknown as Response;
   const next = jest.fn() as unknown as NextFunction;
   await sseUserContextMiddleware(req, res, next);

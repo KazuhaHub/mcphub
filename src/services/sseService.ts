@@ -53,7 +53,7 @@ import {
 import type { HostedAuthContext } from './hostedAuthService.js';
 import { isHostedModeEnabled } from './hostedMode.js';
 import { authenticateForwardAuthToken } from './forwardAuthService.js';
-import { getPublicResourceUrl, getResourceMetadataUrl } from '../utils/protectedResource.js';
+import { buildBearerChallenge, getChallengeContext } from '../utils/bearerChallenge.js';
 import { logger } from '../utils/logger.js';
 import { isReplicaMode } from '../utils/replicaMode.js';
 
@@ -296,9 +296,9 @@ const groupRouteReferencesMatch = async (
 
 const getGroupServerNames = (servers: unknown): string[] => {
   if (!Array.isArray(servers)) return [];
-  return servers.map((server) =>
-    typeof server === 'string' ? server : (server as { name?: string })?.name,
-  ).filter((name): name is string => typeof name === 'string' && name.length > 0);
+  return servers
+    .map((server) => (typeof server === 'string' ? server : (server as { name?: string })?.name))
+    .filter((name): name is string => typeof name === 'string' && name.length > 0);
 };
 
 // 'exclude'-scoped keys deny named servers plus every member of a named group.
@@ -355,7 +355,10 @@ const isBearerKeyAllowedForRequest = async (req: Request, key: BearerKey): Promi
     if (matchedGroup) {
       // Matched as a group
       if (isExcludeScope) {
-        if (excludedGroups.includes(matchedGroup.name) || excludedGroups.includes(matchedGroup.id)) {
+        if (
+          excludedGroups.includes(matchedGroup.name) ||
+          excludedGroups.includes(matchedGroup.id)
+        ) {
           return false;
         }
         const groupServerNames = getGroupServerNames(matchedGroup.servers);
@@ -756,15 +759,13 @@ const attachUserContextFromBearer = (result: BearerAuthResult, res: Response): v
   res.on('close', cleanup);
 };
 
-const escapeHeaderValue = (value: string): string => {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-};
-
 const sendBearerAuthError = async (
   req: Request,
   res: Response,
   reason: 'missing' | 'invalid' | 'forbidden' | 'unavailable' | 'query_credential',
 ): Promise<void> => {
+  // A valid credential whose owner is not the requested user: an authorization failure, not a
+  // missing or insufficient scope, so there is nothing a client could re-request. No challenge.
   if (reason === 'forbidden') {
     res.status(403).json({
       error: 'forbidden',
@@ -790,15 +791,7 @@ const sendBearerAuthError = async (
         : 'Invalid bearer token';
 
   const systemConfig = await getSystemConfigDao().get();
-  const resourceMetadataUrl = getResourceMetadataUrl(getPublicResourceUrl(req, systemConfig));
-  const headerParts = [
-    'error="invalid_token"',
-    `error_description="${escapeHeaderValue(errorDescription)}"`,
-  ];
-
-  if (resourceMetadataUrl) {
-    headerParts.push(`resource_metadata="${escapeHeaderValue(resourceMetadataUrl)}"`);
-  }
+  const { resourceMetadata: resourceMetadataUrl, scopes } = getChallengeContext(req, systemConfig);
 
   logger.warn(
     reason === 'missing'
@@ -808,7 +801,16 @@ const sendBearerAuthError = async (
         : 'Bearer authentication failed due to invalid bearer token',
   );
 
-  res.setHeader('WWW-Authenticate', `Bearer ${headerParts.join(', ')}`);
+  // RFC 6750 3.1: a request that lacks authentication gets a challenge without an error code.
+  res.setHeader(
+    'WWW-Authenticate',
+    buildBearerChallenge({
+      error: reason === 'missing' ? undefined : 'invalid_token',
+      errorDescription,
+      resourceMetadata: resourceMetadataUrl,
+      scopes,
+    }),
+  );
 
   const responseBody: {
     error: string;
