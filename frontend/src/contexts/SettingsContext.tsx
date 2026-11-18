@@ -130,6 +130,8 @@ interface BetterAuthConfig {
   trustedOrigins: string[];
   disablePasswordLogin: boolean;
   loginMode: LoginMode;
+  /** Read-only, from GET /settings: the layout in use and any BETTER_AUTH_LOGIN_MODE override. */
+  loginModeStatus?: { effective: LoginMode; envOverride: LoginMode | null };
   providers: {
     google: BetterAuthProviderToggle;
     github: BetterAuthProviderToggle;
@@ -320,6 +322,7 @@ const normalizeBetterAuthConfig = (config?: Partial<BetterAuthConfig>): BetterAu
     basePath: config?.basePath?.trim() || defaults.basePath,
     trustedOrigins: normalizeStringArray(config?.trustedOrigins, defaults.trustedOrigins),
     disablePasswordLogin: config?.disablePasswordLogin ?? defaults.disablePasswordLogin,
+    loginModeStatus: config?.loginModeStatus,
     loginMode: LOGIN_MODES.includes(config?.loginMode as LoginMode)
       ? (config?.loginMode as LoginMode)
       : defaults.loginMode,

@@ -138,7 +138,7 @@ Better Auth 登录成功后，MCPHub 会把会话映射回本地用户：
 | `sso_first` | 提供商按钮放在最上方，作为主要操作。密码表单和通行密钥收在“使用用户名和密码登录”链接后面。 |
 | `sso_redirect` | 先短暂显示“正在跳转”页面（提供“使用其他方式登录”），然后直接跳到身份提供商。 |
 
-`BETTER_AUTH_LOGIN_MODE` 的值是上述三者之一时优先于已保存的设置，不合法的值会被忽略。`/api/public-config` 通过 `betterAuth.loginMode` 下发实际生效的模式，服务端按下面的规则计算：
+`BETTER_AUTH_LOGIN_MODE` 的值是上述三者之一时（不区分大小写）优先于已保存的设置，此时设置页会提示该覆盖以及登录页实际使用的方式。不合法的值会被忽略，并在日志中记录一条警告。`/api/public-config` 通过 `betterAuth.loginMode` 下发实际生效的模式，服务端按下面的规则计算：
 
 - 没有可用的 SSO 登录时，按 `dual` 显示，因此不会出现背后没有可用提供商的 SSO 优先页面。“可用”的判断与 `disablePasswordLogin` 相同：已启用、凭据齐全，且在启动时已挂载。
 - 设为 `sso_redirect` 但有多个提供商时，按 `sso_first` 显示，因为没有唯一的跳转目标。
@@ -150,7 +150,8 @@ Better Auth 登录成功后，MCPHub 会把会话映射回本地用户：
 - 地址里有 `?returnUrl`（OAuth 授权或服务链接正在进行）；
 - 用户在当前标签页里退出了登录；
 - 用户点了“使用其他方式登录”；
-- 当前标签页在两分钟内已经自动跳转过一次。这样即使在提供商那里登录成功后又被送回登录页，也不会循环。
+- 当前标签页在两分钟内已经自动跳转过一次。这样即使在提供商那里登录成功后又被送回登录页，也不会循环；
+- 浏览器无法保存这条两分钟记录（`sessionStorage` 被禁用），因为那样就没有任何东西能阻止循环。
 
 恢复手段（由轻到重）：
 
@@ -158,7 +159,7 @@ Better Auth 登录成功后，MCPHub 会把会话映射回本地用户：
 2. 如果同时禁用了密码登录，设置 `BETTER_AUTH_DISABLE_PASSWORD_LOGIN=false` 并重启（参见上文“仅允许 SSO 登录”）。
 3. 只想把布局改回来时，设置 `BETTER_AUTH_LOGIN_MODE=dual` 并重启。
 
-`providers.oidc.displayName`（设置 → Better Auth → **OIDC 按钮名称**，最多 60 个字符）把 OIDC 按钮显示为“使用 &lt;名称&gt; 登录”，例如 `Microsoft Entra ID`，代替通用的“使用 OIDC 登录”。
+`providers.oidc.displayName`（设置 → Better Auth → **OIDC 按钮名称**，最多 60 个字符，不能包含控制字符、零宽字符或双向文本控制字符）把 OIDC 按钮显示为“使用 &lt;名称&gt; 登录”，例如 `Microsoft Entra ID`，代替通用的“使用 OIDC 登录”。
 
 跳转目标始终来自已配置的提供商。登录后的返回地址会先被裁剪为同源路径再交给 Better Auth，Better Auth 还会再按受信任来源检查一次。
 

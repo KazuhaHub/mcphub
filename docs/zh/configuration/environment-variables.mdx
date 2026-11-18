@@ -74,7 +74,7 @@ MCPHub 里的 Better Auth 目前依赖 PostgreSQL 会话存储，因此需要配
 | `BETTER_AUTH_BASE_PATH` | Better Auth 处理器挂载路径，默认 `/api/auth/better`。 |
 | `BETTER_AUTH_TRUSTED_ORIGINS` | 允许发起 Better Auth 登录流程的额外来源。支持逗号分隔、空白分隔或 JSON 数组。未设置时，MCPHub 仍会自动信任 `BETTER_AUTH_URL` 和 `systemConfig.install.baseUrl` 的来源。 |
 | `BETTER_AUTH_DISABLE_PASSWORD_LOGIN` | 在至少启用一个 SSO 提供商（且启动时已启用）时关闭用户名/密码登录（`POST /api/auth/login` 和登录表单）。在两个方向上都优先于已保存的 `disablePasswordLogin` 设置，因此当身份提供商不可用时，设为 `false` 即可恢复。默认 `false`。 |
-| `BETTER_AUTH_LOGIN_MODE` | 登录页展示方式：`dual`（默认，先显示密码表单）、`sso_first`（提供商按钮在前，密码表单收在链接后面）或 `sso_redirect`（直接跳到唯一的提供商）。值合法时优先于已保存的 `loginMode` 设置，不合法的值会被忽略。没有可用的 SSO 登录时按 `dual` 处理。设为 `dual` 可以恢复标准布局。参见 [登录页展示方式](/zh/features/authentication)。 |
+| `BETTER_AUTH_LOGIN_MODE` | 登录页展示方式：`dual`（默认，先显示密码表单）、`sso_first`（提供商按钮在前，密码表单收在链接后面）或 `sso_redirect`（直接跳到唯一的提供商）。不区分大小写。值合法时优先于已保存的 `loginMode` 设置，不合法的值会被忽略，并在日志中记录警告。没有可用的 SSO 登录时按 `dual` 处理。设为 `dual` 可以恢复标准布局。参见 [登录页展示方式](/zh/features/authentication)。 |
 | `BETTER_AUTH_GOOGLE_ENABLED` | 在提供了凭据后启用或禁用 Google 登录，默认 `true`。 |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google 登录凭据。 |
 | `BETTER_AUTH_GITHUB_ENABLED` | 在提供了凭据后启用或禁用 GitHub 登录，默认 `true`。 |

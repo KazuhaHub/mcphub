@@ -253,7 +253,7 @@ To allow sign-in only through the SSO providers, turn on **Disable password logi
 | `sso_first` | The provider buttons on top as the main action. The password form and passkey are folded behind **Sign in with username and password**. |
 | `sso_redirect` | The page sends the browser straight to the identity provider, after a short "Redirecting" screen that offers **Use another sign-in method**. |
 
-`BETTER_AUTH_LOGIN_MODE` overrides the stored value when it is one of these three values. An invalid value is ignored. `/api/public-config` publishes the effective mode as `betterAuth.loginMode`, and the server resolves it as follows:
+`BETTER_AUTH_LOGIN_MODE` overrides the stored value when it is one of these three values (case-insensitive); Settings then shows the override and the layout in use. An invalid value is ignored, with a warning in the log. `/api/public-config` publishes the effective mode as `betterAuth.loginMode`, and the server resolves it as follows:
 
 - When no SSO sign-in is available (the same rule as `disablePasswordLogin`: enabled, with credentials, and mounted at startup), the page uses `dual`, so an SSO-first page never appears without a working provider.
 - `sso_redirect` with more than one provider uses `sso_first`, because there is nothing to pick automatically.
@@ -265,7 +265,8 @@ To allow sign-in only through the SSO providers, turn on **Disable password logi
 - the URL has `?returnUrl` (an OAuth authorization or a service link is in progress);
 - the user signed out in this browser tab;
 - the user chose **Use another sign-in method**;
-- this tab already redirected automatically in the last two minutes, which stops a loop if a sign-in at the provider keeps bouncing back.
+- this tab already redirected automatically in the last two minutes, which stops a loop if a sign-in at the provider keeps bouncing back;
+- the browser cannot store that two-minute record (blocked `sessionStorage`), since nothing would then stop a loop.
 
 Recovery, from least to most drastic:
 
@@ -273,7 +274,7 @@ Recovery, from least to most drastic:
 2. If password login is also disabled, set `BETTER_AUTH_DISABLE_PASSWORD_LOGIN=false` and restart (see [SSO-only sign-in](#sso-only-sign-in)).
 3. To change only the layout, set `BETTER_AUTH_LOGIN_MODE=dual` and restart.
 
-`providers.oidc.displayName` (Settings → Better Auth → **OIDC button name**, at most 60 characters) labels the OIDC button **Continue with &lt;name&gt;**, for example `Microsoft Entra ID`, instead of the generic **Continue with OIDC**.
+`providers.oidc.displayName` (Settings → Better Auth → **OIDC button name**, at most 60 characters, without control, zero-width or bidirectional-override characters) labels the OIDC button **Continue with &lt;name&gt;**, for example `Microsoft Entra ID`, instead of the generic **Continue with OIDC**.
 
 The redirect target always comes from the configured provider, and the post-login return path is reduced to a same-origin path before it is handed to Better Auth, which checks it against the trusted origins as well.
 

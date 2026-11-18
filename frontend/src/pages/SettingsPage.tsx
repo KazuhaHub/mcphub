@@ -30,6 +30,12 @@ import {
   type BearerKeyScopeFilterValue,
 } from '@/utils/bearerKeyScopeFilter';
 
+const LOGIN_MODE_LABEL_KEYS: Record<LoginMode, string> = {
+  dual: 'settings.loginModeDual',
+  sso_first: 'settings.loginModeSsoFirst',
+  sso_redirect: 'settings.loginModeSsoRedirect',
+};
+
 interface BearerKeyRowProps {
   keyData: BearerKey;
   loading: boolean;
@@ -3989,6 +3995,18 @@ const SettingsPage: React.FC = () => {
                   <option value="sso_first">{t('settings.loginModeSsoFirst')}</option>
                   <option value="sso_redirect">{t('settings.loginModeSsoRedirect')}</option>
                 </select>
+                {betterAuthConfig.loginModeStatus?.envOverride && (
+                  <p
+                    className="mt-2 text-sm"
+                    style={{ color: 'var(--hub-accent)' }}
+                    data-testid="login-mode-env-override"
+                  >
+                    {t('settings.loginModeEnvOverride', {
+                      mode: betterAuthConfig.loginModeStatus.envOverride,
+                      effective: t(LOGIN_MODE_LABEL_KEYS[betterAuthConfig.loginModeStatus.effective]),
+                    })}
+                  </p>
+                )}
                 {betterAuthConfig.loginMode === 'sso_redirect' && (
                   <p className="mt-2 text-sm text-gray-500">{t('settings.loginModeRedirectNote')}</p>
                 )}
