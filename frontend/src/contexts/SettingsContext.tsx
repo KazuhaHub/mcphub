@@ -263,7 +263,7 @@ const getDefaultOAuthServerConfig = (): OAuthServerConfig => ({
     clientTtl: 2592000,
   },
   clientIdMetadata: {
-    enabled: false,
+    enabled: true,
   },
 });
 
@@ -616,7 +616,8 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
                 oauth.dynamicRegistration?.clientTtl ?? defaultDynamic.clientTtl,
             },
             clientIdMetadata: {
-              enabled: oauth.clientIdMetadata?.enabled === true,
+              enabled:
+                oauth.clientIdMetadata?.enabled ?? defaultOauthConfig.clientIdMetadata.enabled,
             },
           });
         } else {

@@ -254,7 +254,7 @@ Mock 集成测试覆盖不同用户、回调恢复、code 兑换、刷新及带�
 
 ## 客户端 ID 元数据文档（CIMD）
 
-MCPHub 自身的授权服务器可以接受 HTTPS URL 作为 OAuth `client_id`，并从该 URL 获取客户端元数据，而无需事先注册（这是 MCP 推荐的客户端注册方式；2026-07-28 规范已弃用动态客户端注册）。该功能默认关闭。可在 **设置 → OAuth 服务器 → 启用客户端 ID 元数据文档** 中开启，或通过 `PUT /api/system-config` 提交 `{"oauthServer":{"clientIdMetadata":{"enabled":true}}}`。启用后，`/.well-known/oauth-authorization-server` 会包含 `client_id_metadata_document_supported: true`。
+MCPHub 自身的授权服务器可以接受 HTTPS URL 作为 OAuth `client_id`，并从该 URL 获取客户端元数据，而无需事先注册（这是 MCP 推荐的客户端注册方式；2026-07-28 规范已弃用动态客户端注册）。该功能默认开启，并与动态客户端注册并存：支持 CIMD 的客户端使用 CIMD，其余客户端照常注册。可在 **设置 → OAuth 服务器 → 启用客户端 ID 元数据文档** 中关闭，或通过 `PUT /api/system-config` 提交 `{"oauthServer":{"clientIdMetadata":{"enabled":false}}}`。启用后，`/.well-known/oauth-authorization-server` 会包含 `client_id_metadata_document_supported: true`。
 
 - **标识符**：必须使用 `https`，路径不能只是 `/`，且不得包含片段、用户信息或 `.`/`..` 路径段。格式错误的标识符在 `/oauth/authorize` 返回 `invalid_request`，在令牌端点返回 `invalid_client`，且不会发起任何请求。
 - **获取**：仅允许公网地址（与上游连接共用 SSRF 防护），不跟随重定向，仅接受 HTTP 200，正文上限 16 KB，不携带 Cookie。
