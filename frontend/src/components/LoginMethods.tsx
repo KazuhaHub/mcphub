@@ -19,6 +19,8 @@ export interface LoginMethodsProps {
   providers: Record<SsoProvider, boolean>;
   oidcDisplayName?: string;
   redirectProvider: SsoProvider | null;
+  /** The automatic sign-in request has been sent; it can no longer be cancelled. */
+  redirectInFlight?: boolean;
   socialLoading: AlternativeSignIn | null;
   loading: boolean;
   socialError: string | null;
@@ -56,6 +58,9 @@ const Divider: React.FC<{ label: string }> = ({ label }) => (
   </div>
 );
 
+const DUAL_ORDER: SsoProvider[] = ['google', 'github', 'oidc'];
+const SSO_FIRST_ORDER: SsoProvider[] = ['oidc', 'google', 'github'];
+
 const BLOCK_NOTES: Partial<Record<AutoRedirectBlock, string>> = {
   loggedOut: 'auth.ssoRedirectPausedLoggedOut',
   recentAttempt: 'auth.ssoRedirectPausedLoop',
@@ -75,6 +80,7 @@ const LoginMethods: React.FC<LoginMethodsProps> = ({
   providers,
   oidcDisplayName,
   redirectProvider,
+  redirectInFlight = false,
   socialLoading,
   loading,
   socialError,
@@ -108,10 +114,12 @@ const LoginMethods: React.FC<LoginMethodsProps> = ({
     </button>
   );
 
-  // `prominent`: the SSO-first layouts, where SSO is the main action
-  const ssoButtons = (prominent: boolean) => (
-    <>
-      {providers.oidc && (
+  // `prominent`: the SSO-first layouts, where SSO is the main action. The dual layout keeps the
+  // original order (Google, GitHub, OIDC); SSO-first puts the organisation's OIDC provider first.
+  const ssoButton = (provider: SsoProvider, prominent: boolean) => {
+    if (!providers[provider]) return null;
+    if (provider === 'oidc') {
+      return (
         <button
           type="button"
           onClick={() => onSocialLogin('oidc')}
@@ -122,8 +130,10 @@ const LoginMethods: React.FC<LoginMethodsProps> = ({
         >
           {socialLoading === 'oidc' ? t('auth.loggingIn') : oidcLabel}
         </button>
-      )}
-      {providers.google && (
+      );
+    }
+    if (provider === 'google') {
+      return (
         <button
           type="button"
           onClick={() => onSocialLogin('google')}
@@ -134,27 +144,31 @@ const LoginMethods: React.FC<LoginMethodsProps> = ({
         >
           {socialLoading === 'google' ? t('auth.loggingIn') : t('auth.loginWithGoogle')}
         </button>
-      )}
-      {providers.github && (
-        <button
-          type="button"
-          onClick={() => onSocialLogin('github')}
-          disabled={socialLoading !== null}
-          className="hub-btn w-full justify-center"
-          style={{
-            height: prominent ? 38 : 34,
-            background: 'var(--hub-ink)',
-            color: 'var(--hub-bg)',
-            borderColor: 'var(--hub-ink)',
-          }}
-          data-testid="login-sso-github"
-        >
-          <GitHubIcon className="h-3.5 w-3.5" />
-          {socialLoading === 'github' ? t('auth.loggingIn') : t('auth.loginWithGithub')}
-        </button>
-      )}
-    </>
-  );
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => onSocialLogin('github')}
+        disabled={socialLoading !== null}
+        className="hub-btn w-full justify-center"
+        style={{
+          height: prominent ? 38 : 34,
+          background: 'var(--hub-ink)',
+          color: 'var(--hub-bg)',
+          borderColor: 'var(--hub-ink)',
+        }}
+        data-testid="login-sso-github"
+      >
+        <GitHubIcon className="h-3.5 w-3.5" />
+        {socialLoading === 'github' ? t('auth.loggingIn') : t('auth.loginWithGithub')}
+      </button>
+    );
+  };
+  const ssoButtons = (prominent: boolean) =>
+    (prominent ? SSO_FIRST_ORDER : DUAL_ORDER).map((provider) => (
+      <React.Fragment key={provider}>{ssoButton(provider, prominent)}</React.Fragment>
+    ));
 
   if (view === 'redirecting' && redirectProvider) {
     return (
@@ -168,14 +182,17 @@ const LoginMethods: React.FC<LoginMethodsProps> = ({
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           <span>{t('auth.redirectingToSso', { name: providerName(redirectProvider) })}</span>
         </div>
-        <button
-          type="button"
-          className="hub-btn ghost w-full justify-center"
-          onClick={onCancelRedirect}
-          data-testid="login-cancel-redirect"
-        >
-          {t('auth.useAnotherMethod')}
-        </button>
+        {/* Once the request is out the browser is about to leave; a cancel button would do nothing */}
+        {!redirectInFlight && (
+          <button
+            type="button"
+            className="hub-btn ghost w-full justify-center"
+            onClick={onCancelRedirect}
+            data-testid="login-cancel-redirect"
+          >
+            {t('auth.useAnotherMethod')}
+          </button>
+        )}
       </div>
     );
   }

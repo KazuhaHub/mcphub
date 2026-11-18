@@ -14,7 +14,7 @@ const decide = (overrides: Partial<LoginPresentationInput> = {}) =>
     loginMode: 'sso_redirect',
     ssoProviders: ['oidc'],
     search: '',
-    guards: { loggedOut: false, lastAutoRedirectAt: null },
+    guards: { loggedOut: false, lastAutoRedirectAt: null, storageAvailable: true },
     now: NOW,
     ...overrides,
   });
@@ -81,10 +81,18 @@ describe('decideLoginPresentation', () => {
   });
 
   it('does not redirect after logout in this tab', () => {
-    expect(decide({ guards: { loggedOut: true, lastAutoRedirectAt: null } })).toMatchObject({
+    expect(
+      decide({ guards: { loggedOut: true, lastAutoRedirectAt: null, storageAvailable: true } }),
+    ).toMatchObject({
       view: 'sso_first',
       blockedBy: 'loggedOut',
     });
+  });
+
+  it('does not redirect when the cooldown cannot be stored', () => {
+    expect(
+      decide({ guards: { loggedOut: false, lastAutoRedirectAt: null, storageAvailable: false } }),
+    ).toMatchObject({ view: 'sso_first', autoRedirectTo: null, blockedBy: 'noStorage' });
   });
 
   it('does not redirect after the user cancelled the redirect', () => {
@@ -96,7 +104,9 @@ describe('decideLoginPresentation', () => {
 
   it('redirects at most once per cooldown in the same tab', () => {
     const at = (offset: number) =>
-      decide({ guards: { loggedOut: false, lastAutoRedirectAt: NOW - offset } });
+      decide({
+        guards: { loggedOut: false, lastAutoRedirectAt: NOW - offset, storageAvailable: true },
+      });
     expect(at(1000)).toMatchObject({ view: 'sso_first', blockedBy: 'recentAttempt' });
     expect(at(AUTO_REDIRECT_COOLDOWN_MS - 1).blockedBy).toBe('recentAttempt');
     expect(at(AUTO_REDIRECT_COOLDOWN_MS).view).toBe('redirecting');
@@ -123,7 +133,11 @@ describe('login guards in sessionStorage', () => {
   });
 
   it('starts with no guard set', () => {
-    expect(readLoginGuards()).toEqual({ loggedOut: false, lastAutoRedirectAt: null });
+    expect(readLoginGuards()).toEqual({
+      loggedOut: false,
+      lastAutoRedirectAt: null,
+      storageAvailable: true,
+    });
   });
 
   it('remembers a logout until it is cleared', () => {
@@ -139,13 +153,36 @@ describe('login guards in sessionStorage', () => {
     expect(readLoginGuards().lastAutoRedirectAt).toBe(NOW);
   });
 
-  it('reads unavailable storage as no guard, without throwing', () => {
+  it('reports unavailable storage, without throwing, and refuses to record a redirect', () => {
     (globalThis as { window?: unknown }).window = {
       get sessionStorage() {
         throw new Error('SecurityError');
       },
     };
     expect(() => markLoggedOut()).not.toThrow();
-    expect(readLoginGuards()).toEqual({ loggedOut: false, lastAutoRedirectAt: null });
+    expect(readLoginGuards()).toEqual({
+      loggedOut: false,
+      lastAutoRedirectAt: null,
+      storageAvailable: false,
+    });
+    expect(recordAutoRedirect(NOW)).toBe(false);
+  });
+
+  it('treats storage that throws on write (quota, blocked) as unavailable', () => {
+    (globalThis as { window?: unknown }).window = {
+      sessionStorage: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('QuotaExceededError');
+        },
+        removeItem: () => undefined,
+      },
+    };
+    expect(readLoginGuards().storageAvailable).toBe(false);
+    expect(recordAutoRedirect(NOW)).toBe(false);
+  });
+
+  it('confirms a recorded redirect', () => {
+    expect(recordAutoRedirect(NOW)).toBe(true);
   });
 });

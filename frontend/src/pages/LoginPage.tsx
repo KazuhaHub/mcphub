@@ -16,6 +16,7 @@ import GitHubIcon from '@/components/icons/GitHubIcon';
 import DefaultPasswordWarningModal from '@/components/ui/DefaultPasswordWarningModal';
 import LoginMethods, { type AlternativeSignIn } from '@/components/LoginMethods';
 import { PROJECT_DOCS_URL, PROJECT_REPO_URL } from '@/constants/links';
+import { APP_VERSION } from '@/utils/appVersion';
 import {
   clearLoggedOut,
   decideLoginPresentation,
@@ -66,8 +67,8 @@ const LoginPage: React.FC = () => {
   const [oidcProviderId, setOidcProviderId] = useState<string>('oidc');
   const [oidcDisplayName, setOidcDisplayName] = useState<string | undefined>(undefined);
   const [loginMode, setLoginMode] = useState<string>('dual');
-  // The card stays hidden until the public config says how to lay it out, so an SSO-first
-  // page never flashes the password form first
+  // Until the public config arrives (or if it never does) the page shows the original layout;
+  // automatic redirect waits for it
   const [configLoaded, setConfigLoaded] = useState(false);
   const [guards, setGuards] = useState(readLoginGuards);
   const [redirectCancelled, setRedirectCancelled] = useState(false);
@@ -143,6 +144,9 @@ const LoginPage: React.FC = () => {
           github: betterAuth.providers?.github?.enabled === true,
           oidc: betterAuth.providers?.oidc?.enabled === true,
         });
+      } catch (err) {
+        // Keep the original layout with the password form; there is nothing to redirect to
+        console.error('Failed to load the login configuration:', err);
       } finally {
         setConfigLoaded(true);
       }
@@ -155,6 +159,9 @@ const LoginPage: React.FC = () => {
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
+      // Allow one more automatic redirect: the new guards decide whether it happens (it does not
+      // within the cooldown), so the redirect screen never stays up without navigating
+      autoRedirectStarted.current = false;
       setGuards(readLoginGuards());
       setSocialLoading(null);
     };
@@ -254,7 +261,11 @@ const LoginPage: React.FC = () => {
     // presentation, and the cleanup then clears the timer before anything is recorded
     const timer = window.setTimeout(() => {
       autoRedirectStarted.current = true;
-      recordAutoRedirect(Date.now());
+      // No cooldown record, no redirect: the record is what stops a loop
+      if (!recordAutoRedirect(Date.now())) {
+        setGuards((current) => ({ ...current, storageAvailable: false }));
+        return;
+      }
       void handleSocialLogin(provider, true);
     }, AUTO_REDIRECT_DELAY_MS);
     return () => window.clearTimeout(timer);
@@ -383,7 +394,6 @@ const LoginPage: React.FC = () => {
             style={{
               padding: '22px 22px 20px',
               boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
-              visibility: configLoaded ? undefined : 'hidden',
             }}
           >
             <LoginMethods
@@ -503,6 +513,7 @@ const LoginPage: React.FC = () => {
               providers={socialProviders}
               oidcDisplayName={oidcDisplayName}
               redirectProvider={presentation.autoRedirectTo}
+              redirectInFlight={socialLoading !== null}
               socialLoading={socialLoading}
               loading={loading}
               socialError={socialError}
@@ -514,7 +525,7 @@ const LoginPage: React.FC = () => {
           </div>
 
           <p className="text-center hub-mono" style={{ fontSize: 11, color: 'var(--hub-ink-3)' }}>
-            v{import.meta.env.PACKAGE_VERSION}
+            v{APP_VERSION}
           </p>
         </div>
       </div>

@@ -44,6 +44,17 @@ describe('LoginMethods', () => {
       expect(oidcButton(html)).not.toContain('primary');
     });
 
+    it('keeps the original button order: passkey, Google, GitHub, OIDC', () => {
+      const html = render({ providers: { oidc: true, google: true, github: true } });
+      expect(testIds(html)).toEqual([
+        'password-form',
+        'login-passkey',
+        'login-sso-google',
+        'login-sso-github',
+        'login-sso-oidc',
+      ]);
+    });
+
     it('shows only SSO when password login is disabled', () => {
       const html = render({ passwordAllowed: false, showPasskey: false });
       expect(testIds(html)).toEqual(['login-sso-oidc']);
@@ -64,6 +75,18 @@ describe('LoginMethods', () => {
   });
 
   describe('sso_first', () => {
+    it('puts the OIDC provider first', () => {
+      const html = render({
+        view: 'sso_first',
+        providers: { oidc: true, google: true, github: true },
+      });
+      expect(testIds(html).slice(0, 3)).toEqual([
+        'login-sso-oidc',
+        'login-sso-google',
+        'login-sso-github',
+      ]);
+    });
+
     it('puts SSO first as the main action and folds the password form behind a link', () => {
       const html = render({ view: 'sso_first' });
       expect(testIds(html)).toEqual(['login-sso-oidc', 'login-show-password']);
@@ -113,6 +136,16 @@ describe('LoginMethods', () => {
       });
       expect(html).toContain('auth.redirectingToSso:Microsoft Entra ID');
       expect(testIds(html)).toEqual(['login-cancel-redirect']);
+    });
+
+    it('drops the cancel button once the sign-in request is in flight', () => {
+      const html = render({
+        view: 'redirecting',
+        redirectProvider: 'oidc',
+        redirectInFlight: true,
+      });
+      expect(html).toContain('auth.redirectingToSso');
+      expect(testIds(html)).toEqual([]);
     });
 
     it('names a provider without a display name generically', () => {

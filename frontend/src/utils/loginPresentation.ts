@@ -15,6 +15,7 @@ export type AutoRedirectBlock =
   | 'returnUrl' // a return target (OAuth consent, service link) is in progress
   | 'loggedOut' // the user signed out in this tab
   | 'recentAttempt' // this tab already auto-redirected a moment ago
+  | 'noStorage' // sessionStorage is unavailable, so the cooldown cannot be recorded
   | 'cancelled'; // the user chose another sign-in method on the redirect screen
 
 export interface LoginPresentation {
@@ -29,6 +30,8 @@ export interface LoginPresentation {
 export interface LoginGuardState {
   loggedOut: boolean;
   lastAutoRedirectAt: number | null;
+  /** sessionStorage can be written. Without it the cooldown cannot hold, so no auto-redirect. */
+  storageAvailable: boolean;
 }
 
 export interface LoginPresentationInput {
@@ -77,6 +80,7 @@ export const decideLoginPresentation = ({
   if (params.has('returnUrl')) return ssoFirst('returnUrl');
   if (cancelled) return ssoFirst('cancelled');
   if (guards.loggedOut) return ssoFirst('loggedOut');
+  if (!guards.storageAvailable) return ssoFirst('noStorage');
   if (
     guards.lastAutoRedirectAt !== null &&
     now - guards.lastAutoRedirectAt >= 0 &&
@@ -87,8 +91,9 @@ export const decideLoginPresentation = ({
   return { view: 'redirecting', autoRedirectTo: ssoProviders[0], blockedBy: null, forceLocal };
 };
 
-// sessionStorage is per tab and may be unavailable (private mode, blocked storage): every access
-// is wrapped, and a failure reads as "no guard set", which only ever means one extra redirect.
+// sessionStorage is per tab and may be unavailable (blocked storage, some embedded browsers):
+// every access is wrapped. Unavailable storage fails safe: readLoginGuards reports it and the page
+// does not auto-redirect at all, because the cooldown that stops a loop could not be recorded.
 const storage = (): Storage | null => {
   try {
     return typeof window !== 'undefined' ? window.sessionStorage : null;
@@ -108,6 +113,20 @@ const write = (key: string, value: string | null): void => {
   }
 };
 
+const PROBE_KEY = 'mcphub.login.probe';
+
+const storageWritable = (store: Storage | null): boolean => {
+  if (!store) return false;
+  try {
+    store.setItem(PROBE_KEY, '1');
+    const ok = store.getItem(PROBE_KEY) === '1';
+    store.removeItem(PROBE_KEY);
+    return ok;
+  } catch {
+    return false;
+  }
+};
+
 export const readLoginGuards = (): LoginGuardState => {
   try {
     const store = storage();
@@ -115,9 +134,10 @@ export const readLoginGuards = (): LoginGuardState => {
     return {
       loggedOut: store?.getItem(LOGGED_OUT_KEY) === '1',
       lastAutoRedirectAt: Number.isFinite(at) && at > 0 ? at : null,
+      storageAvailable: storageWritable(store),
     };
   } catch {
-    return { loggedOut: false, lastAutoRedirectAt: null };
+    return { loggedOut: false, lastAutoRedirectAt: null, storageAvailable: false };
   }
 };
 
@@ -130,5 +150,13 @@ export const clearLoggedOut = (): void => write(LOGGED_OUT_KEY, null);
 /**
  * Recorded before every automatic redirect. It is deliberately not cleared on sign-in, so a
  * sign-in that succeeds at the provider but bounces back to the login page cannot loop.
+ * Returns false when it could not be stored; the caller must then not redirect.
  */
-export const recordAutoRedirect = (now: number): void => write(AUTO_REDIRECT_AT_KEY, String(now));
+export const recordAutoRedirect = (now: number): boolean => {
+  write(AUTO_REDIRECT_AT_KEY, String(now));
+  try {
+    return storage()?.getItem(AUTO_REDIRECT_AT_KEY) === String(now);
+  } catch {
+    return false;
+  }
+};
