@@ -13,7 +13,7 @@ English | [Français](README.fr.md) | [中文版](README.zh.md)
 
 MCPHub provides a unified control point between AI clients and MCP servers. Connect local and remote MCP servers once, organize and route their capabilities through stable endpoints, control access with authentication, scoped credentials, and per-user visibility, and operate everything with centralized logs, activity tracking, and health monitoring.
 
-Its OAuth flow has been tested end to end with the official TypeScript and Python MCP SDKs, the Vercel AI SDK, MCP Inspector (CLI), the OpenAI Agents SDK, and `langchain-mcp-adapters`. Claude on the web and Claude Code have passed a live run against production; ChatGPT connects, lists and calls tools but its token refresh is not confirmed; Codex is only partly tried; Cursor, VS Code and other hosted or desktop clients have not been verified yet. See [Client compatibility](https://github.com/KazuhaHub/mcphub/blob/main/docs/features/client-compatibility.mdx) for versions, dates, and how to test a client yourself.
+Its OAuth flow has been tested end to end with the official TypeScript and Python MCP SDKs, the Vercel AI SDK, MCP Inspector (CLI), the OpenAI Agents SDK, and `langchain-mcp-adapters`. Claude Code has passed a live run against production; ChatGPT connects, lists and calls tools but its token refresh is not confirmed; Claude on the web was only checked with one tool call, and Codex only registered and logged in; Cursor, VS Code and other hosted or desktop clients have not been verified yet. See [Client compatibility](https://github.com/KazuhaHub/mcphub/blob/main/docs/features/client-compatibility.mdx) for versions, dates, and how to test a client yourself.
 
 ![Dashboard Preview](assets/dashboard.png)
 
