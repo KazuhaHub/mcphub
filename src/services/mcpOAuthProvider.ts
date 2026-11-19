@@ -612,14 +612,25 @@ export class MCPHubOAuthProvider implements OAuthClientProvider {
   // snapshot with the pending flow so callback validation survives restarts.
   saveDiscoveryState(state: OAuthDiscoveryState): void {
     const metadata = state.authorizationServerMetadata;
-    // The upstream's protected-resource metadata names the authorization server it trusts. For an
-    // external resource of this hub that can only be this hub; anything else would send the user's
-    // browser (and the public client id) to a server the administrator never configured.
+    // The upstream's protected-resource metadata names the authorization servers it trusts, and
+    // may list itself first (it can also be its own issuer for direct clients). For an external
+    // resource of this hub the only acceptable issuer is this hub: it must appear in that list,
+    // in any position, and it is the only one ever followed (see `discoveryState`). The state the
+    // SDK saves must therefore carry the resource metadata, name this hub, and be for this resource.
     if (this.selfResource) {
       const discovered = (metadata?.issuer ?? state.authorizationServerUrl).replace(/\/+$/, '');
-      if (discovered !== this.selfResource.issuer) {
+      const announced = state.resourceMetadata;
+      const listed = (announced?.authorization_servers ?? []).some(
+        (server) => typeof server === 'string' && server.replace(/\/+$/, '') === this.selfResource?.issuer,
+      );
+      if (discovered !== this.selfResource.issuer || !listed) {
         throw new Error(
           `The authorization server announced by '${this.serverName}' is not this MCPHub`,
+        );
+      }
+      if (announced?.resource !== this.selfResource.entry.resource) {
+        throw new Error(
+          `The resource announced by '${this.serverName}' does not match its configured resource`,
         );
       }
     }
@@ -652,6 +663,12 @@ export class MCPHubOAuthProvider implements OAuthClientProvider {
       this.saveDiscoveryState(state);
     }
     if (state) return state;
+
+    // Self-resource: never let the SDK pick from the upstream's list (it takes the first entry,
+    // which may be the upstream itself or anything else). Start from this hub's own issuer; the
+    // SDK then discovers its metadata through the self loop and the upstream's resource metadata,
+    // and `saveDiscoveryState` checks that the upstream lists this hub.
+    if (this.selfResource) return { authorizationServerUrl: this.selfResource.issuer };
 
     const configured = this.serverConfig.oauth?.authorizationServerMetadata;
     if (configured !== undefined) {

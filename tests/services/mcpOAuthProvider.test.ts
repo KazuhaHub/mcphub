@@ -384,3 +384,67 @@ test('replica renewal rechecks shared expiry after acquiring the credential lock
     lock.mockRestore();
   }
 });
+
+describe('MCPHubOAuthProvider self-resource issuer selection', () => {
+  const OWN = 'https://hub.example.com';
+  const RESOURCE = 'https://canvas.example.com/mcp';
+  const self = { issuer: OWN, entry: { resource: RESOURCE, name: 'Canvas' } } as any;
+  const asMetadata = (issuer: string) => ({
+    issuer,
+    authorization_endpoint: `${issuer}/oauth/authorize`,
+    token_endpoint: `${issuer}/oauth/token`,
+    response_types_supported: ['code'],
+  });
+  const stateFor = (servers: string[], resource = RESOURCE, issuer = OWN) => ({
+    authorizationServerUrl: issuer,
+    authorizationServerMetadata: asMetadata(issuer),
+    resourceMetadata: { resource, authorization_servers: servers },
+  });
+  const make = () =>
+    new MCPHubOAuthProvider('canvas', { type: 'streamable-http', url: RESOURCE } as any, OWN, self);
+
+  it('accepts this hub when it is listed first', () => {
+    expect(() => make().saveDiscoveryState(stateFor([OWN, 'https://other.example.com']))).not.toThrow();
+  });
+
+  it('accepts this hub when the upstream lists itself first', () => {
+    expect(() =>
+      make().saveDiscoveryState(stateFor(['https://canvas.example.com', OWN])),
+    ).not.toThrow();
+    expect(() => make().saveDiscoveryState(stateFor([`${OWN}/`]))).not.toThrow();
+  });
+
+  it('refuses when this hub is not listed', () => {
+    expect(() =>
+      make().saveDiscoveryState(stateFor(['https://canvas.example.com', 'https://evil.example.com'])),
+    ).toThrow('not this MCPHub');
+    expect(() => make().saveDiscoveryState(stateFor([]))).toThrow('not this MCPHub');
+  });
+
+  it('refuses a state that follows another issuer even if this hub is listed', () => {
+    const evil = 'https://evil.example.com';
+    expect(() =>
+      make().saveDiscoveryState(stateFor([evil, OWN], RESOURCE, evil)),
+    ).toThrow('not this MCPHub');
+  });
+
+  it('refuses a state without resource metadata', () => {
+    expect(() =>
+      make().saveDiscoveryState({
+        authorizationServerUrl: OWN,
+        authorizationServerMetadata: asMetadata(OWN),
+      }),
+    ).toThrow('not this MCPHub');
+  });
+
+  it('refuses when the announced resource differs from the configured one', () => {
+    expect(() =>
+      make().saveDiscoveryState(stateFor([OWN], 'https://canvas.example.com/other')),
+    ).toThrow('does not match its configured resource');
+  });
+
+  it('starts discovery from its own issuer so the SDK never picks from the upstream list', async () => {
+    (loadServerConfig as jest.Mock).mockResolvedValue(undefined);
+    expect(await make().discoveryState()).toEqual({ authorizationServerUrl: OWN });
+  });
+});

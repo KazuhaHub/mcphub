@@ -19,8 +19,14 @@ no explicit `authorizationServerMetadata`, `authorizationEndpoint` or `tokenEndp
   `resource_metadata`, then RFC 9728 `authorization_servers`, and sends the metadata's `resource` at
   authorize, code exchange and refresh. The administrator's `url` must therefore equal the
   upstream's metadata `resource` (which ADR 0014 already matches byte for byte).
-- **Issuer pin.** The discovered issuer must equal MCPHub's own (the configured public base URL);
-  otherwise the flow fails. The upstream cannot redirect the user to a different server.
+- **Issuer pin.** The only acceptable issuer is MCPHub's own (the configured public base URL), and
+  it may appear **anywhere** in the upstream's `authorization_servers`: a service that is also its own
+  issuer for direct clients lists itself first. The provider never lets the SDK pick from that list
+  (the SDK takes the first entry); `discoveryState()` seeds the flow with MCPHub's own issuer, and
+  `saveDiscoveryState` then requires that the upstream's resource metadata lists it (trailing slashes
+  ignored) and that its `resource` equals the configured `url`. If MCPHub is not listed, the metadata
+  is missing, or the resource differs, the flow fails before any redirect. Whatever else the list
+  contains, including attacker-controlled entries, is never fetched or followed.
 - **Client.** MCPHub's own public client `mcphub-personal-oauth` is created through the DAO (no HTTP
   registration, no secret). Its redirect URIs are always exactly one: `<public base URL>/oauth/callback`.
   A server's own `oauth.redirectUri` or registration `redirect_uris` are ignored for a self-resource
