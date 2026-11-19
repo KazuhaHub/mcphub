@@ -79,7 +79,7 @@ describe('ConnectTiles', () => {
   it('draws the OpenAI mark for ChatGPT and keeps letter tiles for Codex and Cherry Studio', () => {
     const html = tiles(1400);
     const tile = (id: string) => html.match(new RegExp(`data-testid="connect-tile-${id}"[^]*?</button>`))?.[0] ?? '';
-    expect(tile('chatgpt')).toContain('viewBox="0 0 716 716"');
+    expect(tile('chatgpt')).toContain('viewBox="175 175 366 366"');
     expect(tile('codex')).not.toContain('<svg');
     expect(tile('cherry-studio')).not.toContain('<svg');
   });

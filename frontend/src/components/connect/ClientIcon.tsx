@@ -12,6 +12,8 @@ import React, { useId } from 'react';
  *   so they cannot collide with other inline SVGs.
  * - The ChatGPT mark is the official OpenAI Blossom (black, single path, 716x716 viewBox) from
  *   https://openai.com/brand, downloaded by the owner on 2026-11-18. The mark is a trademark of OpenAI.
+ *   The path data is unchanged; only the viewBox is cropped to the path's bounding box (about
+ *   180.5 to 535.2 on both axes) plus a small margin, because the official canvas is mostly padding.
  *   The tile plate is always white, so the black version is used in both themes.
  * - Codex and Cherry Studio have no simple-icons entry and no official asset, so they render as
  *   letter tiles; the Blossom is not reused for Codex.
@@ -90,7 +92,7 @@ export const ClientIcon: React.FC<ClientIconProps> = ({ icon, letter, size = 40 
           dangerouslySetInnerHTML={{ __html: VSCODE_MARKUP.split('vscb-').join(idPrefix) }}
         />
       ) : icon === 'openai' ? (
-        <svg width={inner} height={inner} viewBox="0 0 716 716" fill="#000000" focusable="false">
+        <svg width={inner} height={inner} viewBox="175 175 366 366" fill="#000000" focusable="false">
           <path d={OPENAI_BLOSSOM_PATH} />
         </svg>
       ) : (
