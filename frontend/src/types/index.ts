@@ -1047,13 +1047,6 @@ export interface WorkspaceServer {
   status: WorkspaceServerStatus;
 }
 
-export type WorkspaceEndpointState = 'normal' | 'partial' | 'empty';
-
-export interface WorkspaceSummary {
-  endpointState: WorkspaceEndpointState;
-  counts: Record<WorkspaceStatusCode, number>;
-}
-
 export interface WorkspaceServerEndpoint {
   name: string;
   url: string | null;

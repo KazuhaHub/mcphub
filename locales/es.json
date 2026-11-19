@@ -1806,30 +1806,11 @@
     "retry": "Reintentar",
     "toggleFailed": "No se pudo actualizar {{name}}. Se deshizo el cambio.",
     "connectFailed": "No se pudo iniciar la conexión.",
-    "banner": {
-      "noneSelected": "Selecciona servicios para empezar",
-      "normal_one": "Tu servicio seleccionado está listo.",
-      "normal_other": "Los {{count}} servicios seleccionados están listos.",
-      "normal_many": "Los {{count}} servicios seleccionados están listos.",
-      "partial_one": "{{attention}} de {{selected}} servicio seleccionado requiere atención",
-      "partial_other": "{{attention}} de {{selected}} servicios seleccionados requieren atención",
-      "partial_many": "{{attention}} de {{selected}} servicios seleccionados requieren atención",
-      "noneUsable_one": "Tu servicio seleccionado no está disponible ahora.",
-      "noneUsable_other": "Ninguno de tus {{count}} servicios seleccionados está disponible ahora.",
-      "noneUsable_many": "Ninguno de tus {{count}} servicios seleccionados está disponible ahora."
-    },
     "endpoint": {
       "smartHint": "El enrutamiento inteligente expone unas pocas herramientas de búsqueda y llamada en lugar de todas las herramientas, lo que mantiene pequeño el contexto de tu cliente.",
       "mode": "Tipo de endpoint",
       "mode_direct": "Directo",
       "mode_smart": "Enrutamiento inteligente"
-    },
-    "tools": {
-      "warning": "Tu selección expone {{count}} herramientas. Las listas largas de herramientas pueden saturar el contexto de tu cliente.",
-      "strongWarning": "Tu selección expone {{count}} herramientas, demasiadas para la mayoría de los clientes. Usa el endpoint de enrutamiento inteligente o los endpoints por servicio.",
-      "label_one": "herramienta de tus servicios disponibles",
-      "label_other": "herramientas de tus servicios disponibles",
-      "label_many": "herramientas de tus servicios disponibles"
     },
     "services": {
       "tab": "Servicios",
@@ -1969,12 +1950,11 @@
       "hiddenNotice_one": "{{count}} herramienta está oculta según tu elección.",
       "hiddenNotice_other": "{{count}} herramientas están ocultas según tu elección.",
       "hiddenNotice_many": "{{count}} herramientas están ocultas según tu elección.",
-      "banner_one": "{{count}} herramienta de tus servicios seleccionados está oculta: las herramientas que cambian datos o actúan por ti siguen desactivadas hasta que las permitas. Abre un servicio abajo para permitir más.",
-      "banner_other": "{{count}} herramientas de tus servicios seleccionados están ocultas: las herramientas que cambian datos o actúan por ti siguen desactivadas hasta que las permitas. Abre un servicio abajo para permitir más.",
-      "banner_many": "{{count}} herramientas de tus servicios seleccionados están ocultas: las herramientas que cambian datos o actúan por ti siguen desactivadas hasta que las permitas. Abre un servicio abajo para permitir más.",
       "connectedPending": "Conectado. Las herramientas de este servicio aparecen aquí tras usarlo por primera vez.",
       "defaultNote": "Lo fija tu administrador hasta que elijas.",
-      "untrustedHint": "Este servicio no lo gestiona un administrador, así que sus herramientas no están verificadas: todas cuentan como acciones visibles para otros."
+      "untrustedHint": "Este servicio no lo gestiona un administrador, así que sus herramientas no están verificadas: todas cuentan como acciones visibles para otros.",
+      "hiddenSummary_one": "{{count}} tool is hidden by your permission choices. Open a service to change.",
+      "hiddenSummary_other": "{{count}} tools are hidden by your permission choices. Open a service to change."
     },
     "chip": {
       "ready": "Ready",

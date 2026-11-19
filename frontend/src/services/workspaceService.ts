@@ -5,7 +5,6 @@ import type {
   WorkspaceClient,
   WorkspaceEndpoints,
   WorkspaceServer,
-  WorkspaceSummary,
 } from '../types';
 import {
   WorkspaceApiError,
@@ -26,9 +25,6 @@ const unwrap = <T>(result: ApiResponse<T>, _context: string): T => {
 
 export const fetchWorkspaceServers = async (): Promise<WorkspaceServer[]> =>
   unwrap(await apiGet<ApiResponse<WorkspaceServer[]>>('/workspace/servers'), 'servers');
-
-export const fetchWorkspaceSummary = async (): Promise<WorkspaceSummary> =>
-  unwrap(await apiGet<ApiResponse<WorkspaceSummary>>('/workspace/summary'), 'summary');
 
 export const fetchWorkspaceEndpoints = async (): Promise<WorkspaceEndpoints> =>
   unwrap(await apiGet<ApiResponse<WorkspaceEndpoints>>('/workspace/endpoints'), 'endpoints');

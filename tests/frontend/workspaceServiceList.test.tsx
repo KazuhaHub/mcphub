@@ -42,8 +42,6 @@ const mockSave = jest.fn();
 const mockRisk = jest.fn();
 jest.mock('@/services/workspaceService', () => ({
   fetchWorkspaceServers: () => mockServers(),
-  fetchWorkspaceSummary: () =>
-    Promise.resolve({ endpointState: 'normal', counts: { available: 2, needs_auth: 1 } }),
   fetchWorkspaceEndpoints: () => Promise.resolve(endpoints),
   fetchCredentialBindings: () => mockBindings(),
   saveServerSelection: (...args: unknown[]) => mockSave(...args),
@@ -440,5 +438,25 @@ describe('one source of truth after credential changes', () => {
         'ready',
       ),
     );
+  });
+});
+
+describe('the top of the services list', () => {
+  it('has no summary banner or tool-count card, only a muted hidden-tools note', async () => {
+    await mount();
+    expect(document.querySelector('[data-banner]')).toBeNull();
+    expect(document.querySelector('[data-level]')).toBeNull();
+    // anteater-shared: 6 + 2 tools above the read-only default.
+    expect(screen.getByTestId('hidden-tools-note').textContent).toBe(
+      'workspacePage.risk.hiddenSummary:8',
+    );
+  });
+
+  it('shows no note when nothing is hidden', async () => {
+    mockServers.mockImplementation(() =>
+      Promise.resolve(clone(servers).map((s) => ({ ...s, riskCeiling: 'external' }))),
+    );
+    await mount();
+    expect(screen.queryByTestId('hidden-tools-note')).toBeNull();
   });
 });

@@ -5,46 +5,13 @@ import type {
   WorkspaceActivityStatus,
   WorkspaceServer,
   WorkspaceStatusCode,
-  WorkspaceSummary,
 } from '../types';
-
-/** More tools than this starts to crowd a model's context. */
-export const TOOL_COUNT_WARN = 40;
-/** Beyond this, suggest smart routing or per-service endpoints. */
-export const TOOL_COUNT_STRONG = 80;
-
-export type ToolCountLevel = 'ok' | 'warn' | 'strong';
-
-export const toolCountLevel = (total: number): ToolCountLevel =>
-  total > TOOL_COUNT_STRONG ? 'strong' : total > TOOL_COUNT_WARN ? 'warn' : 'ok';
 
 /** Tools a client would see on the personal endpoint: selected services that are available. */
 export const countExposedTools = (servers: readonly WorkspaceServer[]): number =>
   servers
     .filter((server) => server.selected && server.status.code === 'available')
     .reduce((sum, server) => sum + (server.toolCount || 0), 0);
-
-export type SummaryBannerKind = 'normal' | 'partial' | 'none_selected' | 'none_usable';
-
-export interface SummaryBanner {
-  kind: SummaryBannerKind;
-  selected: number;
-  attention: number;
-}
-
-/** Selected services that are not usable right now. */
-export const countNeedingAttention = (counts: WorkspaceSummary['counts']): number =>
-  (Object.keys(counts) as WorkspaceStatusCode[])
-    .filter((code) => code !== 'available' && code !== 'not_selected')
-    .reduce((sum, code) => sum + (counts[code] || 0), 0);
-
-export const resolveSummaryBanner = (summary: WorkspaceSummary): SummaryBanner => {
-  const attention = countNeedingAttention(summary.counts);
-  const selected = (summary.counts.available || 0) + attention;
-  if (summary.endpointState === 'normal') return { kind: 'normal', selected, attention };
-  if (summary.endpointState === 'partial') return { kind: 'partial', selected, attention };
-  return { kind: selected === 0 ? 'none_selected' : 'none_usable', selected, attention };
-};
 
 export type ServiceAction =
   | { kind: 'none' }

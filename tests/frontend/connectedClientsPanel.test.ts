@@ -78,7 +78,7 @@ describe('ConnectedClientsPanel', () => {
 
 describe('workspace locale strings', () => {
   it('ships the workspace page strings in every locale', () => {
-    const keys = ['nav', 'banner.partial_other', 'endpoint.smartHint', 'clients.revokeAllMessage', 'status.error'];
+    const keys = ['nav', 'risk.hiddenSummary_other', 'endpoint.smartHint', 'clients.revokeAllMessage', 'status.error'];
     for (const locale of ['en', 'es', 'fr', 'tr', 'vi', 'zh']) {
       const tree = readLocale(locale).workspacePage;
       for (const key of keys) expect(lookup(tree, key)).toBeTruthy();

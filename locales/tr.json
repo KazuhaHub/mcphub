@@ -1803,26 +1803,11 @@
     "retry": "Yeniden dene",
     "toggleFailed": "{{name}} güncellenemedi. Değişiklik geri alındı.",
     "connectFailed": "Bağlantı başlatılamadı.",
-    "banner": {
-      "noneSelected": "Başlamak için hizmet seçin",
-      "normal_one": "Seçtiğiniz hizmet hazır.",
-      "normal_other": "Seçilen {{count}} hizmetin tümü hazır.",
-      "partial_one": "Seçilen {{selected}} hizmetten {{attention}} tanesi ilgi gerektiriyor",
-      "partial_other": "Seçilen {{selected}} hizmetten {{attention}} tanesi ilgi gerektiriyor",
-      "noneUsable_one": "Seçtiğiniz hizmet şu anda kullanılabilir değil.",
-      "noneUsable_other": "Seçtiğiniz {{count}} hizmetin hiçbiri şu anda kullanılabilir değil."
-    },
     "endpoint": {
       "smartHint": "Akıllı yönlendirme, tüm araçlar yerine az sayıda arama ve çağırma aracı sunar; bu da istemcinizin bağlamını küçük tutar.",
       "mode": "Uç nokta türü",
       "mode_direct": "Doğrudan",
       "mode_smart": "Akıllı yönlendirme"
-    },
-    "tools": {
-      "warning": "Seçiminiz {{count}} araç sunuyor. Uzun araç listeleri istemcinizin bağlamını doldurabilir.",
-      "strongWarning": "Seçiminiz {{count}} araç sunuyor; bu çoğu istemci için fazla. Bunun yerine akıllı yönlendirme uç noktasını veya hizmet bazlı uç noktaları kullanın.",
-      "label_one": "araç (kullanılabilir hizmetlerinizden)",
-      "label_other": "araç (kullanılabilir hizmetlerinizden)"
     },
     "services": {
       "tab": "Hizmetler",
@@ -1959,11 +1944,11 @@
       "changeFailed": "{{name}} için izinler değiştirilemedi. Tekrar deneyin.",
       "hiddenNotice_one": "Seçiminiz nedeniyle {{count}} araç gizli.",
       "hiddenNotice_other": "Seçiminiz nedeniyle {{count}} araç gizli.",
-      "banner_one": "Seçtiğiniz hizmetlerde {{count}} araç gizli: veri değiştiren veya sizin adınıza işlem yapan araçlar siz izin verene kadar kapalı kalır. Daha fazlasına izin vermek için aşağıdan bir hizmeti açın.",
-      "banner_other": "Seçtiğiniz hizmetlerde {{count}} araç gizli: veri değiştiren veya sizin adınıza işlem yapan araçlar siz izin verene kadar kapalı kalır. Daha fazlasına izin vermek için aşağıdan bir hizmeti açın.",
       "connectedPending": "Bağlandı. Bu hizmetin araçları ilk kullanımdan sonra burada görünür.",
       "defaultNote": "Siz seçene kadar yöneticiniz tarafından belirlenir.",
-      "untrustedHint": "Bu hizmeti bir yönetici işletmiyor; araçları doğrulanmadı ve hepsi başkalarının görebileceği işlemler sayılır."
+      "untrustedHint": "Bu hizmeti bir yönetici işletmiyor; araçları doğrulanmadı ve hepsi başkalarının görebileceği işlemler sayılır.",
+      "hiddenSummary_one": "{{count}} tool is hidden by your permission choices. Open a service to change.",
+      "hiddenSummary_other": "{{count}} tools are hidden by your permission choices. Open a service to change."
     },
     "chip": {
       "ready": "Ready",

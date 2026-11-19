@@ -1809,26 +1809,11 @@
     "retry": "Retry",
     "toggleFailed": "Could not update {{name}}. The change was undone.",
     "connectFailed": "Could not start the connection.",
-    "banner": {
-      "noneSelected": "Select services to start",
-      "normal_one": "Your selected service is ready.",
-      "normal_other": "All {{count}} selected services are ready.",
-      "partial_one": "{{attention}} of {{selected}} selected service needs attention",
-      "partial_other": "{{attention}} of {{selected}} selected services need attention",
-      "noneUsable_one": "Your selected service is not available right now.",
-      "noneUsable_other": "None of your {{count}} selected services are available right now."
-    },
     "endpoint": {
       "smartHint": "Smart routing exposes a small set of search and call tools instead of every tool, which keeps your client's context small.",
       "mode": "Endpoint type",
       "mode_direct": "Direct",
       "mode_smart": "Smart routing"
-    },
-    "tools": {
-      "warning": "Your selection exposes {{count}} tools. Large tool lists can crowd your client's context.",
-      "strongWarning": "Your selection exposes {{count}} tools, which is too many for most clients. Use the smart routing endpoint or per-service endpoints instead.",
-      "label_one": "tool from your available services",
-      "label_other": "tools from your available services"
     },
     "services": {
       "tab": "Services",
@@ -1966,11 +1951,11 @@
       "changeFailed": "Could not change what {{name}} may do. Try again.",
       "hiddenNotice_one": "{{count}} tool is hidden by your choice.",
       "hiddenNotice_other": "{{count}} tools are hidden by your choice.",
-      "banner_one": "{{count}} tool in your selected services is hidden: tools that change data or act for you stay off until you allow them. Open a service below to allow more.",
-      "banner_other": "{{count}} tools in your selected services are hidden: tools that change data or act for you stay off until you allow them. Open a service below to allow more.",
       "connectedPending": "Connected. This service's tools appear here after you first use it.",
       "defaultNote": "Set by your administrator until you choose.",
-      "untrustedHint": "This service is not run by an administrator, so its tools are not verified: all of them count as actions others can see."
+      "untrustedHint": "This service is not run by an administrator, so its tools are not verified: all of them count as actions others can see.",
+      "hiddenSummary_one": "{{count}} tool is hidden by your permission choices. Open a service to change.",
+      "hiddenSummary_other": "{{count}} tools are hidden by your permission choices. Open a service to change."
     },
     "chip": {
       "ready": "Ready",

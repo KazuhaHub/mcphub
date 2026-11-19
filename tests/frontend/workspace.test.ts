@@ -2,11 +2,8 @@ import type {
   WorkspaceServer,
   WorkspaceStatusAction,
   WorkspaceStatusCode,
-  WorkspaceSummary,
 } from '../../frontend/src/types';
 import {
-  TOOL_COUNT_STRONG,
-  TOOL_COUNT_WARN,
   applySelection,
   buildSmartEndpoint,
   createLatestOnly,
@@ -23,9 +20,7 @@ import {
   findCredentialBinding,
   workspaceCredentialsPath,
   resolveServiceAction,
-  resolveSummaryBanner,
   toggleServerSelection,
-  toolCountLevel,
 } from '../../frontend/src/utils/workspace';
 
 const server = (
@@ -49,17 +44,7 @@ const server = (
   ...extra,
 });
 
-describe('tool count thresholds', () => {
-  it('warns above 40 and strongly above 80', () => {
-    expect(TOOL_COUNT_WARN).toBe(40);
-    expect(TOOL_COUNT_STRONG).toBe(80);
-    expect(toolCountLevel(0)).toBe('ok');
-    expect(toolCountLevel(40)).toBe('ok');
-    expect(toolCountLevel(41)).toBe('warn');
-    expect(toolCountLevel(80)).toBe('warn');
-    expect(toolCountLevel(81)).toBe('strong');
-  });
-
+describe('exposed tools', () => {
   it('counts tools of selected, available services only', () => {
     const servers = [
       server('a', 'available', null, { toolCount: 10 }),
@@ -143,39 +128,6 @@ describe('action mapping per status code', () => {
     const bindings = [{ serverName: 'a' }, { serverName: 'b' }] as never[];
     expect(findCredentialBinding(bindings, 'b')).toBe(bindings[1]);
     expect(findCredentialBinding(bindings, 'c')).toBeUndefined();
-  });
-});
-
-describe('summary banner', () => {
-  const summary = (
-    endpointState: WorkspaceSummary['endpointState'],
-    counts: Partial<WorkspaceSummary['counts']>,
-  ): WorkspaceSummary => ({
-    endpointState,
-    counts: {
-      available: 0,
-      not_selected: 0,
-      paused: 0,
-      maintenance: 0,
-      needs_auth: 0,
-      revoked: 0,
-      credential_invalid: 0,
-      error: 0,
-      ...counts,
-    },
-  });
-
-  it('reports normal, partial and empty states', () => {
-    expect(resolveSummaryBanner(summary('normal', { available: 3 }))).toEqual({
-      kind: 'normal',
-      selected: 3,
-      attention: 0,
-    });
-    expect(
-      resolveSummaryBanner(summary('partial', { available: 3, needs_auth: 1, error: 1 })),
-    ).toEqual({ kind: 'partial', selected: 5, attention: 2 });
-    expect(resolveSummaryBanner(summary('empty', { not_selected: 4 })).kind).toBe('none_selected');
-    expect(resolveSummaryBanner(summary('empty', { paused: 2 })).kind).toBe('none_usable');
   });
 });
 
@@ -346,25 +298,6 @@ describe('workspace error handling helpers', () => {
     );
     expect(text).toBe("'x' is under maintenance until 1 Nov 2026. Try again later. Back soon.");
     expect(localizeStatusMessage({ message: 'plain' }, () => 'unused')).toBe('plain');
-  });
-});
-
-describe('summary banner source of truth', () => {
-  it('follows the backend endpoint state even when the counts disagree', () => {
-    const counts = {
-      available: 0,
-      not_selected: 0,
-      paused: 0,
-      maintenance: 0,
-      needs_auth: 0,
-      revoked: 0,
-      credential_invalid: 0,
-      error: 0,
-    };
-    expect(
-      resolveSummaryBanner({ endpointState: 'normal', counts: { ...counts, error: 2 } }).kind,
-    ).toBe('normal');
-    expect(resolveSummaryBanner({ endpointState: 'partial', counts }).kind).toBe('partial');
   });
 });
 

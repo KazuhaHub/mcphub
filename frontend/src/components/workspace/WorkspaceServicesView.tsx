@@ -7,7 +7,6 @@ import {
   fetchCredentialBindings,
   fetchWorkspaceEndpoints,
   fetchWorkspaceServers,
-  fetchWorkspaceSummary,
   saveRiskCeiling,
   saveServerSelection,
   launchPersonalOAuth,
@@ -17,48 +16,20 @@ import type {
   ToolRiskLevel,
   WorkspaceEndpoints,
   WorkspaceServer,
-  WorkspaceSummary,
 } from '@/types';
 import { changeRiskCeiling, countHiddenTools } from '@/utils/toolRisk';
 import { copyText } from '@/utils/clipboard';
 import {
   WorkspaceApiError,
-  countExposedTools,
   createLatestOnly,
   pruneAuthLinks,
-  resolveSummaryBanner,
   shouldRefreshOnFocus,
   toggleServerSelection,
 } from '@/utils/workspace';
 import ConnectDialog from '@/components/connect/ConnectDialog';
 import { onWorkspaceChanged } from '@/utils/workspaceEvents';
-import ToolCountIndicator from './ToolCountIndicator';
 import ServicePanel from './ServicePanel';
 import WorkspaceServiceRow, { type RowAction } from './WorkspaceServiceRow';
-
-const SummaryBannerView: React.FC<{ summary: WorkspaceSummary }> = ({ summary }) => {
-  const { t } = useTranslation();
-  const banner = resolveSummaryBanner(summary);
-  const tone = banner.kind === 'normal' ? 'ok' : banner.kind === 'none_selected' ? 'info' : 'warn';
-  const Icon = tone === 'ok' ? CheckCircle2 : tone === 'info' ? Info : AlertTriangle;
-  const text = {
-    normal: t('workspacePage.banner.normal', { count: banner.selected }),
-    partial: t('workspacePage.banner.partial', {
-      count: banner.selected,
-      attention: banner.attention,
-      selected: banner.selected,
-    }),
-    none_selected: t('workspacePage.banner.noneSelected'),
-    none_usable: t('workspacePage.banner.noneUsable', { count: banner.selected }),
-  }[banner.kind];
-
-  return (
-    <div className={`hub-callout ${tone}`} role="status" data-banner={banner.kind}>
-      <Icon size={16} aria-hidden />
-      <span>{text}</span>
-    </div>
-  );
-};
 
 const WorkspaceServicesView: React.FC = () => {
   const { t } = useTranslation();
@@ -66,7 +37,7 @@ const WorkspaceServicesView: React.FC = () => {
   const { showToast } = useToast();
 
   const [servers, setServers] = useState<WorkspaceServer[]>([]);
-  const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [endpoints, setEndpoints] = useState<WorkspaceEndpoints | null>(null);
   // Bindings of the services that take personal credentials; null while unknown or failed.
   const [bindings, setBindings] = useState<MyCredentialBinding[] | null>(null);
@@ -94,17 +65,12 @@ const WorkspaceServicesView: React.FC = () => {
     () =>
       latest.current
         .run(
-          () =>
-            Promise.all([
-              fetchWorkspaceServers(),
-              fetchWorkspaceSummary(),
-              fetchWorkspaceEndpoints(),
-            ]),
-          ([serverList, nextSummary, nextEndpoints]) => {
+          () => Promise.all([fetchWorkspaceServers(), fetchWorkspaceEndpoints()]),
+          ([serverList, nextEndpoints]) => {
             setServers(serverList);
             // A blocked-popup link is moot once the server no longer asks for sign-in.
             setAuthLinks((links) => pruneAuthLinks(links, serverList));
-            setSummary(nextSummary);
+            setLoaded(true);
             setEndpoints(nextEndpoints);
             setError(null);
           },
@@ -281,7 +247,7 @@ const WorkspaceServicesView: React.FC = () => {
     );
   }
 
-  if (error && !summary) {
+  if (error && !loaded) {
     return (
       <div className="hub-callout err items-center justify-between" role="alert">
         <div>
@@ -313,17 +279,6 @@ const WorkspaceServicesView: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {summary && <SummaryBannerView summary={summary} />}
-
-      <ToolCountIndicator total={countExposedTools(servers)} />
-
-      {hiddenTools > 0 && (
-        <div className="hub-callout warn" role="status" data-banner="risk">
-          <Info size={16} aria-hidden />
-          <span>{t('workspacePage.risk.banner', { count: hiddenTools })}</span>
-        </div>
-      )}
-
       <section className="hub-card overflow-hidden" aria-labelledby="workspace-services-title">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
           <div>
@@ -331,6 +286,16 @@ const WorkspaceServicesView: React.FC = () => {
               {t('workspacePage.services.title')}
             </h2>
             <p className="hub-sub">{t('workspacePage.services.description')}</p>
+            {hiddenTools > 0 && (
+              <p
+                className="mt-1 text-[12px]"
+                style={{ color: 'var(--hub-ink-3)' }}
+                role="status"
+                data-testid="hidden-tools-note"
+              >
+                {t('workspacePage.risk.hiddenSummary', { count: hiddenTools })}
+              </p>
+            )}
           </div>
           <button
             type="button"

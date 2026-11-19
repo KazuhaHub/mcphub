@@ -1806,22 +1806,11 @@
     "retry": "Thử lại",
     "toggleFailed": "Không thể cập nhật {{name}}. Thay đổi đã được hoàn tác.",
     "connectFailed": "Không thể bắt đầu kết nối.",
-    "banner": {
-      "noneSelected": "Chọn dịch vụ để bắt đầu",
-      "normal_other": "Cả {{count}} dịch vụ đã chọn đều sẵn sàng.",
-      "partial_other": "{{attention}} trên {{selected}} dịch vụ đã chọn cần được xử lý",
-      "noneUsable_other": "Hiện không có dịch vụ nào trong {{count}} dịch vụ bạn đã chọn khả dụng."
-    },
     "endpoint": {
       "smartHint": "Định tuyến thông minh chỉ cung cấp một số ít công cụ tìm kiếm và gọi thay vì mọi công cụ, giúp ngữ cảnh của ứng dụng khách gọn nhẹ.",
       "mode": "Loại endpoint",
       "mode_direct": "Trực tiếp",
       "mode_smart": "Định tuyến thông minh"
-    },
-    "tools": {
-      "warning": "Lựa chọn của bạn cung cấp {{count}} công cụ. Danh sách công cụ dài có thể làm đầy ngữ cảnh của ứng dụng khách.",
-      "strongWarning": "Lựa chọn của bạn cung cấp {{count}} công cụ, quá nhiều đối với hầu hết ứng dụng khách. Hãy dùng endpoint định tuyến thông minh hoặc endpoint theo từng dịch vụ.",
-      "label_other": "công cụ từ các dịch vụ khả dụng của bạn"
     },
     "services": {
       "tab": "Dịch vụ",
@@ -1955,10 +1944,11 @@
       "aboveCap": "Quản trị viên không cho phép",
       "changeFailed": "Không thể thay đổi những gì {{name}} được phép làm. Hãy thử lại.",
       "hiddenNotice_other": "{{count}} công cụ bị ẩn theo lựa chọn của bạn.",
-      "banner_other": "{{count}} công cụ trong các dịch vụ bạn đã chọn đang bị ẩn: công cụ thay đổi dữ liệu hoặc hành động thay bạn sẽ tắt cho đến khi bạn cho phép. Hãy mở một dịch vụ bên dưới để cho phép thêm.",
       "connectedPending": "Đã kết nối. Công cụ của dịch vụ này sẽ hiện ở đây sau lần dùng đầu tiên.",
       "defaultNote": "Do quản trị viên đặt cho đến khi bạn tự chọn.",
-      "untrustedHint": "Dịch vụ này không do quản trị viên vận hành nên công cụ của nó chưa được xác minh: tất cả được tính là hành động người khác nhìn thấy."
+      "untrustedHint": "Dịch vụ này không do quản trị viên vận hành nên công cụ của nó chưa được xác minh: tất cả được tính là hành động người khác nhìn thấy.",
+      "hiddenSummary_one": "{{count}} tool is hidden by your permission choices. Open a service to change.",
+      "hiddenSummary_other": "{{count}} tools are hidden by your permission choices. Open a service to change."
     },
     "chip": {
       "ready": "Ready",

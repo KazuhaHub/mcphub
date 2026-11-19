@@ -1811,22 +1811,11 @@
     "retry": "重试",
     "toggleFailed": "无法更新 {{name}}，更改已撤销。",
     "connectFailed": "无法开始连接。",
-    "banner": {
-      "noneSelected": "选择服务以开始使用",
-      "normal_other": "已选的 {{count}} 个服务均可用。",
-      "partial_other": "已选 {{selected}} 个服务中有 {{attention}} 个需要处理",
-      "noneUsable_other": "你已选的 {{count}} 个服务目前都不可用。"
-    },
     "endpoint": {
       "smartHint": "智能路由只暴露少量搜索与调用工具，而不是全部工具，可以让客户端的上下文保持精简。",
       "mode": "端点类型",
       "mode_direct": "直连",
       "mode_smart": "智能路由"
-    },
-    "tools": {
-      "warning": "你的选择共暴露 {{count}} 个工具，工具过多会挤占客户端的上下文。",
-      "strongWarning": "你的选择共暴露 {{count}} 个工具，对大多数客户端来说太多了。请改用智能路由端点或单个服务的端点。",
-      "label_other": "个工具（来自可用服务）"
     },
     "services": {
       "tab": "服务",
@@ -1960,10 +1949,10 @@
       "aboveCap": "管理员不允许",
       "changeFailed": "无法更改 {{name}} 的权限，请重试。",
       "hiddenNotice_other": "你的选择隐藏了 {{count}} 个工具。",
-      "banner_other": "你已选的服务中有 {{count}} 个工具被隐藏：修改数据或代你行动的工具在你允许之前保持关闭。请在下方打开服务进行允许。",
       "connectedPending": "已连接。首次使用此服务后，这里会显示它的工具。",
       "defaultNote": "在你自行选择之前，由管理员设定。",
-      "untrustedHint": "此服务并非由管理员运行，其工具未经验证：全部按“他人可见的操作”处理。"
+      "untrustedHint": "此服务并非由管理员运行，其工具未经验证：全部按“他人可见的操作”处理。",
+      "hiddenSummary_other": "你的权限选择隐藏了 {{count}} 个工具。打开服务即可更改。"
     },
     "chip": {
       "ready": "可用",
