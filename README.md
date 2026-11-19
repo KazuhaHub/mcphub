@@ -13,7 +13,7 @@ English | [Français](README.fr.md) | [中文版](README.zh.md)
 
 MCPHub provides a unified control point between AI clients and MCP servers. Connect local and remote MCP servers once, organize and route their capabilities through stable endpoints, control access with authentication, scoped credentials, and per-user visibility, and operate everything with centralized logs, activity tracking, and health monitoring.
 
-It works with MCP clients such as Claude Code, Cursor, Cherry Studio, OpenWebUI, and other MCP-compatible applications.
+Its OAuth flow has been tested end to end with the official TypeScript and Python MCP SDKs, the Vercel AI SDK, MCP Inspector (CLI), the OpenAI Agents SDK, and `langchain-mcp-adapters`. Hosted and desktop clients such as Claude, ChatGPT, Cursor, and VS Code have not been verified yet. See [Client compatibility](https://github.com/KazuhaHub/mcphub/blob/main/docs/features/client-compatibility.mdx) for versions, dates, and how to test a client yourself.
 
 ![Dashboard Preview](assets/dashboard.png)
 
@@ -128,7 +128,7 @@ docker run -p 3000:3000 -v ./data:/app/data -e ADMIN_PASSWORD=your-secure-passwo
 
 ### Connect AI Clients
 
-Connect AI clients (Claude Desktop, Cursor, etc.) via:
+Point an MCP client that supports Streamable HTTP at one of these endpoints (see [Client compatibility](https://github.com/KazuhaHub/mcphub/blob/main/docs/features/client-compatibility.mdx) for what has been tested):
 
 ```
 http://localhost:3000/mcp           # All servers
@@ -152,6 +152,7 @@ Set `SMART_ROUTING_PATH=my_smart` to use `/mcp/my_smart` (and `/mcp/my_smart/{gr
 | [Configuration](https://docs.mcphub.app/configuration/mcp-settings)           | MCP server configuration options  |
 | [Database Mode](https://docs.mcphub.app/configuration/database-configuration) | PostgreSQL setup for production   |
 | [OAuth](https://docs.mcphub.app/features/oauth)                               | OAuth 2.0 client and server setup |
+| [Client Compatibility](https://github.com/KazuhaHub/mcphub/blob/main/docs/features/client-compatibility.mdx) | Tested clients and what is not yet verified |
 | [Smart Routing](https://docs.mcphub.app/features/smart-routing)               | AI-powered tool discovery         |
 | [MCP Apps](https://docs.mcphub.app/features/mcp-apps)                         | Interactive Apps transparent proxy |
 | [CLI Guide](https://docs.mcphub.app/features/cli)                             | Manage and call the hub from a terminal |

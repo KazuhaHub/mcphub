@@ -57,7 +57,7 @@ per-run secret.
 
 - the real MCPHub (`tsx src/index.ts`) on a free port, a temp settings directory, one admin user
   whose password (like the JWT secret) is generated fresh for each run, the hub listening on `127.0.0.1` only, OAuth server enabled with `accessTokenLifetime` 6 s,
-  DCR enabled, CIMD enabled;
+  DCR enabled, CIMD at its default (on);
 - an in-process upstream MCP server with one `echo` tool (no `npx`, no network);
 - a recording proxy between clients and the hub, so the matrix is checked against what was on the wire:
   a `refresh` pass needs a successful `refresh_token` grant, a DCR pass needs a `POST /oauth/register`,
@@ -111,23 +111,19 @@ in flight; `[C]` client limitation; `[H]` harness limitation.
 
 ## Last observed results
 
-main at `2f5f0bd7`, access token lifetime 6 s, versions as pinned in `package.json` and the requirements files
+2026-11-18, access token lifetime 6 s, against MCPHub `v2.4.1` plus four later commits on `main` (`3f36f05c`; the run's
+checkout also carried the documentation and harness edits in this change). CIMD was left at its default: the harness
+does not set `clientIdMetadata.enabled`. Versions as pinned in `package.json` and the requirements files
 (`@modelcontextprotocol/client` 2.1.0, `@ai-sdk/mcp` 2.0.101, `ai` 7.0.176, `@modelcontextprotocol/inspector` 2.16.0,
 `mcp` 1.30.0 and 2.3.0, `openai-agents` 0.25.0, `langchain-mcp-adapters` 0.3.2).
 
-- Every client passes all five steps with DCR, including the automatic refresh after expiry. The `2026-07-28` protocol
-  is negotiated by `ts-sdk` with version negotiation on, `ai-sdk`, `py-sdk` on mcp 2.x and `openai-agents` on mcp 2.x; the
-  mcp 1.x line, `inspector-cli`, `langchain-mcp-adapters` and `ts-sdk` with default options use the `2025-11-25` handshake.
-- All CIMD rows fail on main, and every failure is a gap closed by the in-flight CIMD branch: the AS metadata does not
-  advertise `client_id_metadata_document_supported` (so no SDK even tries CIMD), and a code issued to a CIMD client cannot be
-  redeemed because `oauthServerService` looks the client up with `findOAuthClientById` only. Run against that branch
-  (`feat/cimd-discovery-and-validation` at `d7804016`) with `--hub-root`, all eleven CIMD rows (`ts-sdk`, `ai-sdk`,
-  `inspector-cli`, `py-sdk` on both mcp lines) pass all five steps. The discovery branch (`3e056e1a`) and the
-  WWW-Authenticate branch (`f37cbf87`) were also run with the DCR rows of `ts-sdk` and `inspector-cli`: no regression.
-- The raw probe on main fails three checks, all with in-flight branches: no `client_id_metadata_document_supported`,
-  no `authorization_response_iss_parameter_supported`, and no OIDC discovery document. On the discovery branch the `iss`
-  flag is present but `/.well-known/openid-configuration` is still `404` for this path-less issuer; decide whether that is
-  intended (RFC 8414 clients do not need it, OIDC-only clients do).
+- All 24 client rows pass all five steps: every client with every registration method it supports (DCR, CIMD advertised,
+  CIMD forced), including the automatic refresh after expiry. The `2026-07-28` protocol is negotiated by `ts-sdk` with
+  version negotiation on, `ai-sdk`, `py-sdk` on mcp 2.x and `openai-agents` on mcp 2.x; the mcp 1.x line,
+  `inspector-cli`, `langchain-mcp-adapters` and `ts-sdk` with default options use the `2025-11-25` handshake.
+- The raw probe passes 18 of 18 checks. MCPHub does not serve OIDC discovery on purpose (it is not an OpenID Provider);
+  the probe accepts a JSON `404` there.
+- The matrix is summarized for users in `docs/features/client-compatibility.mdx`.
 
 ## Settings the harness needs, and one sharp edge
 

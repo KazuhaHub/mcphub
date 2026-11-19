@@ -32,8 +32,14 @@ export const buildRunners = ({ repoRoot, python }) => {
     py('py-sdk-mcp2:cimd', 'py-sdk (mcp 2.x)', 'cimd', 'py_sdk.py', 'mcp2'),
     py('py-sdk-mcp2:cimdforced', 'py-sdk (mcp 2.x)', 'cimdforced', 'py_sdk.py', 'mcp2'),
     py('openai-agents-mcp1:dcr', 'openai-agents (mcp 1.x)', 'dcr', 'openai_agents_runner.py', 'mcp1'),
+    py('openai-agents-mcp1:cimd', 'openai-agents (mcp 1.x)', 'cimd', 'openai_agents_runner.py', 'mcp1'),
+    py('openai-agents-mcp1:cimdforced', 'openai-agents (mcp 1.x)', 'cimdforced', 'openai_agents_runner.py', 'mcp1'),
     py('openai-agents-mcp2:dcr', 'openai-agents (mcp 2.x)', 'dcr', 'openai_agents_runner.py', 'mcp2'),
+    py('openai-agents-mcp2:cimd', 'openai-agents (mcp 2.x)', 'cimd', 'openai_agents_runner.py', 'mcp2'),
+    py('openai-agents-mcp2:cimdforced', 'openai-agents (mcp 2.x)', 'cimdforced', 'openai_agents_runner.py', 'mcp2'),
     py('langchain-mcp1:dcr', 'langchain-mcp-adapters (mcp 1.x)', 'dcr', 'langchain_runner.py', 'mcp1'),
+    py('langchain-mcp1:cimd', 'langchain-mcp-adapters (mcp 1.x)', 'cimd', 'langchain_runner.py', 'mcp1'),
+    py('langchain-mcp1:cimdforced', 'langchain-mcp-adapters (mcp 1.x)', 'cimdforced', 'langchain_runner.py', 'mcp1'),
   );
   return runners;
 };

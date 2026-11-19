@@ -60,7 +60,8 @@ export const buildSettings = ({ upstreamUrl, accessTokenLifetime, cimd, user }) 
         allowedGrantTypes: ['authorization_code', 'refresh_token'],
         requiresAuthentication: false,
       },
-      clientIdMetadata: { enabled: Boolean(cimd), cacheTtlMs: 3_600_000 },
+      // `enabled` is left out on purpose: the run then reports the shipped default, not a harness override.
+      clientIdMetadata: { cacheTtlMs: 3_600_000 },
     },
   },
 });

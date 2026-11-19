@@ -13,7 +13,7 @@
 
 MCPHub 是 AI 客户端与 MCP 服务器之间的统一控制点。一次连接本地和远程 MCP 服务器，通过稳定端点组织和路由其能力，借助身份认证、限定作用域的凭据和用户级可见性控制访问，并通过集中日志、活动追踪和健康监控统一运行与管理。
 
-兼容 Claude Code、Cursor、Cherry Studio、OpenWebUI 及其他支持 MCP 的应用。
+其 OAuth 流程已用官方 TypeScript 与 Python MCP SDK、Vercel AI SDK、MCP Inspector（CLI）、OpenAI Agents SDK 和 `langchain-mcp-adapters` 做过端到端测试。Claude、ChatGPT、Cursor、VS Code 等托管或桌面客户端尚未验证。版本、日期以及如何自行测试某个客户端，见[客户端兼容性](https://github.com/KazuhaHub/mcphub/blob/main/docs/zh/features/client-compatibility.mdx)。
 
 ![控制面板预览](assets/dashboard.zh.png)
 
@@ -122,7 +122,7 @@ docker run -p 3000:3000 -v ./data:/app/data -e ADMIN_PASSWORD=your-secure-passwo
 
 ### 连接 AI 客户端
 
-通过以下地址连接 AI 客户端（Claude Desktop、Cursor 等）：
+将支持 Streamable HTTP 的 MCP 客户端指向以下任一地址（已测试的范围见[客户端兼容性](https://github.com/KazuhaHub/mcphub/blob/main/docs/zh/features/client-compatibility.mdx)）：
 
 ```
 http://localhost:3000/mcp           # 所有服务器
@@ -146,6 +146,7 @@ http://localhost:3000/mcp/$smart/{group}  # 智能路由（特定分组）
 | [配置指南](https://docs.mcphub.app/zh/configuration/mcp-settings)             | MCP 服务器配置选项           |
 | [数据库模式](https://docs.mcphub.app/zh/configuration/database-configuration) | PostgreSQL 生产环境配置      |
 | [OAuth](https://docs.mcphub.app/zh/features/oauth)                            | OAuth 2.0 客户端和服务端配置 |
+| [客户端兼容性](https://github.com/KazuhaHub/mcphub/blob/main/docs/zh/features/client-compatibility.mdx)      | 已测试的客户端与尚未验证的客户端 |
 | [智能路由](https://docs.mcphub.app/zh/features/smart-routing)                 | AI 驱动的工具发现            |
 | [CLI 指南](https://docs.mcphub.app/zh/features/cli)                           | 终端管理与工具调用           |
 | [Docker 部署](https://docs.mcphub.app/zh/configuration/docker-setup)          | Docker 部署指南              |
