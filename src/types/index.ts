@@ -35,6 +35,12 @@ export interface IUser {
   id?: string;
   /** File-mode stable salt for per-principal paths; generated on first use. */
   stagingSalt?: string;
+  /**
+   * File mode only: the account's immutable random id (UUID), assigned at creation or on first use for
+   * accounts that predate it, and never changed or reassigned. Database users use `id` instead.
+   * See `resolveStableUserId` (src/services/stableUserId.ts).
+   */
+  stableId?: string;
 }
 
 // Group interface for server grouping

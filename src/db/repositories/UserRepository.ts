@@ -63,9 +63,15 @@ export class UserRepository {
   /**
    * Create a new user
    */
-  async create(user: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<User> {
+  async create(
+    user: Omit<User, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
+  ): Promise<User> {
     return this.withRetry(async () => {
-      const newUser = this.repository.create(user);
+      // An explicit id (a stable id carried over from file mode) is used only for a new row: `save`
+      // would otherwise update whichever account already has it.
+      const { id, ...rest } = user;
+      const taken = id ? await this.repository.exists({ where: { id } }) : false;
+      const newUser = this.repository.create(id && !taken ? { ...rest, id } : rest);
       return await this.repository.save(newUser);
     }, 'create');
   }

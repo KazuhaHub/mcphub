@@ -40,6 +40,7 @@ import { evaluateCredentialWriteScopes } from './credentialWriteScopeService.js'
 import { findExternalResource, isClientAllowedForResource } from '../utils/externalResources.js';
 import { oauthRequestContext } from './oauthRequestContext.js';
 import { signExternalAccessToken } from './oauthSigningKeyService.js';
+import { resolveStableUserId } from './stableUserId.js';
 import type { SystemConfig } from '../types/index.js';
 
 const { Request, Response } = OAuth2Server;
@@ -382,10 +383,14 @@ const oauthModel: OAuth2Server.AuthorizationCodeModel & OAuth2Server.RefreshToke
         // Without a configured public URL the issuer is whatever Host the request carried, which
         // a verifier cannot trust: no external token is issued.
         if (!issuer) throw new Error('The public base URL is not configured');
+        // The username can be reused by a different person after a deletion; this cannot.
+        const stableUserId = await resolveStableUserId(user.username);
+        if (!stableUserId) throw new Error('The user no longer exists');
         accessToken = await signExternalAccessToken({
           issuer,
           audience: resource,
           subject: user.username,
+          stableUserId,
           clientId: client.id,
           scope: savedToken.scope ?? '',
           jti: crypto.randomUUID(),

@@ -167,8 +167,18 @@ describe('JWT access tokens for external resources', () => {
       ],
     };
     users = [
-      { username: 'admin', password: await bcrypt.hash('x', 4), isAdmin: true },
-      { username: 'alice', password: await bcrypt.hash('x', 4), isAdmin: false },
+      {
+        username: 'admin',
+        password: await bcrypt.hash('x', 4),
+        isAdmin: true,
+        stableId: '11111111-1111-4111-8111-111111111111',
+      },
+      {
+        username: 'alice',
+        password: await bcrypt.hash('x', 4),
+        isAdmin: false,
+        stableId: '22222222-2222-4222-8222-222222222222',
+      },
     ];
     tokens = [];
     aliceJwt = userJwt(users[1]);
@@ -372,6 +382,45 @@ describe('JWT access tokens for external resources', () => {
       expect(payload.exp! - payload.iat!).toBe(5000);
     });
 
+    it('carries the same stable id in every token and after a refresh', async () => {
+      const first = await issue();
+      const second = await issue();
+      const refreshed = await refresh(first.refresh_token, { resource: UBC });
+      expect(refreshed.status).toBe(200);
+      for (const token of [first.access_token, second.access_token, refreshed.body.access_token]) {
+        expect((await verify(token)).payload.mcphub_uid).toBe(
+          '22222222-2222-4222-8222-222222222222',
+        );
+      }
+    });
+
+    it('adds the stable id to userinfo for MCPHub tokens', async () => {
+      const authorization = await authorize(undefined);
+      const { body } = await exchange(params(authorization).get('code')!);
+      const info = await request(app)
+        .get('/oauth/userinfo')
+        .auth(body.access_token, { type: 'bearer' });
+      expect(info.body).toMatchObject({
+        sub: 'alice',
+        mcphub_uid: '22222222-2222-4222-8222-222222222222',
+      });
+    });
+
+    it('gives a new person who reuses a deleted username a different stable id', async () => {
+      const before = (await verify((await issue()).access_token)).payload;
+      users[1] = {
+        username: 'alice',
+        password: await bcrypt.hash('x', 4),
+        isAdmin: false,
+        stableId: '33333333-3333-4333-8333-333333333333',
+      };
+      aliceJwt = userJwt(users[1]);
+      const after = (await verify((await issue()).access_token)).payload;
+      expect(after.sub).toBe(before.sub);
+      expect(after.mcphub_uid).toBe('33333333-3333-4333-8333-333333333333');
+      expect(after.mcphub_uid).not.toBe(before.mcphub_uid);
+    });
+
     it('passes a standard verifier: iss, aud, typ, algorithm and required claims', async () => {
       const { access_token } = await issue();
       const keySet = createLocalJWKSet(await jwks());
@@ -380,10 +429,11 @@ describe('JWT access tokens for external resources', () => {
         audience: UBC,
         typ: 'at+jwt',
         algorithms: ['ES256'],
-        requiredClaims: ['sub', 'exp', 'iat', 'jti', 'client_id', 'scope'],
+        requiredClaims: ['sub', 'exp', 'iat', 'jti', 'client_id', 'scope', 'mcphub_uid'],
       });
       expect(protectedHeader.kid).toBeTruthy();
       expect(payload.sub).toBe('alice');
+      expect(payload.mcphub_uid).toBe('22222222-2222-4222-8222-222222222222');
       // Another audience does not verify.
       await expect(
         jwtVerify(access_token, keySet, { issuer: ISSUER, audience: OTHER }),

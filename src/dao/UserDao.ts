@@ -2,6 +2,7 @@ import { IUser } from '../types/index.js';
 import { BaseDao } from './base/BaseDao.js';
 import { JsonFileBaseDao } from './base/JsonFileBaseDao.js';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
 
 /**
  * User DAO interface with user-specific operations
@@ -150,6 +151,7 @@ export class UserDaoImpl extends JsonFileBaseDao implements UserDao {
         isAdmin,
         email,
         ssoUserId,
+        stableId: randomUUID(),
       };
 
       users.push(newUser);
@@ -169,8 +171,11 @@ export class UserDaoImpl extends JsonFileBaseDao implements UserDao {
       }
 
       // Don't allow username changes
-      const { username: _, ...allowedUpdates } = updates;
-      const updatedUser = this.updateEntity(users[index], allowedUpdates);
+      const { username: _, stableId: requestedStableId, ...allowedUpdates } = updates;
+      const existing = users[index];
+      const updatedUser = this.updateEntity(existing, allowedUpdates);
+      // The stable id is write-once: assigned only to an account that has none, never replaced.
+      updatedUser.stableId = existing.stableId ?? requestedStableId;
       users[index] = updatedUser;
 
       await this.saveAll(users);
