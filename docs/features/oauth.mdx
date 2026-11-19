@@ -209,7 +209,7 @@ An external service can protect its own MCP endpoint with tokens issued by MCPHu
 
 Setup has two parts, both administrator-only:
 
-1. Set the public base URL (`install.baseUrl` or `INSTALL_BASE_URL`) and list the service in `systemConfig.oauthServer.externalResources`, with the exact MCP URL as `resource`.
+1. Set the public base URL (`install.baseUrl` or `INSTALL_BASE_URL`) and list the service in `systemConfig.oauthServer.externalResources`, with the exact MCP URL as `resource` and the scopes it needs in `scopes`. Clients may register for those scopes without listing them in `allowedScopes`.
 2. Add the service as a server with personal OAuth and the same URL:
 
 ```json

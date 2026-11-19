@@ -114,6 +114,13 @@ export const getExternalResources = (
   return Array.isArray(list) ? list : [];
 };
 
+/** Every scope any configured external resource declares. */
+export const getExternalResourceScopes = (
+  systemConfig?: Pick<SystemConfig, 'oauthServer'> | null,
+): string[] => [
+  ...new Set(getExternalResources(systemConfig).flatMap((entry) => entry.scopes ?? [])),
+];
+
 /** The entry whose `resource` equals `resource` exactly (no normalisation of either side). */
 export const findExternalResource = (
   systemConfig: Pick<SystemConfig, 'oauthServer'> | null | undefined,

@@ -28,7 +28,10 @@ jest.mock('../../src/middlewares/auth.js', () => ({
   auth: (...args: [unknown, unknown, () => void]) => mockAuthMiddleware(...args),
 }));
 
-import { registerClient } from '../../src/controllers/oauthDynamicRegistrationController.js';
+import {
+  registerClient,
+  updateClientConfiguration,
+} from '../../src/controllers/oauthDynamicRegistrationController.js';
 
 describe('oauthDynamicRegistrationController - registerClient', () => {
   let mockRequest: Partial<Request>;
@@ -200,5 +203,106 @@ describe('registerClient requiresAuthentication gate', () => {
 
     expect(mockStatus).toHaveBeenCalledWith(201);
     expect(createOAuthClientMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('registration accepts the scopes of configured external resources', () => {
+  const externalResources = [
+    {
+      resource: 'https://rackbook.example/mcp',
+      name: 'Rackbook',
+      scopes: ['rackbook:write'],
+    },
+  ];
+
+  const register = async (scope: string, allowedScopes = ['read', 'write']) => {
+    getSystemConfigMock.mockResolvedValue({
+      oauthServer: { enabled: true, allowedScopes, externalResources },
+    });
+    createOAuthClientMock.mockImplementation(async (client) => client);
+    const status = jest.fn().mockReturnThis();
+    const json = jest.fn();
+    await registerClient(
+      {
+        protocol: 'https',
+        get: jest.fn().mockReturnValue('localhost:3000'),
+        body: {
+          redirect_uris: ['https://client.example.com/callback'],
+          client_name: 'Scoped Client',
+          scope,
+        },
+      } as unknown as Request,
+      { status, json } as unknown as Response,
+    );
+    return { status, json };
+  };
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('registers a client asking for a scope an external resource lists', async () => {
+    const { status } = await register('rackbook:write');
+    expect(status).toHaveBeenCalledWith(201);
+    expect(createOAuthClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scopes: ['rackbook:write'] }),
+    );
+  });
+
+  it('accepts MCPHub scopes and external resource scopes together', async () => {
+    const { status } = await register('read rackbook:write');
+    expect(status).toHaveBeenCalledWith(201);
+  });
+
+  it('still refuses a scope that neither allowedScopes nor any resource lists', async () => {
+    const { status, json } = await register('rackbook:admin');
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: 'invalid_client_metadata',
+        error_description: 'Scope not allowed: rackbook:admin',
+      }),
+    );
+    expect(createOAuthClientMock).not.toHaveBeenCalled();
+  });
+
+  it('applies the same rule when a registration is updated', async () => {
+    getSystemConfigMock.mockResolvedValue({
+      oauthServer: { enabled: true, externalResources },
+    });
+    findOAuthClientByIdMock.mockResolvedValue({
+      clientId: 'test-client',
+      name: 'Scoped Client',
+      redirectUris: ['https://client.example.com/callback'],
+      grants: ['authorization_code'],
+      scopes: ['read'],
+    });
+    updateOAuthClientMock.mockImplementation(async (_id, updates) => ({
+      clientId: 'test-client',
+      name: 'Scoped Client',
+      redirectUris: ['https://client.example.com/callback'],
+      grants: ['authorization_code'],
+      ...updates,
+    }));
+    const run = async (scope: string) => {
+      const status = jest.fn().mockReturnThis();
+      const json = jest.fn();
+      await updateClientConfiguration(
+        {
+          params: { clientId: 'test-client' },
+          headers: { authorization: 'Bearer test-registration-token' },
+          body: { scope },
+        } as unknown as Request,
+        { status, json } as unknown as Response,
+      );
+      return { status, json };
+    };
+
+    const ok = await run('rackbook:write');
+    expect(ok.status).not.toHaveBeenCalled();
+    expect(updateOAuthClientMock).toHaveBeenCalledWith(
+      'test-client',
+      expect.objectContaining({ scopes: ['rackbook:write'] }),
+    );
+    const refused = await run('rackbook:admin');
+    expect(refused.status).toHaveBeenCalledWith(400);
   });
 });
