@@ -1,16 +1,16 @@
 ---
 title: "OpenAPI Integration"
-description: "Generate OpenAPI specifications from MCP tools for seamless integration with OpenWebUI and other systems"
+description: "Generate OpenAPI specifications from MCP tools for use with OpenAPI-compatible systems such as OpenWebUI (OpenWebUI has not been verified yet)"
 ---
 
-# OpenAPI Generation for OpenWebUI Integration
+# OpenAPI Generation
 
-MCPHub now supports generating OpenAPI 3.0.3 specifications from MCP tools, enabling seamless integration with OpenWebUI and other OpenAPI-compatible systems without requiring MCPO as an intermediary proxy.
+MCPHub now supports generating OpenAPI 3.0.3 specifications from MCP tools, so that OpenAPI-compatible systems can use them without MCPO as an intermediary proxy. OpenWebUI is the intended target, but it has **not been tested yet** against MCPHub; see [Client compatibility](/features/client-compatibility).
 
 ## Features
 
 - ✅ **Automatic OpenAPI Generation**: Converts MCP tools to OpenAPI 3.0.3 specification
-- ✅ **OpenWebUI Compatible**: Direct integration without MCPO proxy
+- **OpenWebUI**: designed for direct use without the MCPO proxy, but not yet verified
 - ✅ **Real-time Tool Discovery**: Dynamically includes tools from connected MCP servers
 - ✅ **Dual Parameter Support**: Supports both GET (query params) and POST (JSON body) for tool execution
 - ✅ **No Authentication Required**: OpenAPI endpoints are public for easy integration
@@ -180,7 +180,9 @@ String array items submitted by the dashboard are converted according to the too
   The name of the tool to execute
 </ParamField>
 
-## OpenWebUI Integration
+## OpenWebUI Integration (not yet verified)
+
+These steps have not been tested against a real OpenWebUI installation. Treat them as a starting point and check OpenWebUI's current documentation.
 
 To integrate MCPHub with OpenWebUI:
 
