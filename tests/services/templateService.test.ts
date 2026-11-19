@@ -210,6 +210,17 @@ describe('templateService', () => {
       expect(JSON.stringify(template)).not.toMatch(/pausedUsers|maintenance|bob|Upgrading/);
     });
 
+    it('does not put a server icon into a shared template', async () => {
+      mockServerDao.findAll.mockResolvedValue([
+        { name: 's1', command: 'npx', icon: 'data:image/png;base64,iVBORw0KGgo=' },
+      ]);
+      mockGroupDao.findAll.mockResolvedValue([{ id: 'g1', name: 'G', servers: ['s1'] }]);
+
+      const template = await exportTemplate({ name: 'Test' });
+
+      expect(template.servers.s1).not.toHaveProperty('icon');
+    });
+
     it('exports server tags and omits an empty tag list (#1506)', async () => {
       mockServerDao.findAll.mockResolvedValue([
         { name: 's1', command: 'npx', tags: ['db', 'prod'] },
@@ -511,6 +522,27 @@ describe('templateService', () => {
       expect(result.groupsCreated).toBe(1);
       expect(mockAddServer).toHaveBeenCalledWith('server1', expect.objectContaining({ command: 'npx' }));
       expect(mockCreateGroup).toHaveBeenCalledWith('Group A', undefined, [{ name: 'server1', tools: 'all' }], 'admin');
+    });
+
+    it('keeps a server icon from an administrator import and drops it from a non-admin one', async () => {
+      mockServerDao.findAll.mockResolvedValue([]);
+      mockGroupDao.findByName.mockResolvedValue(null);
+      mockAddServer.mockResolvedValue(undefined);
+      const icon = 'data:image/png;base64,iVBORw0KGgo=';
+      const template = {
+        version: '1.0',
+        name: 'Test Template',
+        createdAt: new Date().toISOString(),
+        servers: { server1: { type: 'sse', url: 'https://mcp.example.com/sse', icon } },
+        groups: [],
+        requiredEnvVars: [],
+      };
+
+      await importTemplate(template, 'admin', { username: 'admin', isAdmin: true } as any);
+      expect(mockAddServer).toHaveBeenLastCalledWith('server1', expect.objectContaining({ icon }));
+
+      await importTemplate(template, 'alice', { username: 'alice', isAdmin: false } as any);
+      expect(mockAddServer.mock.calls.at(-1)?.[1]).not.toHaveProperty('icon');
     });
 
     it('should import prompt and resource selections for group server configs', async () => {

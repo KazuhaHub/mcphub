@@ -192,6 +192,7 @@ import {
   updateToolRisk,
 } from '../../src/controllers/serverController.js';
 import appConfig from '../../src/config/index.js';
+import { serverIconUrl } from '../../src/utils/serverIcon.js';
 
 describe('serverController - server share candidates', () => {
   beforeEach(() => {
@@ -751,6 +752,24 @@ describe('serverController - getAllSettings', () => {
         accessType: 'all',
       },
     ]);
+  });
+
+  it('lists each server icon as a versioned URL, never as image data', async () => {
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('pixels'),
+    ]);
+    mockServerDao.findAll.mockResolvedValue([
+      { name: 'notes', command: 'npx', icon: `data:image/png;base64,${png.toString('base64')}` },
+      { name: 'broken', command: 'npx', icon: 'https://example.com/x.png' },
+    ]);
+    const res = { json: jest.fn(), status: jest.fn().mockReturnThis() } as unknown as Response;
+    await getAllSettings({ user: { username: 'admin', isAdmin: true } } as unknown as Request, res);
+
+    const body = (res.json as jest.Mock).mock.calls[0][0];
+    expect(body.data.mcpServers.notes.icon).toMatch(/\/api\/servers\/notes\/icon\?v=[0-9a-f]{12}$/);
+    expect(body.data.mcpServers.broken).not.toHaveProperty('icon');
+    expect(JSON.stringify(body)).not.toContain('base64');
   });
 
   describe('login mode status', () => {
@@ -4595,6 +4614,116 @@ describe('serverController - maintenance and per-user pause', () => {
         'Only admins can set the management page URL',
       );
       expect(mockAddServer).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('server icon', () => {
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('pixels'),
+    ]);
+    const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
+    const refusal = { success: false, message: 'Only admins can set a server icon' };
+    const originalBasePath = appConfig.basePath;
+    beforeEach(() => {
+      appConfig.basePath = '';
+      mockGetServersInfo.mockResolvedValue([]);
+    });
+    afterEach(() => {
+      appConfig.basePath = originalBasePath;
+    });
+    const withStored = () =>
+      mockServerDao.findById.mockResolvedValue({
+        name: 'test-server',
+        ...base,
+        owner: 'alice',
+        icon: dataUrl,
+      });
+
+    it('lets an admin set the icon, saves it without reconnecting, and clears it', async () => {
+      await update(admin, { icon: dataUrl });
+      expect(updatesOf()).toMatchObject({ icon: dataUrl });
+      expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
+
+      mockServerDao.update.mockClear();
+      await update(admin, { icon: '' });
+      expect(updatesOf()).toHaveProperty('icon', undefined);
+      expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
+    });
+
+    it('does not reconnect when only the icon changes on a stored server', async () => {
+      withStored();
+      await update(admin, { icon: '' });
+      expect(mockServerDao.update).toHaveBeenCalled();
+      expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a remote URL', 'https://example.com/icon.png'],
+      ['a type that is not allowed', 'data:image/gif;base64,R0lGODlhAQABAAAAACw='],
+      ['bytes that are not the declared type', `data:image/png;base64,${Buffer.from('nope').toString('base64')}`],
+      ['more than 256 KB', `data:image/png;base64,${Buffer.concat([png, Buffer.alloc(260 * 1024)]).toString('base64')}`],
+    ])('rejects %s without saving it', async (_label, icon) => {
+      await update(admin, { icon });
+      expect(status).toHaveBeenCalledWith(400);
+      expect(mockServerDao.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps the stored icon when a client echoes the icon URL it read', async () => {
+      withStored();
+      const echo = serverIconUrl('test-server', dataUrl, '');
+      expect(echo).toMatch(/^\/api\/servers\/test-server\/icon\?v=[0-9a-f]{12}$/);
+      await update(admin, { icon: echo });
+      expect(status).not.toHaveBeenCalled();
+      expect(updatesOf()).not.toHaveProperty('icon');
+    });
+
+    it('refuses a non-admin who sets or replaces the icon, on edit, create and batch', async () => {
+      await update(alice, { icon: dataUrl });
+      expect(status).toHaveBeenCalledWith(403);
+      expect(json).toHaveBeenLastCalledWith(refusal);
+      expect(mockServerDao.update).not.toHaveBeenCalled();
+
+      await createServer(
+        { body: { name: 'fresh', config: { ...base, icon: dataUrl } }, user: alice } as unknown as Request,
+        res,
+      );
+      expect(json).toHaveBeenLastCalledWith(refusal);
+
+      json.mockClear();
+      await batchCreateServers(
+        {
+          body: { servers: [{ name: 'fresh', config: { ...base, icon: dataUrl } }] },
+          user: alice,
+        } as unknown as Request,
+        res,
+      );
+      expect(JSON.stringify(json.mock.calls)).toContain('Only admins can set a server icon');
+      expect(mockAddServer).not.toHaveBeenCalled();
+    });
+
+    it('lets a non-admin save without the key, with a blank one, or with the echoed URL', async () => {
+      withStored();
+      await update(alice, { description: 'mine' });
+      expect(status).not.toHaveBeenCalled();
+      expect(updatesOf()).not.toHaveProperty('icon');
+
+      mockServerDao.update.mockClear();
+      await update(alice, { icon: serverIconUrl('test-server', dataUrl, '') });
+      expect(status).not.toHaveBeenCalled();
+      expect(updatesOf()).not.toHaveProperty('icon');
+    });
+
+    it('returns the icon as a versioned URL, never the stored image data', async () => {
+      withStored();
+      const sent = jest.fn();
+      await getServerConfig(
+        { params: { name: 'test-server' }, user: alice } as unknown as Request,
+        { json: sent, status: jest.fn().mockReturnThis() } as unknown as Response,
+      );
+      const config = sent.mock.calls[0][0].data.config;
+      expect(config.icon).toMatch(/^\/api\/servers\/test-server\/icon\?v=[0-9a-f]{12}$/);
+      expect(JSON.stringify(sent.mock.calls[0][0])).not.toContain('base64');
     });
   });
 

@@ -5,6 +5,7 @@ import { validateMaxBufferSize } from './stdioOptions.js';
 import { normalizeCredentialWriteClients } from './credentialWriteScope.js';
 import { ServerConfigValidationError } from './serverConfigValidation.js';
 import { normalizeManageUrl } from './manageUrl.js';
+import { normalizeServerIcon } from './serverIcon.js';
 import {
   assertStagingConfigConsistent,
   normalizeServerStaging,
@@ -552,6 +553,10 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
     // DAO's shallow merge, while null or an empty value clears the stored one.
     ...(Object.prototype.hasOwnProperty.call(config, 'manageUrl')
       ? { manageUrl: normalizeManageUrl(config.manageUrl) }
+      : {}),
+    // Same rule as manageUrl: absent means unchanged, null or empty clears.
+    ...(Object.prototype.hasOwnProperty.call(config, 'icon')
+      ? { icon: normalizeServerIcon(config.icon) }
       : {}),
     ...(Object.prototype.hasOwnProperty.call(config, 'pausedUsers')
       ? { pausedUsers: normalizePausedUsers(config.pausedUsers) }

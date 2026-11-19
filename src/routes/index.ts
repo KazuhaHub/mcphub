@@ -143,6 +143,7 @@ import {
   getMcpSettingsJson,
 } from '../controllers/configController.js';
 import { getBrandingImage } from '../controllers/brandingController.js';
+import { getServerIcon } from '../controllers/serverIconController.js';
 import { callTool } from '../controllers/toolController.js';
 import { getPrompt } from '../controllers/promptController.js';
 import {
@@ -369,6 +370,7 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
   authenticatedRouter.delete('/oauth/approvals/:approvalId', revokeMyOAuthApproval);
   authenticatedRouter.get('/servers', getAllServers);
   authenticatedRouter.get('/servers/:name/share-candidates', getServerShareCandidates);
+  authenticatedRouter.get('/servers/:name/icon', getServerIcon);
   authenticatedRouter.get('/servers/:name', getServerConfig);
   authenticatedRouter.get('/settings', getAllSettings);
   authenticatedRouter.post('/servers', createServer);

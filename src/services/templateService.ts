@@ -653,6 +653,7 @@ export async function importTemplate(
         defaultUserRisk: _defaultUserRisk,
         credentialWriteClients: _credentialWriteClients,
         manageUrl,
+        icon,
         ...importable
       } = config as ServerConfig;
       const serverConfig: ServerConfig = {
@@ -662,6 +663,8 @@ export async function importTemplate(
         ...(manageUrl !== undefined && (!requestingUser || requestingUser.isAdmin)
           ? { manageUrl }
           : {}),
+        // Like the management page link, the icon is administrator-chosen.
+        ...(icon !== undefined && (!requestingUser || requestingUser.isAdmin) ? { icon } : {}),
         enabled: config.enabled ?? true,
         owner: owner || 'admin',
       };

@@ -266,6 +266,26 @@ describe('workspace API', () => {
       );
     });
 
+    it('lists a service icon as a versioned URL and leaves it out when there is none', async () => {
+      const png = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from('pixels'),
+      ]);
+      servers[0].icon = `data:image/png;base64,${png.toString('base64')}`;
+
+      const response = await request(app)
+        .get('/api/workspace/servers')
+        .set('x-test-user', asUser('alice'))
+        .expect(200);
+
+      const byName = Object.fromEntries(
+        response.body.data.map((server: { name: string }) => [server.name, server]),
+      );
+      expect(byName['public-tool'].icon).toMatch(/\/api\/servers\/public-tool\/icon\?v=[0-9a-f]{12}$/);
+      expect(byName['needs-key']).not.toHaveProperty('icon');
+      expect(JSON.stringify(response.body)).not.toContain('base64');
+    });
+
     it('reports a configured personal credential', async () => {
       mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
 

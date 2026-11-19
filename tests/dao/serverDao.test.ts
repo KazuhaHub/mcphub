@@ -266,6 +266,34 @@ describe('credentialWriteClients (file mode)', () => {
   });
 });
 
+describe('server icon (file storage)', () => {
+  const icon = 'data:image/png;base64,iVBORw0KGgo=';
+  const run = async (updates: object) => {
+    const dao = new ServerDaoImpl();
+    jest.spyOn(dao as any, 'loadSettings').mockResolvedValue({
+      mcpServers: { notes: { type: 'sse', url: 'https://example.com/sse', icon } },
+    });
+    const save = jest.spyOn(dao as any, 'saveSettings').mockResolvedValue(undefined);
+    await dao.update('notes', updates);
+    return JSON.parse(JSON.stringify(save.mock.calls[0][0].mcpServers.notes));
+  };
+
+  it('reads the stored icon back', async () => {
+    const dao = new ServerDaoImpl();
+    jest.spyOn(dao as any, 'loadSettings').mockResolvedValue({
+      mcpServers: { notes: { type: 'sse', icon } },
+    });
+    expect((await dao.findById('notes'))?.icon).toBe(icon);
+  });
+
+  it('keeps it through an update that does not name it, replaces it and removes it', async () => {
+    expect((await run({ description: 'edited' })).icon).toBe(icon);
+    const next = 'data:image/png;base64,iVBORw0KGgoAAAA=';
+    expect((await run({ icon: next })).icon).toBe(next);
+    expect(await run({ icon: undefined })).not.toHaveProperty('icon');
+  });
+});
+
 describe('server id migration keeps policy bindings', () => {
   const legacyIdFor = (name: string) => legacyServerId(name);
 

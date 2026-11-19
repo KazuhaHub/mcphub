@@ -130,6 +130,28 @@ describe('ConfigController - getMcpSettingsJson', () => {
     expect(JSON.stringify(mockJson.mock.calls)).not.toMatch(/bearer-token|bearer-t/);
   });
 
+  it('keeps each server icon in the export so a restore brings it back', async () => {
+    const icon = `data:image/png;base64,${Buffer.from('\x89PNG\r\n\x1a\npx', 'latin1').toString('base64')}`;
+    mockServerDao.findAll.mockResolvedValue([{ name: 'notes', command: 'npx', icon }]);
+    mockUserDao.findAll.mockResolvedValue([]);
+    mockGroupDao.findAll.mockResolvedValue([]);
+    mockSystemConfigDao.get.mockResolvedValue({});
+    mockUserConfigDao.getAll.mockResolvedValue({});
+    mockOAuthClientDao.findAll.mockResolvedValue([]);
+    mockOAuthTokenDao.findAll.mockResolvedValue([]);
+    mockBearerKeyDao.findAll.mockResolvedValue([]);
+
+    await getMcpSettingsJson(mockRequest as Request, mockResponse as Response);
+
+    expect(mockJson.mock.calls[0][0].data.mcpServers.notes.icon).toBe(icon);
+
+    mockJson.mockClear();
+    mockServerDao.findById.mockResolvedValue({ name: 'notes', command: 'npx', icon });
+    mockRequest.query = { serverName: 'notes' };
+    await getMcpSettingsJson(mockRequest as Request, mockResponse as Response);
+    expect(mockJson.mock.calls[0][0].data.mcpServers.notes.icon).toBe(icon);
+  });
+
   it('leaves the instance-local workspace enabledAt out of the export', async () => {
     mockServerDao.findAll.mockResolvedValue([]);
     mockUserDao.findAll.mockResolvedValue([]);

@@ -687,3 +687,40 @@ describe('server tags database persistence (#1506)', () => {
     expect(result?.tags).toEqual(['db']);
   });
 });
+
+describe('server icon database persistence', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+  const icon = 'data:image/png;base64,iVBORw0KGgo=';
+
+  it('persists the icon on create and maps it back', async () => {
+    const dao = new ServerDaoDbImpl();
+    mockRepository.create.mockResolvedValue({ name: 'notes', type: 'stdio', enabled: true, icon });
+
+    const result = await dao.create({ name: 'notes', type: 'stdio', command: 'npx', icon });
+
+    expect(mockRepository.create).toHaveBeenCalledWith(expect.objectContaining({ icon }));
+    expect(result.icon).toBe(icon);
+  });
+
+  it('writes null when the icon is removed and maps a null column to undefined', async () => {
+    const dao = new ServerDaoDbImpl();
+    mockRepository.update.mockResolvedValue({ name: 'notes', enabled: true, icon: null });
+
+    const result = await dao.update('notes', { icon: undefined });
+
+    expect(mockRepository.update).toHaveBeenCalledWith('notes', { icon: null });
+    expect(result?.icon).toBeUndefined();
+  });
+
+  it('keeps the stored icon when an update does not mention it', async () => {
+    const dao = new ServerDaoDbImpl();
+    mockRepository.update.mockResolvedValue({ name: 'notes', enabled: false, icon });
+
+    const result = await dao.update('notes', { enabled: false });
+
+    expect(mockRepository.update).toHaveBeenCalledWith('notes', { enabled: false });
+    expect(result?.icon).toBe(icon);
+  });
+});

@@ -130,6 +130,7 @@ import { TOOL_DEFINITION_FIELDS } from '../constants/smartRoutingDefaults.js';
 import { previewOpenApiToolStats } from '../services/openApiToolStatsService.js';
 import { isValidEnabledAt } from '../services/connectedClientService.js';
 import { logger } from '../utils/logger.js';
+import { serverIconUrl, withServerIconUrl } from '../utils/serverIcon.js';
 import { mergeBranding, validateBrandingUpdate, withBrandingUrls } from '../utils/brandingImage.js';
 import { validateLoginPresentationUpdate } from '../utils/loginMode.js';
 import {
@@ -339,6 +340,30 @@ const manageUrlRefusal = (
   return 'Only admins can set the management page URL';
 };
 
+// The API shows a stored icon as its URL. A client that sends a server's config back unchanged
+// echoes that URL, which means "keep the icon" rather than a new image.
+const isIconUrlEcho = (value: unknown, existing?: { name: string; icon?: unknown }): boolean =>
+  typeof value === 'string' &&
+  existing !== undefined &&
+  value === serverIconUrl(existing.name, existing.icon, appConfig.basePath);
+
+// A server's icon is chosen by an administrator, like the management page link: a non-admin
+// may only send it blank, so an edit that leaves the icon alone still works.
+const iconRefusal = (
+  currentUser: RequestUser | null | undefined,
+  config: object,
+  existing?: { name: string; icon?: unknown },
+): string | undefined => {
+  if (currentUser?.isAdmin === true || !hasOwnKey(config, 'icon')) return undefined;
+  const value = (config as { icon?: unknown }).icon;
+  return value === undefined ||
+    value === null ||
+    value === '' ||
+    isIconUrlEcho(value, existing)
+    ? undefined
+    : 'Only admins can set a server icon';
+};
+
 // Admin availability state after an edit: a key the request leaves out keeps its stored value.
 const availabilityAfterEdit = (
   existing: ServerConfig,
@@ -543,7 +568,7 @@ export const getAllSettings = async (req: Request, res: Response): Promise<void>
     const mcpServers: McpSettings['mcpServers'] = {};
     for (const server of servers) {
       const { name, ...config } = server;
-      mcpServers[name] = config;
+      mcpServers[name] = withServerIconUrl(name, config, appConfig.basePath);
     }
 
     const systemConfig = systemConfigResult || {};
@@ -757,7 +782,8 @@ export const createServer = async (req: Request, res: Response): Promise<void> =
 
     const refusal =
       adminOnlyFieldRefusal(getRequestUser(req), config) ??
-      manageUrlRefusal(getRequestUser(req), config);
+      manageUrlRefusal(getRequestUser(req), config) ??
+      iconRefusal(getRequestUser(req), config);
     if (refusal) {
       res.status(403).json({ success: false, message: refusal });
       return;
@@ -1024,7 +1050,8 @@ export const batchCreateServers = async (req: Request, res: Response): Promise<v
       try {
         const refusal =
           adminOnlyFieldRefusal(currentUser as RequestUser | null, config) ??
-          manageUrlRefusal(currentUser as RequestUser | null, config);
+          manageUrlRefusal(currentUser as RequestUser | null, config) ??
+          iconRefusal(currentUser as RequestUser | null, config);
         if (refusal) {
           results.push({ name: serverName, success: false, message: refusal });
           failureCount++;
@@ -1263,7 +1290,17 @@ export const updateServer = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const normalizedConfig = normalizeServerConfigForPersistence(config);
+    // A client that sends the config it read back unchanged carries the icon's URL, not an
+    // image; that means "keep the icon".
+    let incoming: Record<string, unknown> = config;
+    if (typeof config.icon === 'string' && config.icon !== '' && !config.icon.startsWith('data:')) {
+      const stored = await getServerDao().findById(name);
+      if (isIconUrlEcho(config.icon, stored ?? undefined)) {
+        const { icon: _echo, ...rest } = config;
+        incoming = rest;
+      }
+    }
+    const normalizedConfig = normalizeServerConfigForPersistence(incoming);
 
     if (
       !normalizedConfig.url &&
@@ -1339,7 +1376,9 @@ export const updateServer = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const manageUrlRefused = manageUrlRefusal(getRequestUser(req), config, existingServer);
+    const manageUrlRefused =
+      manageUrlRefusal(getRequestUser(req), config, existingServer) ??
+      iconRefusal(getRequestUser(req), config, existingServer);
     if (manageUrlRefused) {
       res.status(403).json({ success: false, message: manageUrlRefused });
       return;
@@ -1663,6 +1702,7 @@ export const getServerConfig = async (req: Request, res: Response): Promise<void
     // Extract config without the name field
     const { name: serverName, ...config } = serverRecord;
     const presented = presentServerForPrincipal(config, principal);
+    presented.data = withServerIconUrl(serverName, presented.data, appConfig.basePath);
 
     // OpenAPI tools can carry circular $ref cycles left by SwaggerParser.dereference
     // (recursive schemas), which would make res.json throw. Mirror the list endpoint

@@ -184,6 +184,28 @@ describe('mcpService initialize metadata', () => {
     expect(server.config?.id).toBe('persistent-id');
   });
 
+  it('exposes a server icon on list entries as a versioned URL, never as image data', async () => {
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('pixels'),
+    ]);
+    mockFindAll.mockResolvedValue([
+      {
+        name: 'iconic',
+        type: 'stdio',
+        command: 'node',
+        enabled: false,
+        icon: `data:image/png;base64,${png.toString('base64')}`,
+      },
+      { name: 'broken', type: 'stdio', command: 'node', enabled: false, icon: 'https://x.test/i.png' },
+    ]);
+    const servers = await getServersInfo();
+    const byName = Object.fromEntries(servers.map((server) => [server.name, server]));
+    expect(byName.iconic.config?.icon).toMatch(/\/api\/servers\/iconic\/icon\?v=[0-9a-f]{12}$/);
+    expect(byName.broken.config).not.toHaveProperty('icon');
+    expect(JSON.stringify(byName.iconic)).not.toContain('base64');
+  });
+
   it('exposes server tags on list entries and omits an empty tag list (#1506)', async () => {
     mockFindAll.mockResolvedValue([
       { name: 'tagged', type: 'stdio', command: 'node', enabled: false, tags: ['db', 'prod'] },

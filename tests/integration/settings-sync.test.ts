@@ -572,6 +572,33 @@ test('normalizes declared tags and keeps the declaration fingerprint when only t
   expect(servers.get('remote')?.tags).toBeNull();
 });
 
+test('stores a declared icon and keeps the declaration fingerprint when only the icon changes', async () => {
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('a')]);
+  const icon = `data:image/png;base64,${png.toString('base64')}`;
+  write({ mcpServers: { remote: { ...remote, icon } } });
+  await syncSettingsToDatabase();
+  expect(servers.get('remote')?.icon).toBe(icon);
+  const hash = servers.get('remote')?.settingsSyncHash;
+
+  const other = `data:image/png;base64,${Buffer.concat([png, Buffer.from('b')]).toString('base64')}`;
+  write({ mcpServers: { remote: { ...remote, icon: other } } });
+  await syncSettingsToDatabase();
+  expect(servers.get('remote')?.icon).toBe(other);
+  expect(servers.get('remote')?.settingsSyncHash).toBe(hash);
+
+  write({ mcpServers: { remote } });
+  await syncSettingsToDatabase();
+  expect(servers.get('remote')?.icon).toBeNull();
+});
+
+test('refuses a declared icon that is a remote URL or not an allowed image', async () => {
+  for (const icon of ['https://example.com/icon.png', 'data:text/html;base64,PGI+']) {
+    write({ mcpServers: { remote: { ...remote, icon } } });
+    await expect(syncSettingsToDatabase()).rejects.toThrow(/icon/);
+  }
+  expect(servers.has('remote')).toBe(false);
+});
+
 test('reports created, updated and unchanged entries and skips unchanged saves', async () => {
   const log = jest.spyOn(logger, 'log');
   write({ mcpServers: { remote }, groups: [{ name: 'team', servers: ['remote'] }] });
