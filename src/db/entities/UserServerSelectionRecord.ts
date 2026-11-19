@@ -10,6 +10,11 @@ export class UserServerSelectionRecord {
   @PrimaryColumn({ type: 'varchar', length: 255 })
   username: string;
 
+  // Whether the user added the server to their services list. Null on rows from before the
+  // list existed: they count as added exactly when `selected` is true.
+  @Column({ type: 'boolean', nullable: true })
+  added?: boolean | null;
+
   @Column({ type: 'boolean', default: false })
   selected: boolean;
 

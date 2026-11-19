@@ -1,7 +1,7 @@
 import { getAppDataSource } from '../db/connection.js';
 import { UserServerSelectionRecord } from '../db/entities/UserServerSelectionRecord.js';
 import type { ToolRiskLevel, UserServerSelection } from '../types/index.js';
-import type { UserServerSelectionDao } from './UserServerSelectionDao.js';
+import type { SelectionChange, UserServerSelectionDao } from './UserServerSelectionDao.js';
 
 export class UserServerSelectionDaoDbImpl implements UserServerSelectionDao {
   private get repository() {
@@ -11,16 +11,27 @@ export class UserServerSelectionDaoDbImpl implements UserServerSelectionDao {
   async listByUsername(username: string): Promise<UserServerSelection[]> {
     // Unset columns read back as null.
     return (await this.repository.findBy({ username })).map(
-      ({ riskCeiling, ...row }): UserServerSelection => ({
+      ({ riskCeiling, added, ...row }): UserServerSelection => ({
         ...row,
+        ...(typeof added === 'boolean' ? { added } : {}),
         ...(riskCeiling ? { riskCeiling } : {}),
       }),
     );
   }
 
-  async save(selection: UserServerSelection): Promise<void> {
-    // An undefined column is not part of the upsert, so a stored ceiling survives.
-    await this.repository.upsert(selection, ['serverName', 'username']);
+  async save(selection: SelectionChange): Promise<void> {
+    const { username, serverName } = selection;
+    const existing = await this.repository.findOneBy({ username, serverName });
+    // An undefined column is not part of the upsert, so a stored ceiling and a stored
+    // `selected` survive. A row from before the list existed (null `added`) is given what it
+    // meant, so changing `selected` does not change whether it is added.
+    const added =
+      selection.added ??
+      (existing && typeof existing.added !== 'boolean' ? existing.selected : undefined);
+    await this.repository.upsert({ ...selection, ...(added === undefined ? {} : { added }) }, [
+      'serverName',
+      'username',
+    ]);
   }
 
   async saveRiskCeiling(

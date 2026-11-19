@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { User } from '@/types';
 import { useUserData } from '@/hooks/useUserData';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSettings } from '@/contexts/SettingsContext';
+import UserServicesDialog from '@/components/UserServicesDialog';
 import AddUserForm from '@/components/AddUserForm';
 import EditUserForm from '@/components/EditUserForm';
 import {
@@ -15,6 +17,7 @@ import {
   AlertCircle,
   X,
   RefreshCw,
+  Layers,
 } from 'lucide-react';
 import DeleteDialog from '@/components/ui/DeleteDialog';
 import { StatusDot } from '@/components/ui/StatusDot';
@@ -23,6 +26,8 @@ const UsersPage: React.FC = () => {
   const { t } = useTranslation();
   const { auth } = useAuth();
   const currentUser = auth.user;
+  const { workspaceEnabled } = useSettings();
+  const [servicesUser, setServicesUser] = useState<string | null>(null);
   const {
     users,
     loading: usersLoading,
@@ -122,7 +127,7 @@ const UsersPage: React.FC = () => {
         <div className="hub-card overflow-hidden">
           <div
             className="hub-row stack head hub-mono"
-            style={{ gridTemplateColumns: '1.6fr 1.2fr 100px 100px' }}
+            style={{ gridTemplateColumns: '1.6fr 1.2fr 100px 130px' }}
           >
             <div>{t('users.username')}</div>
             <div>{t('users.email')}</div>
@@ -135,7 +140,7 @@ const UsersPage: React.FC = () => {
               <div
                 key={user.username}
                 className="hub-row stack hover"
-                style={{ gridTemplateColumns: '1.6fr 1.2fr 100px 100px' }}
+                style={{ gridTemplateColumns: '1.6fr 1.2fr 100px 130px' }}
               >
                 <div className="flex items-center gap-3 min-w-0 max-md:order-1 max-md:flex-1">
                   <div
@@ -184,6 +189,17 @@ const UsersPage: React.FC = () => {
                   />
                 </div>
                 <div className="flex justify-end gap-1 max-md:order-2">
+                  {workspaceEnabled && (
+                    <button
+                      onClick={() => setServicesUser(user.username)}
+                      className="hub-icon-btn sm"
+                      title={t('userServices.open')}
+                      aria-label={`${t('userServices.open')}: ${user.username}`}
+                      data-testid={`user-services-${user.username}`}
+                    >
+                      <Layers size={13} />
+                    </button>
+                  )}
                   <Link
                     to={`/credentials?user=${encodeURIComponent(user.username)}`}
                     className="hub-icon-btn sm"
@@ -214,6 +230,10 @@ const UsersPage: React.FC = () => {
             );
           })}
         </div>
+      )}
+
+      {servicesUser && (
+        <UserServicesDialog username={servicesUser} onClose={() => setServicesUser(null)} />
       )}
 
       {showAddForm && (

@@ -130,6 +130,31 @@ export const resolveServiceChip = (
   return { chip: 'ready', action: null };
 };
 
+export interface AttentionItem extends ServiceChipState {
+  server: WorkspaceServer;
+}
+
+/**
+ * The services on the user's list that are switched on and cannot work until the user (or an
+ * administrator) does something: sign in, sign in again, add or update credentials, or ask for
+ * access. Services that are off, and ones the administrator paused, are not the user's to fix.
+ */
+export const attentionItems = (
+  servers: readonly WorkspaceServer[],
+  credentialServers: ReadonlySet<string> | null,
+  bindings: readonly MyCredentialBinding[] | null,
+): AttentionItem[] =>
+  servers
+    .filter((server) => isAdded(server) && server.selected)
+    .flatMap((server) => {
+      const state = resolveServiceChip(
+        server,
+        credentialServers,
+        bindings?.find((entry) => entry.serverName === server.name),
+      );
+      return state.action || state.chip === 'contact_admin' ? [{ ...state, server }] : [];
+    });
+
 export const serviceChipTone = (chip: ServiceChip): StatusTone => {
   switch (chip) {
     case 'ready':
@@ -219,12 +244,49 @@ export const findCredentialBinding = (
   serverName: string,
 ): MyCredentialBinding | undefined => bindings.find((binding) => binding.serverName === serverName);
 
+/** Whether the service is in the user's list; the full list on data from an older server. */
+export const isAdded = (server: Pick<WorkspaceServer, 'added'>): boolean => server.added !== false;
+
+/** Services the user has not added yet that match the search (name, description, tags). */
+export const searchCatalog = (
+  servers: readonly WorkspaceServer[],
+  query: string,
+): WorkspaceServer[] => {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return servers.filter((server) => {
+    if (isAdded(server)) return false;
+    const haystack = [server.name, server.description ?? '', ...(server.tags ?? [])]
+      .join(' ')
+      .toLowerCase();
+    return words.every((word) => haystack.includes(word));
+  });
+};
+
+/** What the Home page says about the user's services. */
+export const summarizeServices = (servers: readonly WorkspaceServer[]) => {
+  const added = servers.filter(isAdded);
+  return {
+    added: added.length,
+    on: added.filter((server) => server.selected).length,
+    // Services the user could still add.
+    available: servers.length - added.length,
+  };
+};
+
 export const applySelection = (
   servers: readonly WorkspaceServer[],
   name: string,
   selected: boolean,
 ): WorkspaceServer[] =>
   servers.map((server) => (server.name === name ? { ...server, selected } : server));
+
+/** Optimistic change of whether a service is in the list. Removing also switches it off. */
+export const applyMembership = (
+  servers: readonly WorkspaceServer[],
+  name: string,
+  added: boolean,
+): WorkspaceServer[] =>
+  servers.map((server) => (server.name === name ? { ...server, added, selected: added } : server));
 
 export interface ToggleDeps {
   save: (name: string, selected: boolean) => Promise<void>;

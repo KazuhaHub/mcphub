@@ -4,6 +4,7 @@ import type {
   WorkspaceActivityPage,
   WorkspaceClient,
   WorkspaceEndpoints,
+  UserServiceEntry,
   WorkspaceServer,
 } from '../types';
 import {
@@ -35,6 +36,40 @@ export const saveServerSelection = async (name: string, selected: boolean): Prom
       selected,
     }),
     'selection',
+  );
+};
+
+/** Adds a service to the user's list (switched on) or removes it. */
+export const saveServerMembership = async (name: string, added: boolean): Promise<void> => {
+  unwrap(
+    await apiPut<ApiResponse>(`/workspace/servers/${encodeURIComponent(name)}/membership`, {
+      added,
+    }),
+    'membership',
+  );
+};
+
+/** Administrator: the services a user can see, with whether each is added and switched on. */
+export const fetchUserServices = async (username: string): Promise<UserServiceEntry[]> =>
+  unwrap(
+    await apiGet<ApiResponse<UserServiceEntry[]>>(
+      `/users/${encodeURIComponent(username)}/services`,
+    ),
+    'user services',
+  );
+
+/** Administrator: adds or removes a service for a user, or switches it on or off for them. */
+export const saveUserService = async (
+  username: string,
+  name: string,
+  change: { added?: boolean; selected?: boolean },
+): Promise<void> => {
+  unwrap(
+    await apiPut<ApiResponse>(
+      `/users/${encodeURIComponent(username)}/services/${encodeURIComponent(name)}`,
+      change,
+    ),
+    'user service',
   );
 };
 

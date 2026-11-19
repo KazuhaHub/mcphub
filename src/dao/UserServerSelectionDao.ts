@@ -4,10 +4,16 @@ import { randomUUID } from 'node:crypto';
 import { getSettingsPath } from '../config/index.js';
 import type { ToolRiskLevel, UserServerSelection } from '../types/index.js';
 
+export type SelectionChange = Omit<UserServerSelection, 'selected'> & { selected?: boolean };
+
 export interface UserServerSelectionDao {
   listByUsername(username: string): Promise<UserServerSelection[]>;
-  /** Writes the row; an omitted `riskCeiling` leaves a stored one unchanged. */
-  save(selection: UserServerSelection): Promise<void>;
+  /**
+   * Writes the row; an omitted `riskCeiling`, `added` or `selected` leaves the stored value
+   * unchanged. A stored row without `added` (from before the list existed) is given the value it
+   * meant, its `selected`, so that changing `selected` does not change whether it is added.
+   */
+  save(selection: SelectionChange): Promise<void>;
   /** Sets the risk ceiling only; a row created by it is not selected, an existing one keeps its selection. */
   saveRiskCeiling(
     username: string,
@@ -55,14 +61,31 @@ export class UserServerSelectionDaoImpl implements UserServerSelectionDao {
     return this.readAll().filter((item) => item.username === username);
   }
 
-  async save(selection: UserServerSelection): Promise<void> {
+  async save(selection: SelectionChange): Promise<void> {
     const rows = this.readAll();
     const existing = rows.find(
       (item) => item.serverName === selection.serverName && item.username === selection.username,
     );
     const kept = rows.filter((item) => item !== existing);
     const riskCeiling = selection.riskCeiling ?? existing?.riskCeiling;
-    this.write([...kept, { ...selection, ...(riskCeiling ? { riskCeiling } : {}) }]);
+    const selected = selection.selected ?? existing?.selected ?? false;
+    // A new row without `added` stays a legacy row (added exactly when selected).
+    const added =
+      selection.added ??
+      (existing
+        ? typeof existing.added === 'boolean'
+          ? existing.added
+          : existing.selected
+        : undefined);
+    this.write([
+      ...kept,
+      {
+        ...selection,
+        selected,
+        ...(added === undefined ? {} : { added }),
+        ...(riskCeiling ? { riskCeiling } : {}),
+      },
+    ]);
   }
 
   async saveRiskCeiling(

@@ -21,6 +21,9 @@ import {
   listWorkspaceServers,
   revokeAllWorkspaceClients,
   revokeWorkspaceClient,
+  listUserServices,
+  updateUserService,
+  updateWorkspaceMembership,
   updateWorkspaceSelection,
   updateWorkspaceRisk,
   getServiceManageUrl,
@@ -358,7 +361,10 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
   authenticatedRouter.delete('/credentials/:name', updateMyCredential);
   authenticatedRouter.get('/workspace/servers', listWorkspaceServers);
   authenticatedRouter.put('/workspace/servers/:name/selection', updateWorkspaceSelection);
+  authenticatedRouter.put('/workspace/servers/:name/membership', updateWorkspaceMembership);
   authenticatedRouter.put('/workspace/servers/:name/risk', updateWorkspaceRisk);
+  authenticatedRouter.get('/users/:username/services', listUserServices);
+  authenticatedRouter.put('/users/:username/services/:name', updateUserService);
   authenticatedRouter.get('/services/:name/manage-url', getServiceManageUrl);
   authenticatedRouter.get('/workspace/summary', getWorkspaceSummary);
   authenticatedRouter.get('/workspace/endpoints', getWorkspaceEndpoints);

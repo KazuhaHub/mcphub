@@ -20,7 +20,7 @@ import {
 import { copyText } from '@/utils/clipboard';
 import { useModalLayer } from '@/hooks/useModalLayer';
 import { launchPersonalOAuth } from '@/services/workspaceService';
-import { resolveServiceChip } from '@/utils/workspace';
+import { isAdded, resolveServiceChip } from '@/utils/workspace';
 import { refreshWorkspace, useWorkspaceData } from '@/hooks/useWorkspaceData';
 import { CLIENT_SNIPPET_PRESETS, type ClientSnippetId } from '@/utils/mcpClientSnippets';
 import CredentialDialog from '@/components/credentials/CredentialDialog';
@@ -235,13 +235,13 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({ aggregateUrl, initial, on
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
           {stage === 'service' && (
             <ul className="space-y-2" aria-label={t('connect.pickService')}>
-              {servers.filter((server) => server.enabled).length === 0 && (
+              {servers.filter((server) => server.enabled && isAdded(server)).length === 0 && (
                 <li className="text-sm" style={{ color: 'var(--hub-ink-3)' }}>
                   {t('connect.noServices')}
                 </li>
               )}
               {servers
-                .filter((server) => server.enabled)
+                .filter((server) => server.enabled && isAdded(server))
                 .map((server) => {
                   const endpoint = endpointByName.get(server.name);
                   const ready = Boolean(endpoint?.url);

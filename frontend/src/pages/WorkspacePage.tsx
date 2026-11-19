@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import ConnectCard from '@/components/connect/ConnectCard';
-import WorkspaceServicesView from '@/components/workspace/WorkspaceServicesView';
+import WorkspaceHome from '@/components/workspace/WorkspaceHome';
 import { workspaceServicePath } from '@/utils/workspace';
 
 const WorkspacePage: React.FC = () => {
@@ -15,22 +15,23 @@ const WorkspacePage: React.FC = () => {
     return <Navigate to={workspaceServicePath(legacyCredentials, 'credentials')} replace />;
   }
   if (legacyService) return <Navigate to={workspaceServicePath(legacyService)} replace />;
-  // Connected clients and activity used to be tabs here; they are pages of their own.
+  // The services list, connected clients and activity used to be tabs here; they are pages of
+  // their own.
   const legacyTab = search.get('tab');
-  if (legacyTab === 'clients' || legacyTab === 'activity') {
+  if (legacyTab === 'clients' || legacyTab === 'activity' || legacyTab === 'services') {
     return <Navigate to={`/workspace/${legacyTab}`} replace />;
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="hub-h1">{t('workspacePage.title')}</h1>
-        <p className="hub-sub">{t('workspacePage.subtitle')}</p>
+        <h1 className="hub-h1">{t('workspacePage.home.title')}</h1>
+        <p className="hub-sub">{t('workspacePage.home.subtitle')}</p>
       </div>
 
       <ConnectCard />
 
-      <WorkspaceServicesView />
+      <WorkspaceHome />
     </div>
   );
 };

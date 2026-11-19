@@ -12,6 +12,7 @@ import type {
 } from '../../frontend/src/types';
 import WorkspaceServicePage from '../../frontend/src/pages/WorkspaceServicePage';
 import WorkspacePage from '../../frontend/src/pages/WorkspacePage';
+import WorkspaceServicesPage from '../../frontend/src/pages/WorkspaceServicesPage';
 import { resetWorkspaceStore } from '../../frontend/src/hooks/useWorkspaceData';
 
 jest.mock('react-i18next', () => ({
@@ -42,6 +43,10 @@ jest.mock('@/components/workspace/ConnectedClientsPanel', () => ({
 jest.mock('@/components/workspace/WorkspaceServicesView', () => ({
   __esModule: true,
   default: () => <div data-testid="list-stub" />,
+}));
+jest.mock('@/components/workspace/WorkspaceHome', () => ({
+  __esModule: true,
+  default: () => <div data-testid="home-stub" />,
 }));
 const mockToast = jest.fn();
 jest.mock('@/contexts/ToastContext', () => ({ useToast: () => ({ showToast: mockToast }) }));
@@ -195,6 +200,7 @@ const mount = async (entry: string, state?: unknown, wait = true) => {
     >
       <Routes>
         <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/workspace/services" element={<WorkspaceServicesPage />} />
         <Route path="/workspace/services/:name" element={<WorkspaceServicePage />} />
       </Routes>
       <Where />
@@ -504,19 +510,19 @@ describe('the switch on the page', () => {
 });
 
 describe('a service that does not exist', () => {
-  it('says so and links back to the workspace', async () => {
+  it('says so and links back to the services list', async () => {
     await mount('/workspace/services/nope');
     const box = screen.getByTestId('not-found');
     expect(box.textContent).toContain('workspacePage.service.notFound');
-    expect(within(box).getByRole('link').getAttribute('href')).toBe('/workspace');
+    expect(within(box).getByRole('link').getAttribute('href')).toBe('/workspace/services');
   });
 });
 
 describe('the back link', () => {
-  it('goes to the workspace', async () => {
+  it('goes to the services list', async () => {
     await mount('/workspace/services/anteater-shared');
     fireEvent.click(screen.getByText('workspacePage.service.back'));
-    expect(screen.getByTestId('where').textContent).toBe('/workspace');
+    expect(screen.getByTestId('where').textContent).toBe('/workspace/services');
   });
 });
 
@@ -534,14 +540,20 @@ describe('old links', () => {
     expect(selected()).toEqual(['credentials']);
   });
 
-  it.each(['clients', 'activity'])('sends /workspace?tab=%s to its own page', async (tab) => {
+  it.each(['clients', 'activity', 'services'])('sends /workspace?tab=%s to its own page', async (tab) => {
     await mount(`/workspace?tab=${tab}`, undefined, false);
     expect(screen.getByTestId('where').textContent).toBe(`/workspace/${tab}`);
   });
 
-  it('keeps the plain workspace page when there is no service', async () => {
+  it('keeps the plain workspace page, now only the home, when there is no service', async () => {
     await mount('/workspace', undefined, false);
     expect(screen.getByTestId('where').textContent).toBe('/workspace');
+    expect(screen.getByTestId('home-stub')).toBeTruthy();
+    expect(screen.queryByTestId('list-stub')).toBeNull();
+  });
+
+  it('shows the list on /workspace/services', async () => {
+    await mount('/workspace/services', undefined, false);
     expect(screen.getByTestId('list-stub')).toBeTruthy();
   });
 });

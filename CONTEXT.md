@@ -45,7 +45,7 @@ The `systemConfig.workspace.enabled` setting. When on, each user curates their o
 _Avoid_: portal mode, user mode
 
 **Server Selection**:
-A user's explicit choice to include one visible server in their own MCP scope, stored per (user, server). Absent means not selected. Selection only narrows what visibility already allows; it never grants access. It applies to the all-servers route, global `$smart`, and single-server routes for an authenticated user under Workspace Mode, never to admin-defined Group routes or dashboard calls.
+A user's explicit choice to include one visible server in their own MCP scope, stored per (user, server) as two flags: **added** (the service is in the user's Services list, put there by the user from the catalog or by an administrator) and **enabled** (its switch is on). The scope contains a server only when it is both added and enabled. Rows from before the list existed have no `added`; they count as added exactly when enabled, so nothing a user relied on disappears and nothing new appears. Absent means neither. Selection only narrows what visibility already allows; it never grants access. It applies to the all-servers route, global `$smart`, and single-server routes for an authenticated user under Workspace Mode, never to admin-defined Group routes or dashboard calls.
 _Avoid_: subscription, enablement (reserved for the global `enabled` flag), favourite
 
 **Credential-Write Scope**:

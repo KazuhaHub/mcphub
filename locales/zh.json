@@ -1826,13 +1826,15 @@
     },
     "services": {
       "tab": "服务",
-      "title": "可用服务",
+      "title": "我的服务",
       "description": "开关决定哪些服务出现在你的接入地址里。点一个服务查看详情。",
       "empty": "暂时没有可供你使用的服务。",
       "toggleFor": "将 {{name}} 加入我的工作区",
       "copyEndpointFor": "复制 {{name}} 的端点",
       "endpointConflict": "没有单独的端点：有分组与此服务同名。请改用你的主端点。",
-      "toolCount_other": "{{count}} 个工具"
+      "toolCount_other": "{{count}} 个工具",
+      "noneAdded": "你还没有添加任何服务。",
+      "pageSubtitle": "你的 AI 可以使用的服务。添加服务、开启或关闭，并处理需要你关注的事项。"
     },
     "status": {
       "available": "可用",
@@ -2000,7 +2002,7 @@
       "strong": "你的选择共有 {{count}} 个工具，对多数客户端来说太多：请使用智能路由或单服务地址。"
     },
     "service": {
-      "back": "工作区",
+      "back": "服务",
       "notFound": "没有找到这个服务，或你无权访问。",
       "more": "更多",
       "less": "收起",
@@ -2016,6 +2018,41 @@
         "updateCredentials": "更新凭据"
       },
       "tabsLabel": "{{name}} 的分区"
+    },
+    "home": {
+      "nav": "首页",
+      "title": "首页",
+      "subtitle": "接入你的 AI，并查看需要你处理的事项。",
+      "attention": {
+        "title": "需要你处理",
+        "description": "这些服务已开启，但暂时还不能使用。"
+      },
+      "openService": "打开 {{name}}",
+      "getStarted": {
+        "title": "开始使用",
+        "description": "添加你希望 AI 使用的服务，再用上方的接入地址连接它。",
+        "action": "添加服务"
+      },
+      "counts": "{{added}} 个服务中已开启 {{on}} 个",
+      "countsMore_other": "另有 {{count}} 个可添加",
+      "manage": "管理服务"
+    },
+    "catalog": {
+      "add": "添加服务",
+      "addShort": "添加",
+      "addNamed": "添加 {{name}}",
+      "addToMine": "添加到我的服务",
+      "title": "添加服务",
+      "subtitle": "你可以使用、但还没有添加的服务。",
+      "searchLabel": "搜索服务",
+      "searchPlaceholder": "按名称、描述或标签搜索",
+      "noMatch": "没有符合搜索的服务。",
+      "allAdded": "你可用的服务都已添加。",
+      "addFailed": "无法添加 {{name}}。",
+      "removeFailed": "无法移除 {{name}}。",
+      "remove": "从我的服务中移除",
+      "removeTitle": "移除 {{name}}？",
+      "removeMessage": "{{name}} 会从你的列表和接入地址中移除。再次添加时，你的凭据和权限选择仍会保留。"
     }
   },
   "serviceLink": {
@@ -2081,5 +2118,17 @@
     "insecureContext": "通行密钥要求通过域名以 HTTPS（或 localhost）访问控制台。",
     "unsupported": "此浏览器不支持通行密钥。",
     "unavailable": "此部署仅允许单点登录，因此无法使用通行密钥。"
+  },
+  "userServices": {
+    "open": "服务",
+    "title": "{{username}} 的服务",
+    "description": "该用户可见的服务。“已添加”表示放进他的列表；“已开启”表示在他的接入地址中启用。用户之后仍可自行修改。",
+    "added": "已添加",
+    "enabled": "已开启",
+    "addedFor": "{{name}} 在用户的列表中",
+    "enabledFor": "为用户开启 {{name}}",
+    "empty": "该用户看不到任何服务。",
+    "loadFailed": "无法加载该用户的服务。",
+    "saveFailed": "无法修改 {{name}}。"
   }
 }
