@@ -1970,11 +1970,6 @@
       "contact_admin": "你无权使用"
     },
     "panel": {
-      "status": "状态",
-      "tools": "工具",
-      "permissions": "权限",
-      "credentials": "你的凭据",
-      "actions": "使用此服务",
       "copyUrl": "复制地址",
       "toolsAfterSignIn": "登录后可见。",
       "permissionsOff": "开启此服务后，才能选择它的工具可以做什么。",
@@ -1993,6 +1988,24 @@
     "toolsHint": {
       "warn": "你的选择共有 {{count}} 个工具，可能挤占客户端的上下文。",
       "strong": "你的选择共有 {{count}} 个工具，对多数客户端来说太多：请使用智能路由或单服务地址。"
+    },
+    "service": {
+      "back": "工作区",
+      "notFound": "没有找到这个服务，或你无权访问。",
+      "more": "更多",
+      "less": "收起",
+      "tab": {
+        "overview": "概览",
+        "credentials": "凭据",
+        "permissions": "权限"
+      },
+      "action": {
+        "signin": "登录",
+        "signinAgain": "重新登录",
+        "addCredentials": "添加凭据",
+        "updateCredentials": "更新凭据"
+      },
+      "tabsLabel": "{{name}} 的分区"
     }
   },
   "serviceLink": {

@@ -1,8 +1,12 @@
+import '../utils/textEncoderPolyfill';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { WorkspaceServer } from '../../frontend/src/types';
-import ServicePanel from '../../frontend/src/components/workspace/ServicePanel';
+import WorkspaceServicePage from '../../frontend/src/pages/WorkspaceServicePage';
+import { seedWorkspaceStore } from '../../frontend/src/hooks/useWorkspaceData';
 
+jest.mock('@/contexts/ToastContext', () => ({ useToast: () => ({ showToast: jest.fn() }) }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) =>
@@ -26,27 +30,31 @@ const server = (extra: Partial<WorkspaceServer> = {}): WorkspaceServer => ({
   ...extra,
 });
 
-const render = (workspaceServer: WorkspaceServer) =>
-  renderToStaticMarkup(
-    createElement(ServicePanel, {
-      server: workspaceServer,
-      credentialServers: null,
-      bindings: null,
-      bindingsError: '',
-      reloadCredentials: jest.fn(),
-      busy: false,
-      onClose: jest.fn(),
-      onRiskChange: jest.fn(),
-      onAction: jest.fn(),
-      onCopyEndpoint: jest.fn(),
-      onConnectToAi: jest.fn(),
-    }),
+const page = (workspaceServer: WorkspaceServer, tab: string) => {
+  seedWorkspaceStore({ servers: [workspaceServer] });
+  return renderToStaticMarkup(
+    createElement(
+      MemoryRouter,
+      { initialEntries: [`/workspace/services/${workspaceServer.name}?tab=${tab}`] },
+      createElement(
+        Routes,
+        null,
+        createElement(Route, {
+          path: '/workspace/services/:name',
+          element: createElement(WorkspaceServicePage),
+        }),
+      ),
+    ),
   );
+};
+// Both tabs a service page can show about the service: its overview and its permission control.
+const render = (workspaceServer: WorkspaceServer) =>
+  page(workspaceServer, 'overview') + page(workspaceServer, 'permissions');
 
 const radios = (html: string) =>
   [...html.matchAll(/<button[^>]*role="radio"[^>]*>/g)].map((match) => match[0]);
 
-describe('the tool risk control in a service panel', () => {
+describe('the tool risk control in a service page', () => {
   it('offers three options with the number of tools at each level', () => {
     const html = render(server());
     const options = radios(html);
@@ -91,7 +99,8 @@ describe('the tool risk control in a service panel', () => {
   it('is shown only for a service in the workspace, and the explanation only once', () => {
     const off = render(server({ selected: false }));
     expect(radios(off)).toHaveLength(0);
-    expect(off).toContain('workspacePage.panel.permissionsOff');
+    // Without the switch on there is no permissions tab to show.
+    expect(off).not.toContain('service-tab-permissions');
     const html = render(server());
     expect(html.split('workspacePage.risk.explanation').length).toBe(2);
   });
@@ -171,7 +180,7 @@ describe('the tool risk control in a service panel', () => {
   });
 });
 
-describe('the management link in a service panel', () => {
+describe('the management link in a service page', () => {
   it('links to the stable service page in a new tab, labelled with the service name', () => {
     const html = render(server({ manageUrl: 'https://example.com/account/token' }));
     expect(html).toContain('href="/services/notes"');

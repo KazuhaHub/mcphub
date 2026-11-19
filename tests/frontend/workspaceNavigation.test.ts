@@ -56,7 +56,7 @@ describe('workspace route access', () => {
     '/logs',
     '/activity',
   ];
-  const personalPages = ['/workspace', '/workspace/clients', '/credentials', '/settings'];
+  const personalPages = ['/workspace', '/workspace/clients', '/workspace/services/ubc-personal', '/credentials', '/settings'];
 
   it.each(adminPages)('redirects ordinary users away from %s when the mode is on', (path) => {
     expect(isRouteAllowed(path, userOn)).toBe(false);

@@ -37,6 +37,16 @@ const useCrumbs = (): string[] => {
         return [root, raw];
       }
     }
+    if (path.startsWith('/workspace/services/')) {
+      const raw = path.slice('/workspace/services/'.length).split('/')[0];
+      let name = raw;
+      try {
+        name = decodeURIComponent(raw);
+      } catch {
+        // keep the raw segment
+      }
+      return [root, t('workspacePage.nav'), name];
+    }
     if (path.startsWith('/workspace')) {
       const clientsTab = new URLSearchParams(location.search).get('tab') === 'clients';
       return clientsTab

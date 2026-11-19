@@ -118,11 +118,11 @@ describe('action mapping per status code', () => {
   });
 
   it('builds a workspace link that opens one service’s credential panel', () => {
-    expect(workspaceCredentialsPath('my server')).toBe('/workspace?credentials=my%20server');
+    expect(workspaceCredentialsPath('my server')).toBe('/workspace/services/my%20server?tab=credentials');
   });
 
   it('builds a workspace link that opens one service’s panel', () => {
-    expect(workspaceServicePath('my server')).toBe('/workspace?service=my%20server');
+    expect(workspaceServicePath('my server')).toBe('/workspace/services/my%20server');
   });
 
   it('finds the binding of exactly one service', () => {

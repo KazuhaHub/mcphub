@@ -1,10 +1,11 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import ConnectCard from '@/components/connect/ConnectCard';
 import ActivityPanel from '@/components/workspace/ActivityPanel';
 import ConnectedClientsPanel from '@/components/workspace/ConnectedClientsPanel';
 import WorkspaceServicesView from '@/components/workspace/WorkspaceServicesView';
+import { workspaceServicePath } from '@/utils/workspace';
 
 type WorkspaceTab = 'services' | 'clients' | 'activity';
 
@@ -15,6 +16,13 @@ const TABS: readonly WorkspaceTab[] = ['services', 'clients', 'activity'];
 const WorkspacePage: React.FC = () => {
   const { t } = useTranslation();
   const [search, setSearch] = useSearchParams();
+  // Old links opened a drawer on this page; each service has its own page now.
+  const legacyCredentials = search.get('credentials');
+  const legacyService = search.get('service');
+  if (legacyCredentials) {
+    return <Navigate to={workspaceServicePath(legacyCredentials, 'credentials')} replace />;
+  }
+  if (legacyService) return <Navigate to={workspaceServicePath(legacyService)} replace />;
   const requested = search.get('tab');
   const tab: WorkspaceTab =
     requested === 'clients' || requested === 'activity' ? requested : 'services';

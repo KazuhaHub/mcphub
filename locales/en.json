@@ -1973,11 +1973,6 @@
       "contact_admin": "Not available to you"
     },
     "panel": {
-      "status": "Status",
-      "tools": "Tools",
-      "permissions": "Permissions",
-      "credentials": "Your credentials",
-      "actions": "Use this service",
       "copyUrl": "Copy URL",
       "toolsAfterSignIn": "Visible after you sign in.",
       "permissionsOff": "Turn this service on to choose what its tools may do.",
@@ -1996,6 +1991,24 @@
     "toolsHint": {
       "warn": "Your selection exposes {{count}} tools, which can crowd your client's context.",
       "strong": "Your selection exposes {{count}} tools, too many for most clients: use the smart routing or a per-service endpoint."
+    },
+    "service": {
+      "back": "Workspace",
+      "notFound": "This service was not found, or you do not have access to it.",
+      "more": "more",
+      "less": "less",
+      "tab": {
+        "overview": "Overview",
+        "credentials": "Credentials",
+        "permissions": "Permissions"
+      },
+      "action": {
+        "signin": "Sign in",
+        "signinAgain": "Sign in again",
+        "addCredentials": "Add credentials",
+        "updateCredentials": "Update credentials"
+      },
+      "tabsLabel": "Sections of {{name}}"
     }
   },
   "serviceLink": {
