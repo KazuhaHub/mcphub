@@ -2,7 +2,7 @@ import {
   assertSelfClientIdAllowed,
   closeSelfOAuthDispatch,
   createSelfIssuerFetch,
-  resolveSelfResource,
+  resolveSelfResourceForConnection,
 } from './selfOAuthResource.js';
 import {
   createToolHandlers,
@@ -2062,7 +2062,7 @@ export const createTransportFromConfig = async (
     }
 
     const personal = personalOAuthContexts.get(conf);
-    const selfResource = await resolveSelfResource(conf);
+    const selfResource = await resolveSelfResourceForConnection(name, conf);
     const issuerAwareFetch = selfResource
       ? createSelfIssuerFetch(
           selfResource.issuer,

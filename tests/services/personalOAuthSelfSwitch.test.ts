@@ -10,7 +10,9 @@ import {
   SELF_OAUTH_CLIENT_ID,
   resolveSelfResource,
   resolveSelfResourceStrict,
-  assertSelfClientIdInUse,
+  SelfResourceUndeterminedError,
+  createSelfIssuerFetch,
+  resolveSelfResourceForConnection,
 } from '../../src/services/selfOAuthResource.js';
 import { logger } from '../../src/utils/logger.js';
 import type { ServerConfigWithName } from '../../src/types/index.js';
@@ -177,23 +179,81 @@ test('a configuration read error is an error, not "not self-resource", and disca
   expect(await rawBinding('alice')).toBe(before);
 });
 
-test('the entry temporarily missing discards and revokes nothing, even for a hub-issued binding', async () => {
+const hubIssued = async (username: string) => {
   addEntry();
-  const context = await PersonalOAuthContext.load('canvas', 'bob', definition);
+  const context = await PersonalOAuthContext.load('canvas', username, definition);
+  // What the real flow leaves: tokens and the resource, no stored client id.
   await context.mutate(({ oauth }) => {
-    oauth.clientId = SELF_OAUTH_CLIENT_ID;
     oauth.accessToken = 'hub-token';
+    oauth.refreshToken = 'hub-refresh-secret';
     oauth.grantResource = URL_;
   });
+};
+const withConfigReadError = async (action: () => Promise<void>) => {
+  const dao = jest.requireMock('../../src/dao/index.js');
+  const original = dao.getSystemConfigDao;
+  dao.getSystemConfigDao = () => ({
+    get: async () => {
+      throw new Error('boom');
+    },
+  });
+  try {
+    await action();
+  } finally {
+    dao.getSystemConfigDao = original;
+  }
+};
+
+test('a hub-issued binding with no stored client id: a config read error at connect is temporary and sends nothing', async () => {
+  await hubIssued('bob');
+  const before = await rawBinding('bob');
+  const context = await PersonalOAuthContext.load('canvas', 'bob', definition);
+  const upstream = jest.fn();
+  await withConfigReadError(async () => {
+    await expect(resolveSelfResourceForConnection('canvas', context.config)).rejects.toBeInstanceOf(
+      SelfResourceUndeterminedError,
+    );
+  });
+  expect(upstream).not.toHaveBeenCalled();
+  expect(await rawBinding('bob')).toBe(before);
+});
+
+test('a hub-issued binding with the entry missing asks to reconnect and changes nothing', async () => {
+  await hubIssued('bob');
   delete systemConfig.oauthServer;
   const before = await rawBinding('bob');
-  const again = await PersonalOAuthContext.load('canvas', 'bob', definition);
-  expect(await resolveSelfResourceStrict(again.config)).toBeUndefined();
-  expect(await rawBinding('bob')).toBe(before);
-  expect(mockRevoke).not.toHaveBeenCalled();
-  await expect(assertSelfClientIdInUse('canvas', again.config, undefined)).rejects.toThrow(
+  const context = await PersonalOAuthContext.load('canvas', 'bob', definition);
+  await expect(resolveSelfResourceForConnection('canvas', context.config)).rejects.toThrow(
     /reconnect/i,
   );
+  expect(await rawBinding('bob')).toBe(before);
+  expect(mockRevoke).not.toHaveBeenCalled();
+});
+
+test('a foreign (upstream-issued) binding with no entry connects as before', async () => {
+  await connectUpstream('alice');
+  const context = await PersonalOAuthContext.load('canvas', 'alice', definition);
+  expect(await resolveSelfResourceForConnection('canvas', context.config)).toBeUndefined();
+});
+
+test('normal self-resource connect resolves, and a refresh only goes to the hub token endpoint', async () => {
+  await hubIssued('bob');
+  const context = await PersonalOAuthContext.load('canvas', 'bob', definition);
+  const self = await resolveSelfResourceForConnection('canvas', context.config);
+  expect(self).toMatchObject({ issuer: ISSUER });
+  const next = jest.fn(async () => new Response('{}'));
+  const fetchFn = createSelfIssuerFetch(self!.issuer, next as any);
+  const refresh = {
+    method: 'POST',
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: 'hub-refresh-secret' }),
+  };
+  await expect(fetchFn('https://other-as.example/token', refresh)).rejects.toThrow(
+    /own token endpoint/,
+  );
+  expect(next).not.toHaveBeenCalled();
+  // other traffic (the upstream resource) still passes through
+  await fetchFn(URL_, { method: 'POST', body: '{}' });
+  expect(next).toHaveBeenCalledTimes(1);
 });
 
 test('an unauthenticated relay lookup of personal.x writes nothing', async () => {

@@ -65,7 +65,7 @@ import {
   assertSelfClientIdInUse,
   createSelfIssuerFetch,
   ensureSelfOAuthClient,
-  resolveSelfResource,
+  resolveSelfResourceForConnection,
   selfRedirectUri,
   selfResourceRefusal,
   type SelfResource,
@@ -494,6 +494,11 @@ export class MCPHubOAuthProvider implements OAuthClientProvider {
           return;
         }
         if (!this.serverConfig.url) throw new Error('Missing OAuth resource URL');
+        // Decided again here, before anything is discovered or sent: a read error is temporary and a
+        // hub-issued grant on a server that is no longer self-resource asks to reconnect.
+        const current = await resolveSelfResourceForConnection(this.serverName, this.serverConfig);
+        if (Boolean(current) !== Boolean(this.selfResource))
+          throw new Error(`'${this.serverName}' changed; reconnect`);
         // SDK issuer annotation re-saves tokens; do not turn remaining lifetime into a new expiry.
         const provider = new Proxy(this, {
           get: (target, property) => {
@@ -1042,7 +1047,7 @@ const createOAuthProviderUnlocked = async (
     return undefined;
   }
 
-  const selfResource = await resolveSelfResource(serverConfig);
+  const selfResource = await resolveSelfResourceForConnection(serverName, serverConfig);
   await assertSelfClientIdInUse(serverName, serverConfig, selfResource);
   const refusal = selfResource ? selfResourceRefusal(serverName, selfResource) : undefined;
   if (refusal) throw new CredentialBindingError(refusal);

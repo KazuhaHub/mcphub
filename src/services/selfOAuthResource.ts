@@ -93,6 +93,47 @@ export const assertSelfClientIdAllowed = async (config: ServerConfig): Promise<v
     throw new CredentialBindingError(RESERVED_CLIENT_MESSAGE);
 };
 
+/** The configuration could not be read: a temporary condition, never "not self-resource". */
+export class SelfResourceUndeterminedError extends Error {
+  constructor(serverName: string) {
+    super(
+      `'${serverName}': could not determine whether this MCPHub is its authorization server. Try again shortly.`,
+    );
+    this.name = 'SelfResourceUndeterminedError';
+  }
+}
+
+/**
+ * Whether a personal binding holds a grant this hub issued. The hub's client id is never stored in
+ * the binding (the provider returns it without saving), so the `grantResource` it records is the mark.
+ */
+export const isHubIssuedBinding = (conf: ServerConfig): boolean =>
+  conf.oauth?.identityMode === 'personal' && conf.oauth.grantResource !== undefined;
+
+/**
+ * The resolver for every path that builds a provider, connects or refreshes. A configuration read
+ * error fails the attempt as a temporary condition (nothing is discovered, refreshed or written);
+ * a binding this hub issued on a server that is positively not self-resource asks to reconnect, and
+ * is never sent to another issuer.
+ */
+export const resolveSelfResourceForConnection = async (
+  serverName: string,
+  conf: ServerConfig,
+): Promise<SelfResource | undefined> => {
+  let self: SelfResource | undefined;
+  try {
+    self = await resolveSelfResourceStrict(conf);
+  } catch (error) {
+    logger.warn('Could not determine whether a server is an external resource of this hub', error);
+    throw new SelfResourceUndeterminedError(serverName);
+  }
+  if (!self && isHubIssuedBinding(conf))
+    throw new CredentialBindingError(
+      `'${serverName}' is no longer served by this MCPHub's own authorization server. Disconnect and reconnect it.`,
+    );
+  return self;
+};
+
 /** Same rule at connect time, for a definition that predates it or an entry that has since gone. */
 export const assertSelfClientIdInUse = async (
   serverName: string,
@@ -316,15 +357,27 @@ export const createSelfIssuerFetch = (
   limiterKey?: string,
 ): FetchLike => {
   const issuerUrl = new URL(issuer);
+  // A refresh token of this hub is only ever sent to this hub's own token endpoint.
+  const guarded: FetchLike = (input, init) => {
+    const body =
+      init?.body instanceof URLSearchParams
+        ? init.body
+        : typeof init?.body === 'string'
+          ? new URLSearchParams(init.body)
+          : undefined;
+    if (body?.get('grant_type') === 'refresh_token')
+      throw new Error('A refresh token of this MCPHub can only be sent to its own token endpoint');
+    return next(input, init);
+  };
   return async (input, init) => {
     let requested: URL;
     try {
       requested = new URL(typeof input === 'string' ? input : input.toString());
     } catch {
-      return next(input, init);
+      return guarded(input, init);
     }
     const localPath = localPathFor(issuerUrl, requested);
-    if (!localPath) return next(input, init);
+    if (!localPath) return guarded(input, init);
     const origin = await loopbackOrigin();
     // The issuer comes from the configured public URL, not the Host header, so the answer is the
     // same as over the public URL.
