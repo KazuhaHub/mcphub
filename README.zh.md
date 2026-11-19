@@ -13,7 +13,7 @@
 
 MCPHub 是 AI 客户端与 MCP 服务器之间的统一控制点。一次连接本地和远程 MCP 服务器，通过稳定端点组织和路由其能力，借助身份认证、限定作用域的凭据和用户级可见性控制访问，并通过集中日志、活动追踪和健康监控统一运行与管理。
 
-其 OAuth 流程已用官方 TypeScript 与 Python MCP SDK、Vercel AI SDK、MCP Inspector（CLI）、OpenAI Agents SDK 和 `langchain-mcp-adapters` 做过端到端测试。Claude、ChatGPT、Cursor、VS Code 等托管或桌面客户端尚未验证。版本、日期以及如何自行测试某个客户端，见[客户端兼容性](https://github.com/KazuhaHub/mcphub/blob/main/docs/zh/features/client-compatibility.mdx)。
+其 OAuth 流程已用官方 TypeScript 与 Python MCP SDK、Vercel AI SDK、MCP Inspector（CLI）、OpenAI Agents SDK 和 `langchain-mcp-adapters` 做过端到端测试。Claude Code 已在生产环境实测通过；ChatGPT 能连接、列出并调用工具，但令牌刷新尚未确认；Claude 网页版只做了一次工具调用，Codex 只完成了注册和登录；Cursor、VS Code 等其他托管或桌面客户端尚未验证。版本、日期以及如何自行测试某个客户端，见[客户端兼容性](https://github.com/KazuhaHub/mcphub/blob/main/docs/zh/features/client-compatibility.mdx)。
 
 ![控制面板预览](assets/dashboard.zh.png)
 

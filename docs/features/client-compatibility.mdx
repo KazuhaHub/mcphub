@@ -6,8 +6,9 @@ description: 'Which MCP clients have been tested against MCPHub, how, and which 
 ## At a glance
 
 - MCPHub's OAuth flow has been **tested end to end with six client stacks**: the official TypeScript and Python MCP SDKs, the Vercel AI SDK, MCP Inspector (CLI), the OpenAI Agents SDK and `langchain-mcp-adapters`. Every one passed all five steps below, under every registration method it supports.
-- **Hosted and desktop clients have not been verified.** That covers Claude (web and desktop custom connectors), ChatGPT connectors, Cursor, VS Code, the Anthropic API MCP connector and the OpenAI Responses API remote MCP tool. They need a public HTTPS URL and an account, so the automated harness cannot drive them. See [Not yet verified](#not-yet-verified). Nothing on this page claims that they work.
-- All results were recorded on **2026-11-18**. The versions are listed exactly; a newer client release may behave differently.
+- **Four hosted or local clients were also tried by hand against the production deployment**: Claude on the web, Claude Code, ChatGPT and Codex. Production ran `v2.5.0` for the first part of the session and `v2.5.1` from 01:45 UTC on 2026-11-19, so each row names its version. Claude Code passed all five steps (login, list and call on `v2.5.0`, refresh on `v2.5.1`). ChatGPT (on `v2.5.1`) connects, lists tools and calls one, but its token refresh has not been confirmed. For Claude web only one tool call was made this round; registration, discovery and login come from an earlier connection and were not re-tested. Codex registered and logged in on `v2.5.0`, but it could not call a model on the test machine, so list, call and refresh were not tried. See [Live results](#live-results-against-production).
+- **Everything else has not been verified.** That covers the Claude desktop app, Cursor, VS Code, the Anthropic API MCP connector and the OpenAI Responses API remote MCP tool. They need a public HTTPS URL and an account, so the automated harness cannot drive them. See [Not yet verified](#not-yet-verified). Nothing on this page claims that they work.
+- The harness results were recorded on **2026-11-18**, the live production results on **2026-11-19 UTC** (the evening of 2026-11-18 in US time). The versions are listed exactly; a newer client release may behave differently.
 
 ## What was tested
 
@@ -73,6 +74,32 @@ Notes:
 - The TypeScript SDK reaches `2026-07-28` only when version negotiation is enabled; with default options it uses the `2025-11-25` handshake. The `mcp` 1.x line, Inspector and `langchain-mcp-adapters` also use `2025-11-25`.
 - The client-independent probe passes all 18 of its checks. Its OpenID Connect check accepts a JSON `404` for `/.well-known/openid-configuration`, because MCPHub does not serve that document on purpose. See the next section.
 
+## Live results against production
+
+These runs were done by hand on **2026-11-19 UTC** against the production MCPHub, with the default access token lifetime of one hour. They use real client products, a real identity provider login and the public HTTPS URL, which the harness above cannot do. Production was not one version throughout: it ran `v2.5.0` until `v2.5.1` went live at 01:45 UTC, so the version of each result is given.
+
+| Client | Client version | MCPHub version | Registration | Discovery | OAuth login | List tools | Call a tool | Token refresh |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Claude web (custom connector) | not recorded | `v2.5.0` | DCR (from an earlier connection, not re-tested) | Not re-tested | Not re-tested | Not re-tested | Pass (one call, 01:07 UTC) | Earlier evidence only, see below |
+| Claude Code | 2.1.327 | `v2.5.0`, then `v2.5.1` | CIMD | Pass | Pass | Pass (20 tools) | Pass | Pass (`v2.5.1`) |
+| ChatGPT (personal Plus account, connector) | not recorded | `v2.5.1` | CIMD | Pass | Pass | Pass (20 tools) | Pass | **Not confirmed** |
+| Codex (command line) | 0.142.2 | `v2.5.0` | DCR | Pass | Pass | Not tried | Not tried | Not tried |
+
+How each result was established (all times are UTC on 2026-11-19 unless a date is given):
+
+- **Claude web.** Registration, discovery and login were **not exercised in this round**. They come from a connection made on 2026-10-28 on an older build, whose grant the hub still holds. The only result from 2026-11-19 is one tool call at 01:07, made through the user's existing claude.ai connector (not by going through the Claude web interface by hand). The hub's token table also shows that grant's tokens still being refreshed on 2026-11-18, which suggests Claude web refreshes without sending the user through consent again; that is evidence from an earlier build, not a test of this release.
+- **Claude Code** (`v2.5.0` for login, list and call between 01:16 and 01:19; `v2.5.1` for the refresh). Claude Code identified itself with the Client ID Metadata Document `https://claude.ai/oauth/claude-code-client-metadata`, and the consent page named it. Its access token expired at 02:18. A tool call at 02:49, about half an hour after expiry and on `v2.5.1`, worked without a new login, and the hub's record showed a new token with a new expiry of 03:49. The token issued on `v2.5.0` was therefore refreshed by `v2.5.1`.
+- **ChatGPT** (`v2.5.1`). The first attempt, on `v2.5.0`, was refused with `Client not found`: ChatGPT's client metadata document prefers `private_key_jwt` and also lists `none`, and MCPHub rejected it. Pull request #36 fixed this and shipped in `v2.5.1`. After that, ChatGPT connected from 01:46 (the consent page read "ChatGPT, requested by chatgpt.com"), listed 20 tools and called one. Its token expired at 02:46, but no further call was made from ChatGPT after that, so whether it refreshes is **unknown**, not failed.
+- **Codex** (`v2.5.0`, around 01:19 to 01:20). `codex mcp add` registered it through DCR and `codex mcp login` completed the OAuth login. Codex could not call any model on the test machine (the configured model was not available to the account, and no other model worked), so no tool was listed or called. This is not an MCPHub failure, but it is also not a pass: Codex is **not verified** beyond registration and login.
+
+Not run in this round: the Claude desktop app, Cursor, VS Code, and the Anthropic and OpenAI API remote MCP tools.
+
+### Tokens for an external resource
+
+From a Rackbook end-to-end run on 2026-11-18: an access token that MCPHub issued for an [external resource](/features/oauth) was accepted by Rackbook acting as the resource server. Rackbook verified the token itself against MCPHub's published keys. This was reported by the Rackbook side of the test and was not part of the production client runs above.
+
+The same run found that client registration refused scopes that belong to an external resource. Pull request #37 fixed that. It was merged after `v2.5.1`, so it is not in that release.
+
 ## What MCPHub implements
 
 When MCPHub is the authorization server and resource server for its own `/mcp` and `/sse` endpoints, it implements the following. Each item was checked against the code, and the discovery items are also covered by the probe above.
@@ -94,7 +121,7 @@ Details and settings are on the [OAuth](/features/oauth) page.
 
 ## Not yet verified
 
-These clients have **not** been tested against MCPHub. They need a public HTTPS URL and an account, so the harness cannot run them. Until someone follows the steps below and records a result, treat each of them as unverified: it may work, it may fail, and this page does not say which.
+The clients below have **not** been fully tested against MCPHub. They need a public HTTPS URL and an account, so the harness cannot run them. Claude web (one tool call only), ChatGPT and Codex have partial results in [Live results](#live-results-against-production); the rest have none. Until someone follows the steps below and records a result, treat anything not marked as passed there as unverified: it may work, it may fail, and this page does not say which.
 
 <Warning>
 The vendor-specific details below (menu names, callback hosts, header names) come from general knowledge of public documentation. They were not verified in this repository and vendors change them often. Check the vendor's current documentation. The authoritative redirect URI for any client is the one it actually registers, which the dashboard's OAuth clients page shows.
@@ -123,8 +150,8 @@ Also note the protocol version: `initialize` with `2025-11-25`, or `server/disco
 
 | Client | How to connect | What is specific |
 | --- | --- | --- |
-| Claude (web and desktop custom connector) | Settings, Connectors, add a custom connector with the `/mcp` URL; leave client ID and secret empty. | Steps 1 and 2 happen when you connect. Desktop uses the same connector entry through your account. Confirm Claude's callback among the registered `redirect_uris`. |
-| ChatGPT connector | Settings, Connectors, Advanced, enable developer mode, create a connector with the `/mcp` URL and OAuth authentication. | Add the connector to a chat to list tools. If it asks you to authenticate again at step 5, ChatGPT did not refresh. |
+| Claude (web and desktop custom connector) | Settings, Connectors, add a custom connector with the `/mcp` URL; leave client ID and secret empty. | Web: one tool call only, the rest not re-tested this round; see [Live results](#live-results-against-production). Desktop: not verified separately. Steps 1 and 2 happen when you connect. Desktop uses the same connector entry through your account. Confirm Claude's callback among the registered `redirect_uris`. |
+| ChatGPT connector | Settings, Connectors, Advanced, enable developer mode, create a connector with the `/mcp` URL and OAuth authentication. | Steps 1 to 4 are tested, see [Live results](#live-results-against-production); step 5 is not. Add the connector to a chat to list tools. If it asks you to authenticate again at step 5, ChatGPT did not refresh. |
 | Cursor | Add the URL under `mcpServers` in `~/.cursor/mcp.json` or in the MCP settings. | Callback is a `cursor://` deep link; check the registered `redirect_uris`. A "Needs login" state after expiry means no refresh. |
 | VS Code | Command palette, "MCP: Add Server", HTTP, the `/mcp` URL. | Redirects use loopback addresses and `https://vscode.dev/redirect`, so loopback redirect matching matters. A "dynamic client registration not supported" prompt means discovery did not find `registration_endpoint`. |
 | Anthropic API, MCP connector | Pass the `/mcp` URL and an access token in `mcp_servers`, with the beta header from Anthropic's current documentation. | There is no OAuth flow and no refresh: you supply the token, so steps 1 and 2 are yours (use any OAuth client, or a hub bearer key). Check that an expired token gives a clear auth error. The hub must be reachable from Anthropic's servers. |

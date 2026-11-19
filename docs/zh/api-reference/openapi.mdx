@@ -1,16 +1,16 @@
 ---
 title: "OpenAPI 集成"
-description: "从 MCP 工具生成 OpenAPI 规范，与 OpenWebUI 和其他系统无缝集成"
+description: "从 MCP 工具生成 OpenAPI 规范，供 OpenWebUI 等 OpenAPI 兼容系统使用（OpenWebUI 尚未验证）"
 ---
 
-# OpenWebUI 集成的 OpenAPI 生成
+# OpenAPI 生成
 
-MCPHub 现在支持从 MCP 工具生成 OpenAPI 3.0.3 规范，实现与 OpenWebUI 和其他 OpenAPI 兼容系统的无缝集成，无需 MCPO 作为中间代理。
+MCPHub 现在支持从 MCP 工具生成 OpenAPI 3.0.3 规范，使 OpenAPI 兼容系统无需 MCPO 作为中间代理即可使用。OpenWebUI 是预期的使用对象，但**尚未针对 MCPHub 测试**，详见[客户端兼容性](/zh/features/client-compatibility)。
 
 ## 功能特性
 
 - ✅ **自动 OpenAPI 生成**：将 MCP 工具转换为 OpenAPI 3.0.3 规范
-- ✅ **OpenWebUI 兼容**：无需 MCPO 代理的直接集成
+- **OpenWebUI**：设计为无需 MCPO 代理即可直接使用，但尚未验证
 - ✅ **实时工具发现**：动态包含已连接 MCP 服务器的工具
 - ✅ **双参数支持**：支持 GET（查询参数）和 POST（JSON 正文）进行工具执行
 - ✅ **无需身份验证**：OpenAPI 端点公开，便于集成
@@ -176,7 +176,9 @@ curl -X POST "http://localhost:3000/api/tools/playwright/playwright-browser_navi
   要执行的工具名称
 </ParamField>
 
-## OpenWebUI 集成
+## OpenWebUI 集成（尚未验证）
+
+下面的步骤没有在真实的 OpenWebUI 上测试过，请作为起点参考，并以 OpenWebUI 当前文档为准。
 
 要将 MCPHub 与 OpenWebUI 集成：
 
