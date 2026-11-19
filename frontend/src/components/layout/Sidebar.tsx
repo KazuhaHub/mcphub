@@ -171,21 +171,29 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = fal
   );
 
   const asideClass = drawer
-    ? // Off-canvas: slides in over the page; `invisible` keeps the hidden links out of the tab order.
+    ? // Off-canvas: slides in over the page. Visibility is set in the style below so the links
+      // are out of the tab order while closed.
       'fixed inset-y-0 left-0 z-40 flex w-[232px] max-w-[85vw] flex-col overscroll-contain ' +
       'bg-[var(--hub-bg-2)] border-r border-[var(--hub-line)] ' +
-      'transition-[transform,visibility] duration-200 ease-[cubic-bezier(0.6,0,0.2,1)] ' +
-      (open ? 'translate-x-0 shadow-[var(--hub-shadow-floating-md)]' : '-translate-x-full invisible')
+      (open ? 'translate-x-0 shadow-[var(--hub-shadow-floating-md)]' : '-translate-x-full')
     : 'flex flex-col h-full relative shrink-0 ' +
       'transition-[width] duration-200 ease-[cubic-bezier(0.6,0,0.2,1)] ' +
       'bg-[var(--hub-bg-2)] border-r border-[var(--hub-line)] ' +
       (collapsed ? 'w-14' : 'w-[232px]');
+  // Shown at once when opening so focus can move in; hidden only after the slide-out ends.
+  const drawerStyle: React.CSSProperties | undefined = drawer
+    ? {
+        visibility: open ? 'visible' : 'hidden',
+        transition: `transform 200ms cubic-bezier(0.6,0,0.2,1), visibility 0s linear ${open ? '0s' : '200ms'}`,
+      }
+    : undefined;
 
   return (
     <aside
       ref={asideRef}
       id="app-sidebar"
       className={asideClass}
+      style={drawerStyle}
       {...(drawer
         ? {
             role: drawerOpen ? 'dialog' : undefined,
