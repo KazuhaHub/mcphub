@@ -2,11 +2,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import MainLayout, { followNarrowViewport } from '../../frontend/src/layouts/MainLayout';
 
-jest.mock('react-router-dom', () => ({ Outlet: () => null }));
+jest.mock('react-router-dom', () => ({ Outlet: () => null, useLocation: () => ({ pathname: '/' }) }));
 jest.mock('../../frontend/src/components/layout/Header', () => () => null);
 jest.mock('../../frontend/src/components/layout/Content', () => ({ children }: any) => children);
-jest.mock('../../frontend/src/components/layout/Sidebar', () => ({ collapsed }: any) =>
-  `sidebar:${collapsed ? 'collapsed' : 'expanded'}`,
+jest.mock('../../frontend/src/components/layout/Sidebar', () => ({ collapsed, drawer, open }: any) =>
+  drawer ? `sidebar:drawer-${open ? 'open' : 'closed'}` : `sidebar:${collapsed ? 'collapsed' : 'expanded'}`,
 );
 jest.mock('../../frontend/src/contexts/EmbeddingSyncContext', () => ({
   EmbeddingSyncProvider: ({ children }: any) => children,
@@ -26,12 +26,21 @@ const withViewport = (narrow: boolean | null, run: () => void) => {
 const render = () => renderToStaticMarkup(createElement(MainLayout));
 
 describe('MainLayout sidebar on narrow screens', () => {
-  it('starts collapsed when the viewport is narrow', () => {
-    withViewport(true, () => expect(render()).toContain('sidebar:collapsed'));
+  it('starts as a closed drawer, with a backdrop, when the viewport is narrow', () => {
+    withViewport(true, () => {
+      const html = render();
+      expect(html).toContain('sidebar:drawer-closed');
+      expect(html).toContain('data-testid="sidebar-backdrop"');
+      expect(html).toContain('pointer-events-none opacity-0');
+    });
   });
 
-  it('starts expanded on a wide viewport', () => {
-    withViewport(false, () => expect(render()).toContain('sidebar:expanded'));
+  it('starts expanded, without a backdrop, on a wide viewport', () => {
+    withViewport(false, () => {
+      const html = render();
+      expect(html).toContain('sidebar:expanded');
+      expect(html).not.toContain('sidebar-backdrop');
+    });
   });
 
   it('starts expanded when matchMedia is unavailable', () => {

@@ -239,7 +239,7 @@ const ResourcesPage: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-end justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="hub-h1">{t('pages.resources.title')}</h1>
           <p className="hub-sub">

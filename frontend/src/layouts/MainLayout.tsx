@@ -1,9 +1,10 @@
 import React, { Suspense } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import Content from '@/components/layout/Content';
 import { EmbeddingSyncProvider } from '@/contexts/EmbeddingSyncContext';
+import { initialSidebarState, sidebarReducer } from '@/utils/sidebarState';
 
 const PageFallback: React.FC = () => (
   <div
@@ -14,7 +15,7 @@ const PageFallback: React.FC = () => (
   </div>
 );
 
-// Below this width the expanded sidebar would leave the page too little room.
+// Below this width (Tailwind's md breakpoint) the sidebar becomes an off-canvas drawer.
 const NARROW_QUERY = '(max-width: 767px)';
 
 const isNarrow = () =>
@@ -34,22 +35,45 @@ export const followNarrowViewport = (onChange: (narrow: boolean) => void): (() =
 };
 
 const MainLayout: React.FC = () => {
-  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(isNarrow);
+  const [sidebar, dispatch] = React.useReducer(sidebarReducer, undefined, () =>
+    initialSidebarState(isNarrow()),
+  );
+  const { pathname } = useLocation();
 
-  // Collapse when the window becomes narrow and expand when it widens again;
-  // the menu button still overrides this until the next crossing.
-  React.useEffect(() => followNarrowViewport(setSidebarCollapsed), []);
+  // Follow the viewport: a drawer on phones, the expanded rail when the window widens again.
+  // The menu button still overrides this until the next crossing.
+  React.useEffect(() => followNarrowViewport((narrow) => dispatch({ type: 'viewport', narrow })), []);
 
-  const toggleSidebar = () => {
-    setSidebarCollapsed(!sidebarCollapsed);
-  };
+  // Navigating closes the drawer.
+  React.useEffect(() => {
+    dispatch({ type: 'close' });
+  }, [pathname]);
+
+  const toggleSidebar = () => dispatch({ type: 'toggle' });
+  const closeSidebar = React.useCallback(() => dispatch({ type: 'close' }), []);
 
   return (
     <EmbeddingSyncProvider>
-      <div className="flex h-screen" style={{ background: 'var(--hub-bg)', color: 'var(--hub-ink)' }}>
-        <Sidebar collapsed={sidebarCollapsed} />
+      <div className="flex h-screen supports-[height:100dvh]:h-dvh" style={{ background: 'var(--hub-bg)', color: 'var(--hub-ink)' }}>
+        {sidebar.narrow && (
+          <div
+            aria-hidden="true"
+            data-testid="sidebar-backdrop"
+            onClick={closeSidebar}
+            className={
+              'fixed inset-0 z-30 bg-black/40 transition-opacity duration-200 ' +
+              (sidebar.drawerOpen ? 'opacity-100' : 'pointer-events-none opacity-0')
+            }
+          />
+        )}
+        <Sidebar
+          collapsed={sidebar.collapsed}
+          drawer={sidebar.narrow}
+          open={sidebar.drawerOpen}
+          onClose={closeSidebar}
+        />
         <div className="flex flex-1 flex-col min-w-0 min-h-0">
-          <Header onToggleSidebar={toggleSidebar} />
+          <Header onToggleSidebar={toggleSidebar} menuExpanded={sidebar.narrow ? sidebar.drawerOpen : !sidebar.collapsed} />
           <Content>
             <Suspense fallback={<PageFallback />}>
               <Outlet />

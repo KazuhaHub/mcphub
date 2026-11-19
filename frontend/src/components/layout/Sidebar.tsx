@@ -1,6 +1,6 @@
 import { useBranding } from '@/contexts/BrandingContext';
 import { BrandMark, useBrandLogo } from '@/components/BrandMark';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
 import {
@@ -30,9 +30,14 @@ import { usePermissionCheck } from '../PermissionChecker';
 import UserProfileMenu from '@/components/ui/UserProfileMenu';
 import { APP_VERSION } from '@/utils/appVersion';
 import { checkActivityAvailable } from '@/services/activityService';
+import { useModalDrawer } from '@/hooks/useModalDrawer';
 
 interface SidebarProps {
   collapsed: boolean;
+  // Phones: render as an off-canvas drawer (with a backdrop) instead of an inline rail.
+  drawer?: boolean;
+  open?: boolean;
+  onClose?: () => void;
 }
 
 interface MenuItem {
@@ -43,7 +48,7 @@ interface MenuItem {
   end?: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
+const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = false, onClose }) => {
   const { t } = useTranslation();
   const { dashboardTitle } = useBranding();
   const brandLogo = useBrandLogo();
@@ -54,6 +59,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
   const [activityAvailable, setActivityAvailable] = useState(false);
 
   const appVersion = APP_VERSION;
+  const asideRef = useRef<HTMLElement>(null);
+  const drawerOpen = drawer && open;
+
+  useModalDrawer({ open: drawerOpen, onClose: () => onClose?.(), containerRef: asideRef });
 
   useEffect(() => {
     checkActivityAvailable()
@@ -127,7 +136,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
       className={({ isActive }) =>
         [
           // Icons sit 20px from the edge in both states, so collapsing never shifts them.
-          'group relative flex h-8 items-center gap-2.5 rounded-md text-[14px] transition-colors duration-100',
+          'group relative flex h-8 max-md:h-10 items-center gap-2.5 rounded-md text-[14px] transition-colors duration-100',
           collapsed ? 'justify-center' : 'px-3',
           isActive
             ? 'bg-[var(--hub-surface)] font-medium text-[var(--hub-ink)] shadow-[var(--hub-shadow-resting)] ring-1 ring-inset ring-[var(--hub-line)]'
@@ -161,14 +170,41 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
     </NavLink>
   );
 
+  const asideClass = drawer
+    ? // Off-canvas: slides in over the page. Visibility is set in the style below so the links
+      // are out of the tab order while closed.
+      'fixed inset-y-0 left-0 z-40 flex w-[232px] max-w-[85vw] flex-col overscroll-contain ' +
+      'bg-[var(--hub-bg-2)] border-r border-[var(--hub-line)] ' +
+      (open ? 'translate-x-0 shadow-[var(--hub-shadow-floating-md)]' : '-translate-x-full')
+    : 'flex flex-col h-full relative shrink-0 ' +
+      'transition-[width] duration-200 ease-[cubic-bezier(0.6,0,0.2,1)] ' +
+      'bg-[var(--hub-bg-2)] border-r border-[var(--hub-line)] ' +
+      (collapsed ? 'w-14' : 'w-[232px]');
+  // Shown at once when opening so focus can move in; hidden only after the slide-out ends.
+  const drawerStyle: React.CSSProperties | undefined = drawer
+    ? {
+        visibility: open ? 'visible' : 'hidden',
+        transition: `transform 200ms cubic-bezier(0.6,0,0.2,1), visibility 0s linear ${open ? '0s' : '200ms'}`,
+      }
+    : undefined;
+
   return (
     <aside
-      className={
-        'flex flex-col h-full relative shrink-0 ' +
-        'transition-[width] duration-200 ease-[cubic-bezier(0.6,0,0.2,1)] ' +
-        'bg-[var(--hub-bg-2)] border-r border-[var(--hub-line)] ' +
-        (collapsed ? 'w-14' : 'w-[232px]')
-      }
+      ref={asideRef}
+      id="app-sidebar"
+      className={asideClass}
+      style={drawerStyle}
+      {...(drawer
+        ? {
+            role: drawerOpen ? 'dialog' : undefined,
+            'aria-modal': drawerOpen || undefined,
+            'aria-label': dashboardTitle,
+            // Any link inside closes the drawer, including a link to the current page.
+            onClick: (event: React.MouseEvent) => {
+              if ((event.target as HTMLElement).closest('a[href]')) onClose?.();
+            },
+          }
+        : {})}
     >
       {/* Brand */}
       {/* Same height as the top bar, so their bottom borders form one line. */}
@@ -231,7 +267,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
       </div>
 
       <div className="p-2.5 border-t border-[var(--hub-line)]">
-        <UserProfileMenu collapsed={collapsed} version={appVersion} />
+        <UserProfileMenu collapsed={collapsed} version={appVersion} onOverlayOpen={onClose} />
       </div>
     </aside>
   );

@@ -2,7 +2,7 @@ import { useBranding } from '@/contexts/BrandingContext';
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useParams } from 'react-router-dom';
-import { BookOpen, Menu } from 'lucide-react';
+import { BookOpen, Loader2, Menu } from 'lucide-react';
 import ThemeSwitch from '@/components/ui/ThemeSwitch';
 import LanguageSwitch from '@/components/ui/LanguageSwitch';
 import GitHubIcon from '@/components/icons/GitHubIcon';
@@ -11,6 +11,7 @@ import { PROJECT_DOCS_URL, PROJECT_REPO_URL } from '@/constants/links';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
+  menuExpanded?: boolean;
 }
 
 const useCrumbs = (): string[] => {
@@ -23,6 +24,14 @@ const useCrumbs = (): string[] => {
     const path = location.pathname;
     const root = dashboardTitle;
     if (path === '/') return [root, t('nav.dashboard')];
+    if (path.startsWith('/services/')) {
+      const raw = path.slice('/services/'.length).split('/')[0];
+      try {
+        return [root, decodeURIComponent(raw)];
+      } catch {
+        return [root, raw];
+      }
+    }
     if (path.startsWith('/workspace')) {
       const clientsTab = new URLSearchParams(location.search).get('tab') === 'clients';
       return clientsTab
@@ -50,10 +59,16 @@ const useCrumbs = (): string[] => {
   }, [location.pathname, location.search, params, t, dashboardTitle]);
 };
 
-const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
+const Header: React.FC<HeaderProps> = ({ onToggleSidebar, menuExpanded }) => {
   const { t } = useTranslation();
   const { activeSyncs } = useEmbeddingSync();
   const crumbs = useCrumbs();
+  const activeSyncNames = activeSyncs.map((sync) => sync.serverName).join(', ');
+  const activeSyncCurrent = activeSyncs.reduce((sum, sync) => sum + sync.current, 0);
+  const activeSyncTotal = activeSyncs.reduce((sum, sync) => sum + sync.total, 0);
+  const activeSyncPercent = activeSyncTotal
+    ? Math.min(100, Math.round((activeSyncCurrent / activeSyncTotal) * 100))
+    : 0;
 
   return (
     <header className="hub-topbar shrink-0">
@@ -61,20 +76,48 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
         onClick={onToggleSidebar}
         className="hub-icon-btn"
         aria-label={t('app.toggleSidebar')}
+        aria-controls="app-sidebar"
+        aria-expanded={menuExpanded}
       >
         <Menu size={16} />
       </button>
 
+      {/* Phones only have room for the current page; the full trail shows from md up. */}
       <div className="hub-crumb flex items-center min-w-0">
-        {crumbs.map((c, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <span className="sep">/</span>}
-            {i === crumbs.length - 1 ? <b className="truncate">{c}</b> : <span className="truncate">{c}</span>}
-          </React.Fragment>
-        ))}
+        {crumbs.map((c, i) => {
+          const last = i === crumbs.length - 1;
+          return (
+            <React.Fragment key={i}>
+              {i > 0 && <span className="sep max-md:hidden">/</span>}
+              {last ? (
+                <b className="truncate">{c}</b>
+              ) : (
+                <span className="truncate max-md:hidden">{c}</span>
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
 
-      <div className="flex-1 flex justify-center px-2 min-w-0">
+      {/* Phones: a compact spinner with the combined percentage instead of the progress card. */}
+      {activeSyncs.length > 0 && (
+        <div
+          role="status"
+          data-testid="embedding-sync-compact"
+          className="ml-auto flex shrink-0 items-center gap-1 text-[12px] hub-mono hub-num text-[var(--hub-ink-3)] md:hidden"
+          aria-label={t('app.embeddingSyncProgressAriaLabel', {
+            serverName: activeSyncNames,
+            current: activeSyncCurrent,
+            total: activeSyncTotal,
+          })}
+          title={t('app.embeddingSyncProgress', { serverName: activeSyncNames })}
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          <span aria-hidden="true">{activeSyncPercent}%</span>
+        </div>
+      )}
+
+      <div className="flex-1 flex justify-center px-2 min-w-0 max-md:hidden">
         {activeSyncs.length > 0 && (
           <div className="flex max-w-full flex-wrap justify-center gap-2">
             {activeSyncs.map((activeSync) => (
@@ -112,7 +155,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
         )}
       </div>
 
-      <div className="ml-auto flex items-center gap-1 shrink-0">
+      <div className={`flex items-center gap-1 shrink-0 ${activeSyncs.length > 0 ? 'md:ml-auto' : 'ml-auto'}`}>
         <a
           href={PROJECT_REPO_URL}
           target="_blank"

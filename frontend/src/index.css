@@ -183,6 +183,38 @@
   background: var(--hub-bg-2);
 }
 .hub-row.hover:hover { background: var(--hub-surface-hover); }
+/* Rows that stack on phones: a wrapping flex line pair instead of a wide grid. `.hub-row-break`
+   forces the wrap and does not exist on wider screens, so it is not a grid column there. */
+.hub-row-break { display: none; }
+@media (max-width: 767px) {
+  .hub-row.stack {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 12px 14px;
+  }
+  .hub-row.stack.head { display: none; }
+  .hub-row.stack > .hub-row-break { display: block; flex: 0 0 100%; height: 0; margin: -6px 0 0; }
+}
+
+/* Wide tables scroll inside their own wrapper on phones; the first column stays pinned.
+   The wrapper is positioned so absolutely placed cell content (sr-only labels) is clipped
+   with it instead of stretching the page. */
+.hub-scroll-x { position: relative; }
+@media (max-width: 767px) {
+  .hub-scroll-x { overflow-x: auto; overscroll-behavior-x: contain; }
+  .hub-scroll-x th:first-child,
+  .hub-scroll-x td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--hub-scroll-first-bg, var(--hub-surface));
+    box-shadow: 1px 0 0 var(--hub-line);
+  }
+  /* The pinned cell follows the row's hover background (see `tbody tr:hover`). */
+  .hub-scroll-x tbody tr:hover > td:first-child { background: var(--hub-surface-hover); }
+}
 
 /* Buttons (only used in redesigned screens) */
 .hub-btn {
@@ -239,6 +271,12 @@
 .hub-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .hub-icon-btn:disabled:hover { background: transparent; border-color: transparent; color: var(--hub-ink-2); }
 .hub-icon-btn.sm { width: 28px; height: 28px; }
+/* Phones: the top bar's icon buttons grow to a comfortable touch target. */
+@media (max-width: 767px) {
+  .hub-topbar { gap: 6px; padding: 0 8px; }
+  .hub-topbar .hub-icon-btn { width: 40px; height: 40px; }
+  .hub-icon-btn.sm { width: 36px; height: 36px; }
+}
 
 /* Inputs */
 .hub-input {

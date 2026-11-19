@@ -41,14 +41,14 @@ const GroupsPage: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-end justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="hub-h1">{t('pages.groups.title')}</h1>
           <p className="hub-sub">
             <span className="hub-num">{groups.length}</span> {t('nav.groups').toLowerCase()}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button className="hub-btn" onClick={() => setShowImportForm(true)}>
             <Upload size={13} /> {t('groupImport.button')}
           </button>

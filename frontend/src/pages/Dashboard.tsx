@@ -50,6 +50,13 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; tone?: 'ok' | 'war
   );
 };
 
+// Column heading repeated inside a cell, for the stacked row layout on phones.
+const PhoneLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <span className="mr-1 font-sans text-[11.5px] font-normal text-[var(--hub-ink-3)] md:hidden">
+    {children}
+  </span>
+);
+
 const transportLabel = (t: any, type?: string) => {
   if (!type) return null;
   if (type === 'stdio') return t('server.typeStdio') || 'stdio';
@@ -115,7 +122,7 @@ const DashboardPage: React.FC = () => {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-end justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="hub-h1">{t('pages.dashboard.title')}</h1>
           <p className="hub-sub">
@@ -124,7 +131,7 @@ const DashboardPage: React.FC = () => {
             {t('pages.dashboard.onlineServers')} · <span className="hub-num">{stats.online}</span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button className="hub-btn" onClick={() => triggerRefresh()}>
             <RefreshCw size={13} /> {t('common.refresh')}
           </button>
@@ -198,7 +205,7 @@ const DashboardPage: React.FC = () => {
             </button>
           </div>
           <div
-            className="hub-row head hub-mono"
+            className="hub-row stack head hub-mono"
             style={{ gridTemplateColumns: recentServerColumns }}
           >
             <div>{t('server.name')}</div>
@@ -212,11 +219,11 @@ const DashboardPage: React.FC = () => {
           {recentServers.map((s) => (
             <div
               key={s.name}
-              className="hub-row hover cursor-pointer"
+              className="hub-row stack hover cursor-pointer"
               style={{ gridTemplateColumns: recentServerColumns }}
               onClick={() => navigate('/servers')}
             >
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 max-md:flex-1">
                 <span
                   className="hub-mono truncate"
                   style={{ fontSize: 13, color: s.enabled === false ? 'var(--hub-ink-3)' : 'var(--hub-ink)' }}
@@ -228,6 +235,7 @@ const DashboardPage: React.FC = () => {
               <div className="min-w-0">
                 <ServerStatusDot status={s.status} enabled={s.enabled} />
               </div>
+              <div className="hub-row-break" />
               <div className="min-w-0">
                 {s.config?.type ? (
                   <span className="hub-tag" title={transportLabel(t, s.config.type) ?? undefined}>
@@ -238,15 +246,19 @@ const DashboardPage: React.FC = () => {
                 )}
               </div>
               <div className="hub-num hub-mono" style={{ fontSize: 12.5 }}>
+                <PhoneLabel>{t('server.tools')}</PhoneLabel>
                 {s.tools?.length || 0}
               </div>
               <div className="hub-num hub-mono" style={{ fontSize: 12.5, color: 'var(--hub-ink-2)' }}>
+                <PhoneLabel>{t('server.prompts')}</PhoneLabel>
                 {s.prompts?.length || 0}
               </div>
               <div className="hub-num hub-mono" style={{ fontSize: 12.5, color: 'var(--hub-ink-2)' }}>
+                <PhoneLabel>{t('nav.resources')}</PhoneLabel>
                 {s.resources?.length || 0}
               </div>
-              <div className="text-[12px]" style={{ color: s.enabled !== false ? 'var(--hub-ok)' : 'var(--hub-ink-3)' }}>
+              {/* The status dot already says "disabled", so phones skip this column. */}
+              <div className="text-[12px] max-md:hidden" style={{ color: s.enabled !== false ? 'var(--hub-ok)' : 'var(--hub-ink-3)' }}>
                 {s.enabled !== false ? '✓' : '—'}
               </div>
             </div>
