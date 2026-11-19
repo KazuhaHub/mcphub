@@ -58,6 +58,23 @@ describe('ConfigController - getPublicConfig', () => {
     },
   );
 
+  it('publishes the effective login mode and OIDC display name from the runtime config', async () => {
+    getSystemConfigMock.mockResolvedValue({
+      auth: { betterAuth: { loginMode: 'sso_redirect', disablePasswordLogin: true } },
+    });
+    getBetterAuthRuntimeConfigMock.mockResolvedValue({
+      enabled: true,
+      disablePasswordLogin: true,
+      loginMode: 'sso_first',
+      providers: { oidc: { enabled: true, providerId: 'entra', displayName: 'Microsoft Entra ID' } },
+    });
+    await getPublicConfig(mockRequest as Request, mockResponse as Response);
+    const data = mockJson.mock.calls[0][0].data;
+    // The resolved mode, not the stored one: the stored value may not be usable right now
+    expect(data.betterAuth.loginMode).toBe('sso_first');
+    expect(data.betterAuth.providers.oidc.displayName).toBe('Microsoft Entra ID');
+  });
+
   it.each(['Team MCP', '', undefined])(
     'publishes only the dashboard name for anonymous branding (%s)',
     async (dashboardName) => {

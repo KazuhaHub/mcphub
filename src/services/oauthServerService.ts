@@ -7,7 +7,6 @@ import { getUserSessionVersion, resolveUserSession } from '../utils/userSession.
 import OAuth2Server from '@node-oauth/oauth2-server';
 import { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { getSystemConfigDao } from '../dao/index.js';
-import { findUserByUsername, verifyPassword } from '../models/User.js';
 import {
   findOAuthClientById,
   saveAuthorizationCode,
@@ -649,30 +648,6 @@ export const getOAuthServer = (): OAuth2Server | null => {
  */
 export const isOAuthServerEnabled = (): boolean => {
   return oauth !== null;
-};
-
-/**
- * Authenticate user for OAuth authorization
- */
-export const authenticateUser = async (
-  username: string,
-  password: string,
-): Promise<OAuth2Server.User | null> => {
-  const user = await findUserByUsername(username);
-  if (!user) {
-    return null;
-  }
-
-  const isValid = await verifyPassword(password, user.password);
-  if (!isValid) {
-    return null;
-  }
-
-  return {
-    username: user.username,
-    isAdmin: user.isAdmin,
-    sessionVersion: getUserSessionVersion(user),
-  };
 };
 
 /**

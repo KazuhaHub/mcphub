@@ -161,6 +161,8 @@ Retrieves public configuration, primarily to check if authentication is skipped.
   }
   ```
 
+`betterAuth` carries the effective Better Auth settings the login page needs: the enabled providers, `disablePasswordLogin`, `loginMode` (`dual`, `sso_first` or `sso_redirect`, already resolved for the providers that can sign in right now) and `providers.oidc.displayName`. See [Login page layout](/features/authentication#login-page-layout).
+
 `dashboardName` and `dashboardBranding` let the login page show the configured branding before sign-in. Unset images are empty strings; set ones are same-origin URLs (prefixed with `BASE_PATH`) with a `v` query derived from the image bytes.
 
 #### Get Branding Image

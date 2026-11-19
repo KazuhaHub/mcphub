@@ -753,6 +753,104 @@ describe('serverController - getAllSettings', () => {
     ]);
   });
 
+  describe('login mode status', () => {
+    const originalEnv = process.env.BETTER_AUTH_LOGIN_MODE;
+    afterEach(() => {
+      if (originalEnv === undefined) delete process.env.BETTER_AUTH_LOGIN_MODE;
+      else process.env.BETTER_AUTH_LOGIN_MODE = originalEnv;
+    });
+    const adminSettings = async () => {
+      mockSystemConfigDao.get.mockResolvedValue({ auth: { betterAuth: { loginMode: 'sso_first' } } });
+      const res = { json: jest.fn(), status: jest.fn().mockReturnThis() } as unknown as Response;
+      await getAllSettings({ user: { username: 'admin', isAdmin: true } } as unknown as Request, res);
+      return (res.json as jest.Mock).mock.calls[0][0].data.systemConfig.auth.betterAuth;
+    };
+
+    it('reports the effective mode next to the stored one, without an env override', async () => {
+      delete process.env.BETTER_AUTH_LOGIN_MODE;
+      const betterAuth = await adminSettings();
+      expect(betterAuth.loginMode).toBe('sso_first');
+      // No provider can sign in here, so the page falls back to the original layout
+      expect(betterAuth.loginModeStatus).toEqual({ effective: 'dual', envOverride: null });
+    });
+
+    it('reports a BETTER_AUTH_LOGIN_MODE override, matched case-insensitively', async () => {
+      process.env.BETTER_AUTH_LOGIN_MODE = ' SSO_Redirect ';
+      expect((await adminSettings()).loginModeStatus.envOverride).toBe('sso_redirect');
+    });
+
+    describe('effective password login', () => {
+      const envKeys = [
+        'USE_DB',
+        'OIDC_CLIENT_ID',
+        'OIDC_CLIENT_SECRET',
+        'BETTER_AUTH_DISABLE_PASSWORD_LOGIN',
+      ];
+      const saved: Record<string, string | undefined> = {};
+      const status = async (disablePasswordLogin: boolean) => {
+        mockSystemConfigDao.get.mockResolvedValue({
+          auth: {
+            betterAuth: {
+              enabled: true,
+              disablePasswordLogin,
+              adminPasswordLogin: true,
+              providers: {
+                oidc: {
+                  enabled: true,
+                  discoveryUrl: 'https://idp.example.com/.well-known/openid-configuration',
+                },
+              },
+            },
+          },
+        });
+        const res = { json: jest.fn(), status: jest.fn().mockReturnThis() } as unknown as Response;
+        await getAllSettings(
+          { user: { username: 'admin', isAdmin: true } } as unknown as Request,
+          res,
+        );
+        return (res.json as jest.Mock).mock.calls[0][0].data.systemConfig.auth.betterAuth;
+      };
+
+      beforeEach(async () => {
+        for (const key of envKeys) saved[key] = process.env[key];
+        process.env.USE_DB = 'true';
+        process.env.OIDC_CLIENT_ID = 'id';
+        process.env.OIDC_CLIENT_SECRET = 'secret';
+        delete process.env.BETTER_AUTH_DISABLE_PASSWORD_LOGIN;
+        const { setMountedSsoProviders } = await import('../../src/services/betterAuthConfig.js');
+        setMountedSsoProviders(['oidc']);
+      });
+
+      afterEach(async () => {
+        for (const key of envKeys) {
+          if (saved[key] === undefined) delete process.env[key];
+          else process.env[key] = saved[key];
+        }
+        const { setMountedSsoProviders } = await import('../../src/services/betterAuthConfig.js');
+        setMountedSsoProviders([]);
+      });
+
+      it('reports the stored switch when nothing overrides it', async () => {
+        expect((await status(true)).passwordLoginStatus).toEqual({ disabled: true });
+        expect((await status(false)).passwordLoginStatus).toEqual({ disabled: false });
+      });
+
+      it('follows BETTER_AUTH_DISABLE_PASSWORD_LOGIN over the stored switch', async () => {
+        process.env.BETTER_AUTH_DISABLE_PASSWORD_LOGIN = 'false';
+        const betterAuth = await status(true);
+        expect(betterAuth.disablePasswordLogin).toBe(true);
+        expect(betterAuth.passwordLoginStatus).toEqual({ disabled: false });
+      });
+    });
+
+    it('does not persist the status', async () => {
+      delete process.env.BETTER_AUTH_LOGIN_MODE;
+      await adminSettings();
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+      expect(JSON.stringify(mockSystemConfigDao.get.mock.results[0].value)).not.toContain('loginModeStatus');
+    });
+  });
+
   it('returns only the current user keys to non-admin users', async () => {
     const req = {
       user: {
@@ -2030,6 +2128,87 @@ describe('serverController - updateSystemConfig', () => {
         }),
       }),
     );
+  });
+
+  describe('login presentation', () => {
+    const update = async (betterAuth: Record<string, unknown>, stored: Record<string, unknown> = {}) => {
+      mockRequest.body = { auth: { betterAuth } };
+      mockSystemConfigDao.get.mockResolvedValue({ auth: { betterAuth: { enabled: true, ...stored } } });
+      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+    };
+    const storedBetterAuth = () => mockSystemConfigDao.update.mock.calls[0][0].auth.betterAuth;
+
+    it.each(['dual', 'sso_first', 'sso_redirect'])('persists loginMode %s on its own', async (loginMode) => {
+      await update({ loginMode }, { disablePasswordLogin: true });
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth()).toEqual(
+        expect.objectContaining({ enabled: true, disablePasswordLogin: true, loginMode }),
+      );
+    });
+
+    it.each([true, false])('persists adminPasswordLogin %s on its own', async (adminPasswordLogin) => {
+      await update({ adminPasswordLogin }, { disablePasswordLogin: true });
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth()).toEqual(
+        expect.objectContaining({ disablePasswordLogin: true, adminPasswordLogin }),
+      );
+    });
+
+    it.each(['true', 1, null])('rejects adminPasswordLogin %p', async (adminPasswordLogin) => {
+      await update({ adminPasswordLogin });
+      expect(mockStatus).toHaveBeenCalledWith(400);
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+    });
+
+    it('clears loginMode with null', async () => {
+      await update({ loginMode: null }, { loginMode: 'sso_redirect' });
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth()).not.toHaveProperty('loginMode');
+    });
+
+    it.each(['popup', '', 1, true, ['dual']])('rejects loginMode %p', async (loginMode) => {
+      await update({ loginMode });
+      expect(mockStatus).toHaveBeenCalledWith(400);
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+    });
+
+    it('persists a trimmed OIDC display name and keeps the other OIDC fields', async () => {
+      await update(
+        { providers: { oidc: { displayName: '  Microsoft Entra ID ' } } },
+        { providers: { oidc: { enabled: true, providerId: 'entra' } } },
+      );
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth().providers.oidc).toEqual({
+        enabled: true,
+        providerId: 'entra',
+        displayName: 'Microsoft Entra ID',
+      });
+    });
+
+    it.each([null, '   '])('clears the OIDC display name with %p', async (displayName) => {
+      await update(
+        { providers: { oidc: { displayName } } },
+        { providers: { oidc: { enabled: true, displayName: 'Old' } } },
+      );
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth().providers.oidc).toEqual({ enabled: true });
+    });
+
+    it.each([
+      'x'.repeat(61),
+      'Entra\nID',
+      42,
+      // Bidi override/isolate and zero-width characters can disguise the label
+      'Entra‮DI',
+      'Entra⁦ID⁩',
+      '​Entra',
+      'Entra‏ID',
+      '﻿Entra',
+    ])('rejects OIDC display name %p', async (displayName) => {
+      await update({ providers: { oidc: { displayName } } });
+      expect(mockStatus).toHaveBeenCalledWith(400);
+      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+    });
   });
 });
 

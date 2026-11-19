@@ -133,7 +133,8 @@ import {
   listDiscoveryTags,
   getMarketplaceWellKnown,
 } from '../controllers/discoveryController.js';
-import { login, register, getCurrentUser, changePassword } from '../controllers/authController.js';
+import { register, getCurrentUser, changePassword } from '../controllers/authController.js';
+import { mountPasswordLoginRoute } from './passwordLoginRoute.js';
 import { getAllLogs, clearLogs, streamLogs } from '../controllers/logController.js';
 import {
   getRuntimeConfig,
@@ -583,15 +584,7 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
   // Better Auth user route requires authentication and shares the authenticated route limiter
   authenticatedRouter.get('/better-auth/user', getBetterAuthUser);
 
-  router.post(
-    '/auth/login',
-    [
-      check('username', 'Username is required').not().isEmpty(),
-      check('password', 'Password is required').not().isEmpty(),
-    ],
-    authAttemptRateLimiter,
-    login,
-  );
+  mountPasswordLoginRoute(router);
 
   router.post(
     '/auth/register',

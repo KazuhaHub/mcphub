@@ -200,6 +200,7 @@ Provider credentials remain environment-variable only. Required variables (see `
 - `BETTER_AUTH_BASE_PATH` — optional mount path override for the Better Auth handler.
 - `BETTER_AUTH_TRUSTED_ORIGINS` — optional extra trusted origins (comma-separated, whitespace-separated, or JSON array).
 - `BETTER_AUTH_DISABLE_PASSWORD_LOGIN` — turn off username/password login while an SSO provider is enabled (see [SSO-only sign-in](#sso-only-sign-in)).
+- `BETTER_AUTH_LOGIN_MODE` — login page layout: `dual`, `sso_first` or `sso_redirect` (see [Login page layout](#login-page-layout)).
 - `BETTER_AUTH_GOOGLE_ENABLED` — enable / disable Google login when credentials are present.
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — for Google login.
 - `BETTER_AUTH_GITHUB_ENABLED` — enable / disable GitHub login when credentials are present.
@@ -218,8 +219,9 @@ For a local issuer (for example Keycloak, Authentik, or Dex), you can either con
 - `providerId`
 - `discoveryUrl`
 - optional `scopes`, `pkce`, and `prompt`
+- optional `displayName`, the name on the login button (see [Login page layout](#login-page-layout))
 
-The `discoveryUrl` should point at the provider's `/.well-known/openid-configuration` endpoint. `OIDC_DISCOVERY_URL` remains supported as a legacy alias for `BETTER_AUTH_OIDC_DISCOVERY_URL`, and it can still be referenced from config files via `${OIDC_DISCOVERY_URL}`. The login page shows a generic **Continue with OIDC** button when this provider is enabled.
+The `discoveryUrl` should point at the provider's `/.well-known/openid-configuration` endpoint. `OIDC_DISCOVERY_URL` remains supported as a legacy alias for `BETTER_AUTH_OIDC_DISCOVERY_URL`, and it can still be referenced from config files via `${OIDC_DISCOVERY_URL}`. The login page shows a generic **Continue with OIDC** button when this provider is enabled, or **Continue with &lt;displayName&gt;** when a display name is set.
 
 If the dashboard runs behind a different public origin, set `BETTER_AUTH_TRUSTED_ORIGINS` (or `systemConfig.auth.betterAuth.trustedOrigins`) to allow that origin to start the login flow. If no explicit trusted origins are configured, MCPHub automatically trusts the origins from `BETTER_AUTH_URL` and `systemConfig.install.baseUrl` when they are set.
 
@@ -240,6 +242,55 @@ To allow sign-in only through the SSO providers, turn on **Disable password logi
 - **Scripts and the CLI** cannot use the password login while it is disabled. Use a system-level bearer key with access type `all`, which authenticates the management API (`mcphub config set-token <key> --bearer` for the CLI).
 - Tokens issued by earlier password logins stay valid until they expire. Changing a local password still works, so the recovery password can be rotated.
 - [Passkeys](#passkeys) are refused too while password login is disabled, because they sign in to local accounts.
+- While password login is disabled, every refused attempt answers the same `403`, whatever the reason.
+
+#### Admin break-glass sign-in
+
+**Admin password sign-in (break-glass)** in Settings → Better Auth (`systemConfig.auth.betterAuth.adminPasswordLogin`, default `false`) keeps a way in for administrators when the identity provider fails, without re-opening password login for everyone. It matters only while password login is disabled:
+
+- `POST /api/auth/login` then accepts a username and password for **admin accounts only**. A non-admin account, an unknown account and a wrong password all get the same `403` as when the setting is off, after the same account lookup and password check, so the answer reveals neither the setting nor which accounts exist or are admins.
+- The login page has no link to it. Open `/login?local=1`: while password login is disabled that page always shows the password form, and the server decides. The public config never carries the setting.
+- Each successful sign-in this way writes a warning to the server log with the username and IP address. (The activity log records tool calls only.)
+- The login rate limit (`AUTH_RATE_LIMIT_MAX` per `AUTH_RATE_LIMIT_WINDOW_MS`) counts every refused attempt.
+- Passkeys stay refused. `POST /api/auth/login` (also used by the CLI) is the only password sign-in endpoint; Better Auth's own email/password sign-in is off.
+- `BETTER_AUTH_DISABLE_PASSWORD_LOGIN=false` still re-opens password login for every account, and `true` disables it with the break-glass setting still applying.
+
+### Login page layout
+
+`systemConfig.auth.betterAuth.loginMode` (Settings → Better Auth → **Login page layout**) decides how the login page presents SSO. It changes only the layout. Whether passwords are accepted is still decided by `disablePasswordLogin`. It takes effect without a restart.
+
+| Value | Login page |
+| --- | --- |
+| `dual` (default) | The password form, then passkey and provider buttons below **Or continue with**. This is the layout of earlier versions. |
+| `sso_first` | The provider buttons on top as the main action. The password form and passkey are folded behind **Sign in with username and password**. |
+| `sso_redirect` | The page sends the browser straight to the identity provider, after a short "Redirecting" screen that offers **Use another sign-in method**. |
+
+`BETTER_AUTH_LOGIN_MODE` overrides the stored value when it is one of these three values (case-insensitive); Settings then shows the override and the layout in use. An invalid value is ignored, with a warning in the log. `/api/public-config` publishes the effective mode as `betterAuth.loginMode`, and the server resolves it as follows:
+
+- When no SSO sign-in is available (the same rule as `disablePasswordLogin`: enabled, with credentials, and mounted at startup), the page uses `dual`, so an SSO-first page never appears without a working provider.
+- `sso_redirect` with more than one provider uses `sso_first`, because there is nothing to pick automatically.
+
+`sso_redirect` does not redirect, and shows the `sso_first` layout instead, in any of these cases:
+
+- the URL has `?local` (the way to the password form when the identity provider misbehaves);
+- the URL has `?error` (the previous SSO attempt failed);
+- the user signed out within the last five minutes, in any tab of this browser (the mark is kept in `localStorage` and cleared by any successful sign-in; MCPHub does not sign out of the identity provider);
+- the user chose **Use another sign-in method**;
+- this tab already redirected automatically in the last two minutes, which stops a loop if a sign-in at the provider keeps bouncing back;
+- the browser cannot store these records (blocked `sessionStorage` or `localStorage`), since nothing would then stop a loop.
+
+A `?returnUrl` does not stop the redirect. An OAuth authorization (`/oauth/authorize` sends the browser to `/login?returnUrl=…`) therefore goes straight to the identity provider and back to the authorization request. The return target is reduced to a same-origin path before it is handed to Better Auth as the callback, and a failure comes back to `/login?returnUrl=…&error=…`, where `?error` stops the redirect while the buttons keep the target.
+
+Recovery, from least to most drastic:
+
+1. If the identity provider is down but password login is allowed, open `/login?local=1`.
+2. If password login is disabled and [admin break-glass sign-in](#admin-break-glass-sign-in) is on, an admin signs in at `/login?local=1`.
+3. Otherwise set `BETTER_AUTH_DISABLE_PASSWORD_LOGIN=false` and restart (see [SSO-only sign-in](#sso-only-sign-in)).
+4. To change only the layout, set `BETTER_AUTH_LOGIN_MODE=dual` and restart.
+
+`providers.oidc.displayName` (Settings → Better Auth → **OIDC button name**, at most 60 characters, without control, zero-width or bidirectional-override characters) labels the OIDC button **Continue with &lt;name&gt;**, for example `Microsoft Entra ID`, instead of the generic **Continue with OIDC**.
+
+The redirect target always comes from the configured provider, and the post-login return path is reduced to a same-origin path before it is handed to Better Auth, which checks it against the trusted origins as well. A target that is not a plain root-relative path (a backslash, a control character, an encoded `/` or `\` in the path, or anything that normalises to `//host`) is dropped, and the dashboard opens instead.
 
 ## Forward auth (JWKS-verified gateway identity)
 

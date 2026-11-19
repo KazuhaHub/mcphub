@@ -1,37 +1,35 @@
 import { useBranding } from '@/contexts/BrandingContext';
 import { BrandMark, useBrandLogo } from '@/components/BrandMark';
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, AlertCircle, KeyRound } from 'lucide-react';
+import { BookOpen, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { getPublicConfig } from '../services/configService';
 import { createBetterAuthClient, startOidcLogin } from '../services/betterAuthClient';
 import { passkeysSupported } from '../services/passkeyService';
 import { getBasePath } from '../utils/runtime';
 import { buildOAuthReturnTarget } from '../utils/oauthReturn';
+import { isSafeRelativeUrl, sanitizeReturnUrl } from '../utils/safeReturnUrl';
+import { hardNavigate } from '../utils/hardNavigate';
 import ThemeSwitch from '@/components/ui/ThemeSwitch';
 import LanguageSwitch from '@/components/ui/LanguageSwitch';
 import GitHubIcon from '@/components/icons/GitHubIcon';
 import DefaultPasswordWarningModal from '@/components/ui/DefaultPasswordWarningModal';
+import LoginMethods, { type AlternativeSignIn } from '@/components/LoginMethods';
 import { PROJECT_DOCS_URL, PROJECT_REPO_URL } from '@/constants/links';
+import { APP_VERSION } from '@/utils/appVersion';
+import {
+  clearLoggedOut,
+  decideLoginPresentation,
+  readLoginGuards,
+  recordAutoRedirect,
+  type SsoProvider,
+} from '../utils/loginPresentation';
 
-type SocialProvider = 'google' | 'github' | 'oidc';
-type AlternativeSignIn = SocialProvider | 'passkey';
+type SocialProvider = SsoProvider;
 
-const sanitizeReturnUrl = (value: string | null): string | null => {
-  if (!value) return null;
-  try {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
-    const url = new URL(value, origin);
-    if (url.origin !== origin) return null;
-    const relativePath = `${url.pathname}${url.search}${url.hash}`;
-    return relativePath || '/';
-  } catch {
-    if (value.startsWith('/') && !value.startsWith('//')) return value;
-    return null;
-  }
-};
+const AUTO_REDIRECT_DELAY_MS = 800;
 
 const LoginPage: React.FC = () => {
   const { t } = useTranslation();
@@ -55,6 +53,15 @@ const LoginPage: React.FC = () => {
     oidc: false,
   });
   const [oidcProviderId, setOidcProviderId] = useState<string>('oidc');
+  const [oidcDisplayName, setOidcDisplayName] = useState<string | undefined>(undefined);
+  const [loginMode, setLoginMode] = useState<string>('dual');
+  // Until the public config arrives (or if it never does) the page shows the original layout;
+  // automatic redirect waits for it
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [guards, setGuards] = useState(readLoginGuards);
+  const [redirectCancelled, setRedirectCancelled] = useState(false);
+  const [passwordExpanded, setPasswordExpanded] = useState(false);
+  const autoRedirectStarted = useRef(false);
   const [showDefaultPasswordWarning, setShowDefaultPasswordWarning] = useState(false);
   const { login, loginWithPasskey, register, auth } = useAuth();
   const [passkeySupport] = useState(passkeysSupported);
@@ -62,7 +69,8 @@ const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const returnUrl = useMemo(() => {
     const params = new URLSearchParams(location.search);
-    return sanitizeReturnUrl(params.get('returnUrl'));
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+    return sanitizeReturnUrl(params.get('returnUrl'), origin);
   }, [location.search]);
 
   const isServerUnavailableError = useCallback((message?: string) => {
@@ -82,13 +90,21 @@ const LoginPage: React.FC = () => {
     );
   }, []);
 
+  // The final target after the OAuth rewrite, checked again; null means the dashboard
+  const returnTarget = useMemo(() => {
+    if (!returnUrl) return null;
+    const target = buildOAuthReturnTarget(returnUrl);
+    return isSafeRelativeUrl(target) ? target : null;
+  }, [returnUrl]);
+
   const redirectAfterLogin = useCallback(() => {
-    if (returnUrl) {
-      window.location.assign(buildOAuthReturnTarget(returnUrl));
+    clearLoggedOut();
+    if (returnTarget) {
+      hardNavigate(returnTarget);
     } else {
       navigate('/');
     }
-  }, [navigate, returnUrl]);
+  }, [navigate, returnTarget]);
 
   useEffect(() => {
     if (!auth.loading && auth.isAuthenticated) redirectAfterLogin();
@@ -106,24 +122,61 @@ const LoginPage: React.FC = () => {
 
   useEffect(() => {
     const loadAuthProviders = async () => {
-      const publicConfig = await getPublicConfig();
-      setAllowRegistration(publicConfig.allowRegistration === true);
-      const betterAuth = publicConfig.betterAuth;
-      if (!betterAuth?.enabled) {
-        setSocialProviders({ google: false, github: false, oidc: false });
-        return;
+      try {
+        const publicConfig = await getPublicConfig();
+        setAllowRegistration(publicConfig.allowRegistration === true);
+        const betterAuth = publicConfig.betterAuth;
+        if (!betterAuth?.enabled) {
+          setSocialProviders({ google: false, github: false, oidc: false });
+          return;
+        }
+        setBetterAuthBasePath(betterAuth.basePath);
+        setPasswordLoginDisabled(betterAuth.disablePasswordLogin === true);
+        setOidcProviderId(betterAuth.providers?.oidc?.providerId || 'oidc');
+        setOidcDisplayName(betterAuth.providers?.oidc?.displayName || undefined);
+        setLoginMode(betterAuth.loginMode || 'dual');
+        setSocialProviders({
+          google: betterAuth.providers?.google?.enabled === true,
+          github: betterAuth.providers?.github?.enabled === true,
+          oidc: betterAuth.providers?.oidc?.enabled === true,
+        });
+      } catch (err) {
+        // Keep the original layout with the password form; there is nothing to redirect to
+        console.error('Failed to load the login configuration:', err);
+      } finally {
+        setConfigLoaded(true);
       }
-      setBetterAuthBasePath(betterAuth.basePath);
-      setPasswordLoginDisabled(betterAuth.disablePasswordLogin === true);
-      setOidcProviderId(betterAuth.providers?.oidc?.providerId || 'oidc');
-      setSocialProviders({
-        google: betterAuth.providers?.google?.enabled === true,
-        github: betterAuth.providers?.github?.enabled === true,
-        oidc: betterAuth.providers?.oidc?.enabled === true,
-      });
     };
     loadAuthProviders();
   }, []);
+
+  // Back from the identity provider restores this page from the back/forward cache with the
+  // redirect screen still up: re-read the guards (the redirect was recorded) and reset it
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      // Allow one more automatic redirect: the new guards decide whether it happens (it does not
+      // within the cooldown), so the redirect screen never stays up without navigating
+      autoRedirectStarted.current = false;
+      setGuards(readLoginGuards());
+      setSocialLoading(null);
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
+
+  const presentation = useMemo(
+    () =>
+      decideLoginPresentation({
+        loginMode,
+        ssoProviders: (['oidc', 'google', 'github'] as const).filter((p) => socialProviders[p]),
+        search: location.search,
+        guards,
+        cancelled: redirectCancelled,
+        now: Date.now(),
+      }),
+    [loginMode, socialProviders, location.search, guards, redirectCancelled],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,15 +217,25 @@ const LoginPage: React.FC = () => {
     }
   };
 
-  const handleSocialLogin = async (provider: SocialProvider) => {
+  // The return target survives the provider round trip only as a safe same-origin path
+  // (sanitizeReturnUrl, then re-checked after the OAuth rewrite as returnTarget); an OAuth
+  // authorize URL also loses any leftover token. A failure comes back to the login page with the
+  // same target plus ?error, which stops any automatic redirect.
+  const ssoCallbackURL = returnTarget ?? '/';
+  const ssoErrorCallbackURL = returnTarget
+    ? `${getBasePath()}/login?returnUrl=${encodeURIComponent(returnTarget)}`
+    : `${getBasePath()}/login`;
+
+  const handleSocialLogin = async (provider: SocialProvider, automatic = false) => {
     setSocialError(null);
     setSocialLoading(provider);
+    if (!automatic) clearLoggedOut();
     try {
       if (provider === 'oidc') {
         await startOidcLogin({
           providerId: oidcProviderId,
-          callbackURL: returnUrl || '/',
-          errorCallbackURL: `${getBasePath()}/login`,
+          callbackURL: ssoCallbackURL,
+          errorCallbackURL: ssoErrorCallbackURL,
           basePathOverride: betterAuthBasePath,
         });
         return;
@@ -181,15 +244,38 @@ const LoginPage: React.FC = () => {
       const client = createBetterAuthClient(betterAuthBasePath);
       await client.signIn.social({
         provider,
-        callbackURL: returnUrl || '/',
-        errorCallbackURL: `${getBasePath()}/login`,
+        callbackURL: ssoCallbackURL,
+        errorCallbackURL: ssoErrorCallbackURL,
       });
     } catch (err) {
       console.error('Social login error:', err);
       setSocialError(t('auth.socialLoginFailed'));
       setSocialLoading(null);
+      // A failed automatic start falls back to the buttons instead of retrying
+      if (automatic) setRedirectCancelled(true);
     }
   };
+
+  // sso_redirect: leave for the provider once, only after the session check found nobody signed in
+  useEffect(() => {
+    if (!configLoaded || auth.loading || auth.isAuthenticated) return;
+    if (presentation.view !== 'redirecting' || !presentation.autoRedirectTo) return;
+    if (autoRedirectStarted.current) return;
+    const provider = presentation.autoRedirectTo;
+    // A short pause keeps "Use another sign-in method" reachable; cancelling changes the
+    // presentation, and the cleanup then clears the timer before anything is recorded
+    const timer = window.setTimeout(() => {
+      autoRedirectStarted.current = true;
+      // No cooldown record, no redirect: the record is what stops a loop
+      if (!recordAutoRedirect(Date.now())) {
+        setGuards((current) => ({ ...current, storageAvailable: false }));
+        return;
+      }
+      void handleSocialLogin(provider, true);
+    }, AUTO_REDIRECT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+    // handleSocialLogin is recreated every render and left out on purpose; the ref makes this fire once
+  }, [configLoaded, auth.loading, auth.isAuthenticated, presentation]);
 
   const handlePasskeyLogin = async () => {
     setError(null);
@@ -221,8 +307,6 @@ const LoginPage: React.FC = () => {
   const formError = error || (registering ? auth.error : null);
   // Passkeys belong to local accounts, so they follow the password sign-in policy.
   const showPasskey = passkeySupport && !passwordLoginDisabled && !registering;
-  const showAlternatives =
-    showPasskey || socialProviders.google || socialProviders.github || socialProviders.oidc;
 
   const handleCloseWarning = () => {
     setShowDefaultPasswordWarning(false);
@@ -260,11 +344,7 @@ const LoginPage: React.FC = () => {
 
       {/* Subtle grid pattern (kept low-key, hair-line) */}
       <div className="pointer-events-none absolute inset-0 -z-10">
-        <svg
-          className="h-full w-full"
-          style={{ opacity: 0.5 }}
-          xmlns="http://www.w3.org/2000/svg"
-        >
+        <svg className="h-full w-full" style={{ opacity: 0.5 }} xmlns="http://www.w3.org/2000/svg">
           <defs>
             <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
               <path
@@ -321,217 +401,138 @@ const LoginPage: React.FC = () => {
               boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
             }}
           >
-            {!passwordLoginDisabled && (
-              <form className="space-y-3" onSubmit={handleSubmit}>
-                <div>
-                  <label
-                    htmlFor="username"
-                    className="hub-sect block"
-                    style={{ marginBottom: 6 }}
-                  >
-                    {t('auth.username')}
-                  </label>
-                  <input
-                    id="username"
-                    name="username"
-                    type="text"
-                    autoComplete="username"
-                    required
-                    className="hub-input"
-                    placeholder={t('auth.username')}
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="password"
-                    className="hub-sect block"
-                    style={{ marginBottom: 6 }}
-                  >
-                    {t('auth.password')}
-                  </label>
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autoComplete={registering ? 'new-password' : 'current-password'}
-                    minLength={registering ? 8 : undefined}
-                    required
-                    className="hub-input"
-                    placeholder={t('auth.password')}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                </div>
-
-                {registering && (
+            <LoginMethods
+              view={presentation.view}
+              blockedBy={presentation.blockedBy}
+              // ?local=1 is also the unlinked break-glass entry: with password login disabled the
+              // form still shows there, and the server decides (admins only, if allowed at all)
+              passwordAllowed={!passwordLoginDisabled || presentation.forceLocal}
+              passwordExpanded={passwordExpanded || presentation.forceLocal || registering}
+              passwordForm={
+                <form className="space-y-3" onSubmit={handleSubmit}>
                   <div>
-                    <p className="hub-sub mb-3">{t('auth.passwordStrengthHint')}</p>
-                    <label htmlFor="confirmPassword" className="hub-sect block mb-1.5">
-                      {t('auth.confirmPassword')}
+                    <label
+                      htmlFor="username"
+                      className="hub-sect block"
+                      style={{ marginBottom: 6 }}
+                    >
+                      {t('auth.username')}
                     </label>
                     <input
-                      id="confirmPassword"
-                      name="confirmPassword"
-                      type="password"
-                      autoComplete="new-password"
+                      id="username"
+                      name="username"
+                      type="text"
+                      autoComplete="username"
                       required
                       className="hub-input"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder={t('auth.username')}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
                     />
                   </div>
-                )}
-
-                {formError && (
-                  <div role="alert"
-                    className="flex items-center gap-2"
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: 7,
-                      border: '1px solid oklch(0.85 0.1 25)',
-                      background: 'oklch(0.97 0.03 25)',
-                      color: 'oklch(0.4 0.18 25)',
-                      fontSize: 12.5,
-                    }}
-                  >
-                    <AlertCircle size={13} className="flex-shrink-0" />
-                    <span>{formError}</span>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="hub-btn primary w-full justify-center"
-                  style={{ height: 34 }}
-                >
-                  {loading
-                    ? t('common.loading')
-                    : t(registering ? 'auth.createAccount' : 'auth.login')}
-                </button>
-                {allowRegistration && (
-                  <button
-                    type="button"
-                    disabled={loading}
-                    className="hub-btn w-full justify-center"
-                    onClick={() => {
-                      setRegistering(!registering);
-                      setError(null);
-                      setPassword('');
-                      setConfirmPassword('');
-                    }}
-                  >
-                    {t(registering ? 'auth.backToLogin' : 'auth.createAccount')}
-                  </button>
-                )}
-              </form>
-            )}
-
-            {showAlternatives && (
-              <div className={passwordLoginDisabled ? 'space-y-3' : 'mt-5 space-y-3'}>
-                {!passwordLoginDisabled && (
-                  <div className="flex items-center gap-3">
-                    <div className="h-px flex-1" style={{ background: 'var(--hub-line)' }} />
-                    <span
-                      className="hub-sect"
-                      style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}
+                  <div>
+                    <label
+                      htmlFor="password"
+                      className="hub-sect block"
+                      style={{ marginBottom: 6 }}
                     >
-                      {t('auth.orContinue')}
-                    </span>
-                    <div className="h-px flex-1" style={{ background: 'var(--hub-line)' }} />
+                      {t('auth.password')}
+                    </label>
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      autoComplete={registering ? 'new-password' : 'current-password'}
+                      minLength={registering ? 8 : undefined}
+                      required
+                      className="hub-input"
+                      placeholder={t('auth.password')}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
                   </div>
-                )}
 
-                {socialError && (
-                  <div
-                    role="alert"
-                    className="flex items-center gap-2"
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: 7,
-                      border: '1px solid oklch(0.85 0.1 25)',
-                      background: 'oklch(0.97 0.03 25)',
-                      color: 'oklch(0.4 0.18 25)',
-                      fontSize: 12.5,
-                    }}
-                  >
-                    <AlertCircle size={13} className="flex-shrink-0" />
-                    <span>{socialError}</span>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  {showPasskey && (
-                    <button
-                      type="button"
-                      onClick={handlePasskeyLogin}
-                      disabled={socialLoading !== null || loading}
-                      className="hub-btn w-full justify-center"
-                      style={{ height: 34 }}
-                    >
-                      <KeyRound className="h-3.5 w-3.5" />
-                      {socialLoading === 'passkey'
-                        ? t('auth.loggingIn')
-                        : t('auth.loginWithPasskey')}
-                    </button>
+                  {registering && (
+                    <div>
+                      <p className="hub-sub mb-3">{t('auth.passwordStrengthHint')}</p>
+                      <label htmlFor="confirmPassword" className="hub-sect block mb-1.5">
+                        {t('auth.confirmPassword')}
+                      </label>
+                      <input
+                        id="confirmPassword"
+                        name="confirmPassword"
+                        type="password"
+                        autoComplete="new-password"
+                        required
+                        className="hub-input"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                      />
+                    </div>
                   )}
-                  {socialProviders.google && (
-                    <button
-                      type="button"
-                      onClick={() => handleSocialLogin('google')}
-                      disabled={socialLoading !== null}
-                      className="hub-btn w-full justify-center"
-                      style={{ height: 34 }}
-                    >
-                      {socialLoading === 'google'
-                        ? t('auth.loggingIn')
-                        : t('auth.loginWithGoogle')}
-                    </button>
-                  )}
-                  {socialProviders.github && (
-                    <button
-                      type="button"
-                      onClick={() => handleSocialLogin('github')}
-                      disabled={socialLoading !== null}
-                      className="hub-btn w-full justify-center"
+
+                  {formError && (
+                    <div
+                      role="alert"
+                      className="flex items-center gap-2"
                       style={{
-                        height: 34,
-                        background: 'var(--hub-ink)',
-                        color: 'var(--hub-bg)',
-                        borderColor: 'var(--hub-ink)',
+                        padding: '8px 10px',
+                        borderRadius: 7,
+                        border: '1px solid oklch(0.85 0.1 25)',
+                        background: 'oklch(0.97 0.03 25)',
+                        color: 'oklch(0.4 0.18 25)',
+                        fontSize: 12.5,
                       }}
                     >
-                      <GitHubIcon className="h-3.5 w-3.5" />
-                      {socialLoading === 'github'
-                        ? t('auth.loggingIn')
-                        : t('auth.loginWithGithub')}
-                    </button>
+                      <AlertCircle size={13} className="flex-shrink-0" />
+                      <span>{formError}</span>
+                    </div>
                   )}
-                  {socialProviders.oidc && (
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="hub-btn primary w-full justify-center"
+                    style={{ height: 34 }}
+                  >
+                    {loading
+                      ? t('common.loading')
+                      : t(registering ? 'auth.createAccount' : 'auth.login')}
+                  </button>
+                  {allowRegistration && (
                     <button
                       type="button"
-                      onClick={() => handleSocialLogin('oidc')}
-                      disabled={socialLoading !== null}
+                      disabled={loading}
                       className="hub-btn w-full justify-center"
-                      style={{ height: 34 }}
+                      onClick={() => {
+                        setRegistering(!registering);
+                        setError(null);
+                        setPassword('');
+                        setConfirmPassword('');
+                      }}
                     >
-                      {socialLoading === 'oidc'
-                        ? t('auth.loggingIn')
-                        : t('auth.loginWithOIDC')}
+                      {t(registering ? 'auth.backToLogin' : 'auth.createAccount')}
                     </button>
                   )}
-                </div>
-              </div>
-            )}
+                </form>
+              }
+              showPasskey={showPasskey}
+              providers={socialProviders}
+              oidcDisplayName={oidcDisplayName}
+              redirectProvider={presentation.autoRedirectTo}
+              redirectInFlight={socialLoading !== null}
+              socialLoading={socialLoading}
+              loading={loading}
+              socialError={socialError}
+              onSocialLogin={(provider) => void handleSocialLogin(provider)}
+              onPasskeyLogin={() => void handlePasskeyLogin()}
+              onExpandPassword={() => setPasswordExpanded(true)}
+              onCancelRedirect={() => setRedirectCancelled(true)}
+            />
           </div>
 
-          <p
-            className="text-center hub-mono"
-            style={{ fontSize: 11, color: 'var(--hub-ink-3)' }}
-          >
-            v{import.meta.env.PACKAGE_VERSION}
+          <p className="text-center hub-mono" style={{ fontSize: 11, color: 'var(--hub-ink-3)' }}>
+            v{APP_VERSION}
           </p>
         </div>
       </div>

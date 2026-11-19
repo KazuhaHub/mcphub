@@ -260,6 +260,7 @@ jest.mock('better-auth/node', () => ({
 }));
 
 import {
+  authAttemptRateLimiter,
   authenticatedRouteRateLimiter,
   hostedInternalEventRateLimiter,
 } from '../../src/utils/rateLimit.js';
@@ -350,6 +351,18 @@ describe('initRoutes authenticated API rate limiting', () => {
     );
     expect(routerContainsRoute(protectedRouter!, 'put', '/oauth/clients/:clientId')).toBe(true);
     expect(routerContainsRoute(protectedRouter!, 'delete', '/oauth/clients/:clientId')).toBe(true);
+  });
+
+  it('puts the password login, including the break-glass admin sign-in, behind the login limiter', async () => {
+    const app = express();
+    await initRoutes(app);
+    const loginRoute = findMountedRouter(app).stack?.find(
+      (layer) => layer.route?.path === '/auth/login' && layer.route.methods.post,
+    );
+    const handles = loginRoute?.route?.stack?.map((layer) => layer.handle) ?? [];
+    expect(handles).toContain(authAttemptRateLimiter);
+    // The limiter runs before the controller, which is last
+    expect(handles.indexOf(authAttemptRateLimiter as never)).toBe(handles.length - 2);
   });
 
   it('gates MCPB upload behind the admin middleware before multer stages the body', async () => {

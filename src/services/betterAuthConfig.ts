@@ -1,7 +1,19 @@
 import { loadSettings } from '../config/index.js';
 import { getSystemConfigDao } from '../dao/DaoFactory.js';
-import { BetterAuthConfig, BetterAuthOidcProviderConfig, SystemConfig } from '../types/index.js';
+import {
+  BetterAuthConfig,
+  BetterAuthOidcProviderConfig,
+  LoginMode,
+  SystemConfig,
+} from '../types/index.js';
 import { resolveInstallBaseUrl } from '../utils/installBaseUrl.js';
+import {
+  DEFAULT_LOGIN_MODE,
+  isLoginMode,
+  isValidOidcDisplayName,
+  parseLoginModeEnv,
+} from '../utils/loginMode.js';
+import { logger } from '../utils/logger.js';
 import {
   normalizeOptionalString,
   normalizeStringArray,
@@ -46,6 +58,11 @@ export interface BetterAuthRuntimeConfig {
    * deployment without any way to log in.
    */
   disablePasswordLogin: boolean;
+  /**
+   * Effective login page presentation. `dual` whenever no SSO sign-in is available, and
+   * `sso_first` instead of `sso_redirect` when there is more than one provider to choose from.
+   */
+  loginMode: LoginMode;
   providers: {
     google: {
       enabled: boolean;
@@ -56,6 +73,7 @@ export interface BetterAuthRuntimeConfig {
     oidc: {
       enabled: boolean;
       providerId: string;
+      displayName?: string;
       discoveryUrl?: string;
       scopes: string[];
       pkce: boolean;
@@ -110,6 +128,29 @@ const resolvePromptSetting = (
   }
 
   return normalizePrompt(settingsValue);
+};
+
+// Each invalid value is reported once per process, not on every resolve
+const warnedLoginModeEnvValues = new Set<string>();
+
+/** The valid `BETTER_AUTH_LOGIN_MODE` override, if any. An invalid value is ignored with a warning. */
+export const getLoginModeEnvOverride = (): LoginMode | undefined => {
+  const { mode, invalid } = parseLoginModeEnv(process.env.BETTER_AUTH_LOGIN_MODE);
+  if (invalid !== undefined && !warnedLoginModeEnvValues.has(invalid)) {
+    warnedLoginModeEnvValues.add(invalid);
+    logger.warn(
+      `Ignoring BETTER_AUTH_LOGIN_MODE=${JSON.stringify(invalid)}: expected dual, sso_first or sso_redirect`,
+    );
+  }
+  return mode;
+};
+
+const resolveLoginModeSetting = (settingsValue: unknown): LoginMode =>
+  getLoginModeEnvOverride() ?? (isLoginMode(settingsValue) ? settingsValue : DEFAULT_LOGIN_MODE);
+
+const normalizeDisplayName = (value: unknown): string | undefined => {
+  const normalized = normalizeOptionalString(value);
+  return normalized && isValidOidcDisplayName(normalized) ? normalized : undefined;
 };
 
 export const resolveBetterAuthRuntimeConfig = (
@@ -211,10 +252,12 @@ export const resolveBetterAuthRuntimeConfig = (
 
   // Counts only a provider that is enabled now and was mounted at startup: one
   // enabled in Settings since then shows a sign-in button with no route behind it
-  const ssoSignInAvailable =
-    (googleEnabled && mountedSsoProviders.has('google')) ||
-    (githubEnabled && mountedSsoProviders.has('github')) ||
-    (oidcEnabled && mountedSsoProviders.has('oidc'));
+  const ssoSignInCount = [
+    googleEnabled && mountedSsoProviders.has('google'),
+    githubEnabled && mountedSsoProviders.has('github'),
+    oidcEnabled && mountedSsoProviders.has('oidc'),
+  ].filter(Boolean).length;
+  const ssoSignInAvailable = ssoSignInCount > 0;
 
   // The env var wins in both directions, so it is also the recovery switch when
   // the identity provider is unavailable
@@ -226,12 +269,22 @@ export const resolveBetterAuthRuntimeConfig = (
       false,
     );
 
+  // Presentation follows the same availability rule, so an SSO-first or redirecting page is never
+  // shown without a working provider behind it. Auto-redirect needs exactly one target.
+  const configuredLoginMode = resolveLoginModeSetting(betterAuthSettings.loginMode);
+  const loginMode: LoginMode = !ssoSignInAvailable
+    ? 'dual'
+    : configuredLoginMode === 'sso_redirect' && ssoSignInCount > 1
+      ? 'sso_first'
+      : configuredLoginMode;
+
   return {
     enabled: anyProviderEnabled,
     basePath,
     trustedOrigins,
     disableAutoCreate,
     disablePasswordLogin,
+    loginMode,
     providers: {
       google: {
         enabled: googleEnabled,
@@ -242,6 +295,7 @@ export const resolveBetterAuthRuntimeConfig = (
       oidc: {
         enabled: oidcEnabled,
         providerId: oidcProviderId,
+        displayName: normalizeDisplayName(oidcSettings.displayName),
         discoveryUrl: oidcDiscoveryUrl,
         scopes: oidcScopes,
         pkce: oidcPkce,
@@ -250,6 +304,24 @@ export const resolveBetterAuthRuntimeConfig = (
       },
     },
   };
+};
+
+/**
+ * Who may sign in with a username and password right now:
+ * - `all`: password login is not disabled (or `BETTER_AUTH_DISABLE_PASSWORD_LOGIN=false`);
+ * - `admins`: disabled, but the break-glass `adminPasswordLogin` setting lets admin accounts in;
+ * - `none`: disabled.
+ * Deliberately not part of `BetterAuthRuntimeConfig`, which is published to anonymous callers.
+ */
+export type PasswordLoginPolicy = 'all' | 'admins' | 'none';
+
+export const getPasswordLoginPolicy = async (
+  systemConfigOverride?: SystemConfig | null,
+): Promise<PasswordLoginPolicy> => {
+  const systemConfig =
+    systemConfigOverride !== undefined ? systemConfigOverride : await getSystemConfigDao().get();
+  if (!resolveBetterAuthRuntimeConfig(systemConfig).disablePasswordLogin) return 'all';
+  return systemConfig?.auth?.betterAuth?.adminPasswordLogin === true ? 'admins' : 'none';
 };
 
 export const getBetterAuthRuntimeConfig = async (

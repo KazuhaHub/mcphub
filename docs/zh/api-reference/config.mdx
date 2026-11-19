@@ -157,6 +157,8 @@ import { Card, Cards } from 'mintlify';
   }
   ```
 
+`betterAuth` 包含登录页需要的、实际生效的 Better Auth 设置：已启用的提供商、`disablePasswordLogin`、`loginMode`（`dual`、`sso_first` 或 `sso_redirect`，已按当前能登录的提供商计算好）以及 `providers.oidc.displayName`。参见 [登录页展示方式](/zh/features/authentication)。
+
 `dashboardName` 和 `dashboardBranding` 让登录页在登录前即可显示已配置的品牌。未设置的图片为空字符串，已设置的为同源 URL（带 `BASE_PATH` 前缀），其 `v` 查询参数由图片内容生成。
 
 #### 获取品牌图片

@@ -16,6 +16,7 @@ const BETTER_AUTH_ENV_KEYS = [
   'BETTER_AUTH_OIDC_PROMPT',
   'BETTER_AUTH_OIDC_TRUST_EMAIL',
   'BETTER_AUTH_DISABLE_PASSWORD_LOGIN',
+  'BETTER_AUTH_LOGIN_MODE',
   'INSTALL_BASE_URL',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
@@ -135,6 +136,128 @@ describe('betterAuthConfig', () => {
     });
   });
 
+  describe('loginMode', () => {
+    const settings = (betterAuth: Record<string, unknown> = {}) => ({
+      auth: {
+        betterAuth: {
+          enabled: true,
+          ...betterAuth,
+          providers: {
+            oidc: {
+              enabled: true,
+              discoveryUrl: 'https://auth.example.com/.well-known/openid-configuration',
+              displayName: 'Microsoft Entra ID',
+            },
+            github: { enabled: true },
+          },
+        },
+      },
+    });
+    const resolve = async (mounted: SsoProviderName[] = ['oidc']) => {
+      const { getBetterAuthRuntimeConfig, setMountedSsoProviders } = await import(
+        '../../src/services/betterAuthConfig.js'
+      );
+      setMountedSsoProviders(mounted);
+      return getBetterAuthRuntimeConfig();
+    };
+
+    beforeEach(() => {
+      process.env.OIDC_CLIENT_ID = 'oidc-client-id';
+      process.env.OIDC_CLIENT_SECRET = 'oidc-client-secret';
+    });
+
+    it('defaults to the original dual layout', async () => {
+      getSystemConfigMock.mockResolvedValue(settings());
+      expect((await resolve()).loginMode).toBe('dual');
+    });
+
+    it.each(['sso_first', 'sso_redirect'] as const)(
+      'publishes %s while one SSO provider is available',
+      async (loginMode) => {
+        getSystemConfigMock.mockResolvedValue(settings({ loginMode }));
+        expect((await resolve()).loginMode).toBe(loginMode);
+      },
+    );
+
+    it('falls back to dual when no SSO sign-in is available', async () => {
+      getSystemConfigMock.mockResolvedValue(settings({ loginMode: 'sso_redirect' }));
+      expect((await resolve([])).loginMode).toBe('dual');
+
+      process.env.OIDC_CLIENT_SECRET = '';
+      expect((await resolve()).loginMode).toBe('dual');
+    });
+
+    it('falls back to dual outside database mode', async () => {
+      process.env.USE_DB = 'false';
+      process.env.DB_URL = '';
+      getSystemConfigMock.mockResolvedValue(settings({ loginMode: 'sso_first' }));
+      expect((await resolve()).loginMode).toBe('dual');
+    });
+
+    it('does not auto-redirect when there is more than one provider to pick', async () => {
+      process.env.GITHUB_CLIENT_ID = 'github-client-id';
+      process.env.GITHUB_CLIENT_SECRET = 'github-client-secret';
+      getSystemConfigMock.mockResolvedValue(settings({ loginMode: 'sso_redirect' }));
+      expect((await resolve(['oidc', 'github'])).loginMode).toBe('sso_first');
+      expect((await resolve(['oidc'])).loginMode).toBe('sso_redirect');
+    });
+
+    it('treats an unknown stored value as dual', async () => {
+      getSystemConfigMock.mockResolvedValue(settings({ loginMode: 'popup' }));
+      expect((await resolve()).loginMode).toBe('dual');
+    });
+
+    it('lets a valid environment variable override the stored setting, and ignores an invalid one', async () => {
+      getSystemConfigMock.mockResolvedValue(settings({ loginMode: 'sso_redirect' }));
+      process.env.BETTER_AUTH_LOGIN_MODE = 'dual';
+      expect((await resolve()).loginMode).toBe('dual');
+
+      process.env.BETTER_AUTH_LOGIN_MODE = 'bogus';
+      expect((await resolve()).loginMode).toBe('sso_redirect');
+    });
+
+    it('reads the environment variable case-insensitively', async () => {
+      getSystemConfigMock.mockResolvedValue(settings({ loginMode: 'dual' }));
+      process.env.BETTER_AUTH_LOGIN_MODE = ' SSO_FIRST ';
+      expect((await resolve()).loginMode).toBe('sso_first');
+    });
+
+    it('warns once about an invalid environment value', async () => {
+      const { logger } = await import('../../src/utils/logger.js');
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      try {
+        getSystemConfigMock.mockResolvedValue(settings());
+        process.env.BETTER_AUTH_LOGIN_MODE = 'popup';
+        await resolve();
+        const { getBetterAuthRuntimeConfig } = await import('../../src/services/betterAuthConfig.js');
+        await getBetterAuthRuntimeConfig();
+        await getBetterAuthRuntimeConfig();
+        const calls = warn.mock.calls.filter((args) => String(args[0]).includes('BETTER_AUTH_LOGIN_MODE'));
+        expect(calls).toHaveLength(1);
+        expect(String(calls[0][0])).toContain('"popup"');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('drops a stored display name with hidden characters', async () => {
+      const hidden = settings();
+      hidden.auth.betterAuth.providers.oidc.displayName = 'Entra\u202eDI';
+      getSystemConfigMock.mockResolvedValue(hidden);
+      expect((await resolve()).providers.oidc.displayName).toBeUndefined();
+    });
+
+    it('publishes the OIDC display name, dropping one that is too long', async () => {
+      getSystemConfigMock.mockResolvedValue(settings());
+      expect((await resolve()).providers.oidc.displayName).toBe('Microsoft Entra ID');
+
+      const long = settings();
+      long.auth.betterAuth.providers.oidc.displayName = 'x'.repeat(61);
+      getSystemConfigMock.mockResolvedValue(long);
+      expect((await resolve()).providers.oidc.displayName).toBeUndefined();
+    });
+  });
+
   it('enables Better Auth when only the OIDC provider is configured', async () => {
     process.env.OIDC_CLIENT_ID = 'oidc-client-id';
     process.env.OIDC_CLIENT_SECRET = 'oidc-client-secret';
@@ -166,6 +289,7 @@ describe('betterAuthConfig', () => {
       trustedOrigins: ['https://mcp.imdevinc.home'],
       disableAutoCreate: false,
       disablePasswordLogin: false,
+      loginMode: 'dual',
       providers: {
         google: {
           enabled: false,
@@ -212,6 +336,7 @@ describe('betterAuthConfig', () => {
       trustedOrigins: [],
       disableAutoCreate: false,
       disablePasswordLogin: false,
+      loginMode: 'dual',
       providers: {
         google: {
           enabled: false,
@@ -261,6 +386,7 @@ describe('betterAuthConfig', () => {
       trustedOrigins: ['https://mcp.imdevinc.home'],
       disableAutoCreate: false,
       disablePasswordLogin: false,
+      loginMode: 'dual',
       providers: {
         google: {
           enabled: false,
@@ -422,6 +548,7 @@ describe('betterAuthConfig', () => {
       ],
       disableAutoCreate: false,
       disablePasswordLogin: false,
+      loginMode: 'dual',
       providers: {
         google: {
           enabled: false,
@@ -471,6 +598,7 @@ describe('betterAuthConfig', () => {
       trustedOrigins: [],
       disableAutoCreate: false,
       disablePasswordLogin: false,
+      loginMode: 'dual',
       providers: {
         google: {
           enabled: false,
@@ -533,6 +661,7 @@ describe('betterAuthConfig', () => {
       trustedOrigins: ['https://dao-backed.example.com'],
       disableAutoCreate: false,
       disablePasswordLogin: false,
+      loginMode: 'dual',
       providers: {
         google: {
           enabled: false,

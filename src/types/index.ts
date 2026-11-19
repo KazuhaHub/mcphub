@@ -220,6 +220,7 @@ export interface BetterAuthProviderToggle {
 
 export interface BetterAuthOidcProviderConfig extends BetterAuthProviderToggle {
   providerId?: string; // Provider identifier used by Better Auth generic OAuth plugin
+  displayName?: string; // Name shown on the login button, e.g. 'Microsoft Entra ID'
   discoveryUrl?: string; // OIDC discovery URL for a local issuer
   scopes?: string[]; // Requested scopes for login
   pkce?: boolean; // Enable/disable PKCE for the provider
@@ -233,6 +234,10 @@ export interface BetterAuthOidcProviderConfig extends BetterAuthProviderToggle {
     | 'login consent';
 }
 
+// How the login page presents SSO. Presentation only: whether password sign-in is accepted is
+// `disablePasswordLogin`. `dual` (the default) is the original layout.
+export type LoginMode = 'dual' | 'sso_first' | 'sso_redirect';
+
 export interface BetterAuthConfig {
   enabled?: boolean; // Enable/disable Better Auth integration
   baseUrl?: string; // Public base URL used to build Better Auth redirect URIs
@@ -240,6 +245,10 @@ export interface BetterAuthConfig {
   trustedOrigins?: string[]; // Explicitly trusted origins for social/OIDC login requests
   disableAutoCreate?: boolean; // When true, SSO login will not auto-create new users
   disablePasswordLogin?: boolean; // When true and an SSO provider is enabled, username/password login is refused
+  loginMode?: LoginMode; // Login page presentation; see LoginMode
+  // Break-glass: while disablePasswordLogin is in effect, still accept password sign-in for admin
+  // accounts (through the unlinked /login?local=1). Never published in the public config.
+  adminPasswordLogin?: boolean;
   providers?: {
     google?: BetterAuthProviderToggle;
     github?: BetterAuthProviderToggle;
