@@ -56,7 +56,8 @@ export const normalizeExternalResources = (value: unknown): ExternalResource[] =
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new ExternalResourceValidationError(`${where} must be an object`);
     }
-    const { resource, name, allowedClients, scopes } = entry as Record<string, unknown>;
+    const { resource, name, allowedClients, scopes, skipConsentForPersonalConnection } =
+      entry as Record<string, unknown>;
     if (!isValidExternalResourceUrl(resource)) {
       throw new ExternalResourceValidationError(
         `${where}.resource must be an absolute https URL (http only for localhost, 127.0.0.1 or [::1]) without credentials or a fragment`,
@@ -102,6 +103,14 @@ export const normalizeExternalResources = (value: unknown): ExternalResource[] =
         );
       }
       normalized.scopes = Array.from(new Set(scopes as string[]));
+    }
+    if (skipConsentForPersonalConnection !== undefined && skipConsentForPersonalConnection !== null) {
+      if (typeof skipConsentForPersonalConnection !== 'boolean') {
+        throw new ExternalResourceValidationError(
+          `${where}.skipConsentForPersonalConnection must be a boolean`,
+        );
+      }
+      if (skipConsentForPersonalConnection) normalized.skipConsentForPersonalConnection = true;
     }
     return normalized;
   });

@@ -84,6 +84,7 @@ import { Card, Cards } from 'mintlify';
 - `name` (string): 在授权页和已连接客户端中显示的名称。
 - `allowedClients` (string[]，可选): 可请求该资源的 OAuth 客户端 ID；为空或省略表示任何已注册客户端；以 URL 作为 ID 的客户端（CIMD）不在此默认范围内，必须按其 URL 显式列出。
 - `scopes` (string[]，可选): 为该资源授予的 scope（并写入 JWT 的 `scope` 声明）；请求中未列出的 scope 会被丢弃，省略表示不授予任何 scope。这里列出的 scope 在客户端注册（`POST /oauth/register`）时也会被接受，无需在 `oauthServer.allowedScopes` 中重复列出；它们不会加入 MCPHub 自身元数据的 `scopes_supported`。
+- `skipConsentForPersonalConnection` (boolean，可选，默认 `false`): 为 `true` 时，MCPHub 自带的个人连接客户端（`mcphub-personal-oauth`，当个人 OAuth 服务器的 `url` 等于该资源时使用，见 ADR 0015）为该资源获取授权码时不显示授权页：管理员的配置即同意，用户开启该服务的操作即触发。它只对该客户端生效，且仅限其自身回调地址，并要求请求的每个 scope 都列在 `scopes` 中（请把服务公布的所有 scope 都列上，否则仍会显示授权页）。其他客户端（以 URL 作为 ID 的 CIMD 客户端和已注册客户端）仍会看到授权页。每次跳过都会写入日志 `OAuth consent skipped for the administrator-trusted resource`，包含用户、客户端、资源和 scope。若希望用户逐次确认连接，请保持关闭。
 
 令牌包含 `sub`（MCPHub 用户名）和 `mcphub_uid`：后者是标识账号的 UUID，在账号整个生命周期内不变，且绝不会分配给其他账号，即使已删除用户的用户名被他人重新使用。资源服务应以（`iss`，`mcphub_uid`）作为每个用户数据的键，把 `sub` 仅当作显示名；为保持兼容，`sub` 不变。数据库模式下它就是用户的主键（无需修改表结构）；文件模式下它保存在 `mcp_settings.json` 中用户的 `stableId` 字段，创建用户时生成，旧用户首次签发令牌时自动补上。详见 ADR 0014。
 

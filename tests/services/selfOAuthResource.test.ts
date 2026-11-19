@@ -238,3 +238,66 @@ describe('the loopback limiter', () => {
     expect((await post('c')).status).toBe(429);
   });
 });
+
+describe('isConsentSkippedForSelfClient', () => {
+  const { isConsentSkippedForSelfClient } = jest.requireActual('../../src/services/selfOAuthResource.js');
+  const entry = {
+    resource: 'https://canvas.example.com/mcp',
+    name: 'Canvas',
+    scopes: ['a', 'b'],
+    skipConsentForPersonalConnection: true,
+  };
+  const base = {
+    clientId: 'mcphub-personal-oauth',
+    redirectUri: 'https://hub.example.com/oauth/callback',
+    issuer: 'https://hub.example.com',
+    entry,
+    scopes: ['a'],
+  };
+
+  it('skips only for the reserved client, its own callback and scopes the entry lists', () => {
+    expect(isConsentSkippedForSelfClient(base)).toBe(true);
+    expect(isConsentSkippedForSelfClient({ ...base, scopes: [] })).toBe(true);
+    expect(isConsentSkippedForSelfClient({ ...base, scopes: ['a', 'c'] })).toBe(false);
+    expect(isConsentSkippedForSelfClient({ ...base, clientId: 'other' })).toBe(false);
+    expect(
+      isConsentSkippedForSelfClient({ ...base, clientId: 'https://x.example.com/client.json' }),
+    ).toBe(false);
+    expect(
+      isConsentSkippedForSelfClient({ ...base, redirectUri: 'https://hub.example.com/other' }),
+    ).toBe(false);
+    expect(isConsentSkippedForSelfClient({ ...base, issuer: undefined })).toBe(false);
+  });
+
+  it('is off unless the entry opts in', () => {
+    const { skipConsentForPersonalConnection: _, ...plain } = entry;
+    expect(isConsentSkippedForSelfClient({ ...base, entry: plain })).toBe(false);
+    expect(
+      isConsentSkippedForSelfClient({
+        ...base,
+        entry: { ...entry, skipConsentForPersonalConnection: false },
+      }),
+    ).toBe(false);
+  });
+
+  it('an entry with no scopes list never skips for a scoped request', () => {
+    const { scopes: _, ...noScopes } = entry;
+    expect(isConsentSkippedForSelfClient({ ...base, entry: noScopes })).toBe(false);
+  });
+});
+
+describe('externalResources skipConsentForPersonalConnection validation', () => {
+  const resource = 'https://canvas.example.com/mcp';
+  it('keeps true, drops false, rejects non-boolean', () => {
+    expect(
+      normalizeExternalResources([{ resource, name: 'C', skipConsentForPersonalConnection: true }])[0]
+        .skipConsentForPersonalConnection,
+    ).toBe(true);
+    expect(
+      normalizeExternalResources([{ resource, name: 'C', skipConsentForPersonalConnection: false }])[0],
+    ).not.toHaveProperty('skipConsentForPersonalConnection');
+    expect(() =>
+      normalizeExternalResources([{ resource, name: 'C', skipConsentForPersonalConnection: 'yes' }]),
+    ).toThrow('must be a boolean');
+  });
+});
