@@ -29,6 +29,10 @@ An administrator sets `readiness` on a server in the server form (**Readiness ch
 | `readiness.url` | Absolute `https:` URL without embedded credentials, at most 2048 characters. |
 | `readiness.auth` | `"oauth"` sends the user's personal OAuth access token. `{ "credential": "SLOT_NAME" }` sends the user's value of that credential slot; the name must be one of the server's credential slots. |
 
+## Trust model
+
+The readiness URL is chosen by an administrator, who is trusted with the server's own URL as well. The probe sends a user's credential only to that URL, never follows a redirect, and never reaches private or loopback addresses, even ones the system allowlist (`network.allowedCidrs`) permits for MCP servers. Changing `readiness.url` does not mark existing credential bindings outdated, unlike changing the server's `url`, so review it as carefully as the server URL.
+
 ## Contract, version 1
 
 ### Who calls whom
@@ -39,7 +43,7 @@ MCPHub (server side, never the browser) calls `GET <readiness.url>` for one user
 
 - `GET <readiness.url>` with `Accept: application/json` and `Authorization: Bearer <credential>`.
   - `readiness.auth = "oauth"`: the user's current OAuth access token for that server, the same token MCPHub uses for tool calls; it is refreshed with the existing machinery if expired.
-  - `readiness.auth = { "credential": "<SLOT_NAME>" }`: the value of that user's credential slot, for example `UBC_CONNECTOR_TOKEN`.
+  - `readiness.auth = { "credential": "<SLOT_NAME>" }`: the value of that user's credential slot, for example `UBC_CONNECTOR_TOKEN`. A leading `Bearer ` in the stored value is removed, so a header slot that holds a whole `Authorization` value also works. If two slots share a name, the first one declared is used.
 - Timeout 5 seconds, no redirects followed, response body capped at 16 KiB, https only, guarded by MCPHub's SSRF protection (no private or loopback addresses). No cookies and no other user data.
 - The bearer is never logged.
 
@@ -81,7 +85,7 @@ These are MCPHub's own answers, not service-defined:
 
 - The answer is cached per user and service for 5 minutes. A failed check (`unknown` or `revoked`) is remembered for 30 seconds only. Saving or deleting the user's credential clears the cache for it.
 - The dashboard bypasses the cache on an explicit re-check: when the user returns to the tab after clicking an action or manage link, and with the **Re-check** button (`POST /api/workspace/servers/:name/readiness/check`). Re-checks of one service closer than 3 seconds apart answer from the cache.
-- The workspace list asks in parallel with the rest of its work and waits at most 2 seconds for a probe; a slow or failing call shows as `unknown` and never delays or breaks the list. The probe still finishes in the background and fills the cache.
+- The workspace list asks in parallel with the rest of its work and waits at most 2 seconds for a probe; a slow or failing call shows as `unknown`, never breaks the list, and delays it by at most 2 seconds. The probe still finishes in the background and fills the cache.
 
 ## In the workspace API
 

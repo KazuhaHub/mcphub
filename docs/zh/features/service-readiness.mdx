@@ -29,6 +29,10 @@ description: '显示用户的个人服务是否真的可用，而不只是已绑
 | `readiness.url` | 绝对 `https:` URL，不含内嵌凭据，最长 2048 字符。 |
 | `readiness.auth` | `"oauth"` 发送用户的个人 OAuth 访问令牌。`{ "credential": "SLOT_NAME" }` 发送用户在该凭据字段中的值，名称必须是该服务器的某个凭据字段。 |
 
+## 信任模型
+
+就绪检查地址由管理员选择，管理员同样被信任设置服务器自身的 URL。探测只会把用户的凭据发送到该地址，从不跟随重定向，也从不访问私有或回环地址，即使系统白名单（`network.allowedCidrs`）允许 MCP 服务器访问这些地址。与修改服务器的 `url` 不同，修改 `readiness.url` 不会让已有的凭据绑定变为“已过期”，请像审查服务器 URL 一样审查它。
+
 ## 协议，版本 1
 
 ### 谁调用谁
@@ -39,7 +43,7 @@ description: '显示用户的个人服务是否真的可用，而不只是已绑
 
 - `GET <readiness.url>`，带 `Accept: application/json` 与 `Authorization: Bearer <credential>`。
   - `readiness.auth = "oauth"`：用户当前对该服务器的 OAuth 访问令牌，即 MCPHub 调用工具时使用的同一令牌；过期时用现有机制刷新。
-  - `readiness.auth = { "credential": "<SLOT_NAME>" }`：该用户在该凭据字段中的值，例如 `UBC_CONNECTOR_TOKEN`。
+  - `readiness.auth = { "credential": "<SLOT_NAME>" }`：该用户在该凭据字段中的值，例如 `UBC_CONNECTOR_TOKEN`。存储值开头的 `Bearer ` 会被去掉，因此保存完整 `Authorization` 值的 header 字段也可以使用。若两个字段同名，使用先声明的那个。
 - 超时 5 秒，不跟随重定向，响应体上限 16 KiB，仅限 https，受 MCPHub 的 SSRF 防护约束（禁止私有和回环地址）。不带 Cookie，不带其他用户数据。
 - 绝不记录 Bearer 令牌到日志。
 
@@ -81,7 +85,7 @@ HTTP 200，`Content-Type: application/json`：
 
 - 按用户和服务缓存 5 分钟。失败的检查（`unknown` 或 `revoked`）只缓存 30 秒。用户保存或删除凭据会清除对应缓存。
 - 显式重新检查会绕过缓存：用户点击操作或管理链接后回到标签页时，以及点击**重新检查**按钮（`POST /api/workspace/servers/:name/readiness/check`）。同一服务相隔不到 3 秒的重新检查直接使用缓存。
-- 工作区列表与其他工作并行询问，最多等待 2 秒；缓慢或失败的调用显示为 `unknown`，绝不拖慢或破坏列表。探测仍在后台完成并写入缓存。
+- 工作区列表与其他工作并行询问，最多等待 2 秒；缓慢或失败的调用显示为 `unknown`，不会破坏列表，最多使列表延迟 2 秒。探测仍在后台完成并写入缓存。
 
 ## 在工作区 API 中
 

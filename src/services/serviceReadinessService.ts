@@ -4,11 +4,7 @@ import type {
   ServiceReadiness,
   ServiceReadinessState,
 } from '../types/index.js';
-import {
-  MissingCredentialError,
-  resolvedCredentialValues,
-  validateCredentialTemplate,
-} from '../utils/credentialTemplate.js';
+import { MissingCredentialError, resolvedCredentialValues } from '../utils/credentialTemplate.js';
 import { logger } from '../utils/logger.js';
 import { isSafeHttpsUrl } from '../utils/readinessConfig.js';
 import { createRedirectValidatingFetch, type FetchLike, type SsrfLookup } from '../utils/ssrf.js';
@@ -91,6 +87,8 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<ServiceReadiness>>();
+// Bumped whenever a credential changes, so a probe that began earlier cannot cache its answer.
+let generation = 0;
 
 const cacheKey = (username: string, serverName: string): string =>
   JSON.stringify([username, serverName]);
@@ -109,6 +107,7 @@ const ensureSubscribed = (): void => {
   credentialBindingEvents.on(
     'invalidate',
     (filter: { serverName?: string; username?: string } | undefined) => {
+      generation++;
       for (const key of [...cache.keys()]) {
         const [username, serverName] = JSON.parse(key) as [string, string];
         if (
@@ -221,7 +220,11 @@ const probe = async (
     bearer = await deps.resolveBearer(user, serverName, definition);
   } catch (error) {
     // A missing, stale or unrefreshable credential is MCPHub's to report as "sign in again".
-    if (error instanceof MissingCredentialError) {
+    if (
+      error instanceof MissingCredentialError ||
+      // A personal OAuth token that expired and cannot be renewed: the user must reconnect.
+      (error instanceof Error && /reconnect/i.test(error.message))
+    ) {
       note(serverName, 'credential');
       return revokedResult(now);
     }
@@ -234,14 +237,8 @@ const probe = async (
   try {
     // Never `allowInternal`: the user's credential must not reach private addresses. Zero hops:
     // a redirect would carry the bearer to a host the administrator did not choose.
-    const guarded = createRedirectValidatingFetch(
-      deps.fetch,
-      false,
-      deps.lookup,
-      undefined,
-      undefined,
-      0,
-    );
+    // The system allowlist of internal ranges does not apply here either (empty list).
+    const guarded = createRedirectValidatingFetch(deps.fetch, false, deps.lookup, [], undefined, 0);
     const response = await guarded(readiness.url, {
       method: 'GET',
       headers: { Accept: 'application/json', Authorization: `Bearer ${bearer}` },
@@ -323,27 +320,33 @@ export const getServiceReadiness = async (
     if (!options.refresh || throttled) return cached.value;
   }
 
-  const running = inFlight.get(key);
+  // One probe at a time per user, service and declaration.
+  const flightKey = `${key}\u0000${declaration}`;
+  const running = inFlight.get(flightKey);
   if (running) return running;
+  const startedGeneration = generation;
   const started = (async () => {
     try {
       const value = await probe(user, serverName, definition, readiness, deps);
-      const failed = value.state === 'unknown' || value.state === 'revoked';
-      const fetchedAt = deps.now();
-      remember(key, {
-        value,
-        key: declaration,
-        fetchedAt,
-        expiresAt: fetchedAt + (failed ? READINESS_FAILURE_TTL_MS : READINESS_CACHE_TTL_MS),
-      });
+      // The user's credential changed while the probe ran: its answer is about the old one.
+      if (generation === startedGeneration) {
+        const failed = value.state === 'unknown' || value.state === 'revoked';
+        const fetchedAt = deps.now();
+        remember(key, {
+          value,
+          key: declaration,
+          fetchedAt,
+          expiresAt: fetchedAt + (failed ? READINESS_FAILURE_TTL_MS : READINESS_CACHE_TTL_MS),
+        });
+      }
       return value;
     } catch {
       return unknownResult(deps.now());
     } finally {
-      inFlight.delete(key);
+      inFlight.delete(flightKey);
     }
   })();
-  inFlight.set(key, started);
+  inFlight.set(flightKey, started);
   return started;
 };
 
@@ -391,7 +394,8 @@ export async function resolveReadinessBearer(
   if (readiness.auth === 'oauth') {
     const { hasPersonalOAuth, PersonalOAuthContext } = await import('./personalOAuthService.js');
     if (!hasPersonalOAuth(definition)) {
-      throw new MissingCredentialError('This service has no personal sign-in');
+      // A configuration problem, not the user's credential being rejected.
+      throw new Error('readiness.auth is "oauth" but this service has no personal OAuth');
     }
     const context = await PersonalOAuthContext.load(serverName, user.username, definition);
     const [{ MCPHubOAuthProvider }, { resolveSelfResourceForConnection }] = await Promise.all([
@@ -405,11 +409,13 @@ export async function resolveReadinessBearer(
 
   const { resolveCredentialBinding } = await import('./credentialBindingService.js');
   const { config } = await resolveCredentialBinding(serverName, user.username, definition);
-  const slots = validateCredentialTemplate(config) ?? [];
-  const index = slots.findIndex(
-    (slot) => slot.name === (readiness.auth as { credential: string }).credential,
-  );
+  // `resolvedCredentialValues` follows the declared slot order. The resolver has already
+  // validated the template, and the resolved URL no longer carries its slot placeholders, so
+  // it is not validated again here.
+  const wanted = readiness.auth.credential;
+  const index = (config.credentialTemplate ?? []).findIndex((slot) => slot.name === wanted);
   const value = index >= 0 ? resolvedCredentialValues.get(config)?.[index] : undefined;
   if (!value) throw new MissingCredentialError('The credential slot has no value');
-  return value;
+  // A header slot often holds a whole `Bearer ...` header value; the bearer is the token.
+  return value.replace(/^Bearer\s+/i, '');
 }

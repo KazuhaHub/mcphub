@@ -278,6 +278,68 @@ describe('getServiceReadiness', () => {
   });
 });
 
+describe('credential failures', () => {
+  it('maps "OAuth access token expired; reconnect" to revoked', async () => {
+    const result = await check(
+      definition(),
+      {},
+      {
+        resolveBearer: async () => {
+          throw new Error('OAuth access token expired; reconnect');
+        },
+      },
+    );
+    expect(result?.state).toBe('revoked');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('caching races', () => {
+  it('does not share an in-flight probe between two declarations', async () => {
+    const urls: string[] = [];
+    fetchMock.mockImplementation(async (url: string) => {
+      urls.push(String(url));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return jsonResponse({ version: 1, state: 'ready' });
+    });
+    await Promise.all([
+      check(definition({ readiness: { url: 'https://svc.example.com/old', auth: 'oauth' } })),
+      check(definition({ readiness: { url: 'https://svc.example.com/new', auth: 'oauth' } })),
+    ]);
+    expect(urls.sort()).toEqual(['https://svc.example.com/new', 'https://svc.example.com/old']);
+  });
+
+  it('does not cache an answer whose credential changed while it was being fetched', async () => {
+    fetchMock.mockImplementation(async () => {
+      credentialBindingEvents.emit('invalidate', { serverName: 'canvas', username: 'alice' });
+      return jsonResponse({ version: 1, state: 'ready' });
+    });
+    await check();
+    fetchMock.mockClear();
+    fetchMock.mockImplementation(async () => jsonResponse({ version: 1, state: 'needs_setup' }));
+    expect((await check())?.state).toBe('needs_setup');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the SSRF policy', () => {
+  it('ignores the system allowlist of internal ranges: a user credential never goes to one', async () => {
+    const seen: unknown[] = [];
+    jest.isolateModules(() => undefined);
+    const ssrf = jest.requireActual(
+      '../../src/utils/ssrf.js',
+    ) as typeof import('../../src/utils/ssrf.js');
+    const spy = jest.spyOn(ssrf, 'createRedirectValidatingFetch');
+    await check();
+    seen.push(...spy.mock.calls[0]);
+    spy.mockRestore();
+    // (fetch, allowInternal, lookup, allowedCidrs, serverId, maxHops)
+    expect(seen[1]).toBe(false);
+    expect(seen[3]).toEqual([]);
+    expect(seen[5]).toBe(0);
+  });
+});
+
 describe('caching', () => {
   it('serves a repeat call from the cache for five minutes', async () => {
     await check();
@@ -406,9 +468,40 @@ describe('resolveReadinessBearer', () => {
     expect(mockProviderCreate).toHaveBeenCalledWith('canvas', context.config, undefined);
   });
 
-  it('refuses oauth auth on a server without personal OAuth', async () => {
-    await expect(resolveReadinessBearer(user, 'canvas', definition())).rejects.toBeInstanceOf(
-      MissingCredentialError,
-    );
+  it('treats oauth auth on a server without personal OAuth as a configuration problem, not a rejected credential', async () => {
+    const rejected = resolveReadinessBearer(user, 'canvas', definition());
+    await expect(rejected).rejects.toThrow(/personal OAuth/);
+    await expect(rejected).rejects.not.toBeInstanceOf(MissingCredentialError);
+  });
+
+  it('works on a server that also has a URL credential slot', async () => {
+    const withUrlSlot = definition({
+      url: 'https://mcp.example.com/{{url.TENANT}}/mcp',
+      credentialTemplate: [
+        { target: 'url', name: 'TENANT', allowed: ['acme'] },
+        { target: 'headers', name: 'X-Token' },
+      ],
+      readiness: { url: 'https://svc.example.com/r', auth: { credential: 'X-Token' } },
+    });
+    mockResolveCredentialBinding.mockImplementation(async () => {
+      // The resolver substitutes the URL slot, so the resolved url has no placeholder left.
+      const config = { ...withUrlSlot, url: 'https://mcp.example.com/acme/mcp' };
+      resolvedCredentialValues.set(config, ['acme', 'header-token']);
+      return { config, revision: 'r1' };
+    });
+    expect(await resolveReadinessBearer(user, 'ubc', withUrlSlot)).toBe('header-token');
+  });
+
+  it('sends a slot holding a full "Bearer ..." header value as the bare token', async () => {
+    const withHeader = definition({
+      credentialTemplate: [{ target: 'headers', name: 'Authorization' }],
+      readiness: { url: 'https://svc.example.com/r', auth: { credential: 'Authorization' } },
+    });
+    mockResolveCredentialBinding.mockImplementation(async () => {
+      const config = { ...withHeader };
+      resolvedCredentialValues.set(config, ['Bearer abc123']);
+      return { config, revision: 'r1' };
+    });
+    expect(await resolveReadinessBearer(user, 'ubc', withHeader)).toBe('abc123');
   });
 });
