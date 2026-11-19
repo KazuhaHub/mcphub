@@ -185,6 +185,53 @@ describe('cimdClientService', () => {
       expect(mapCimdDocument(url, { ...base(), ...extra } as never)).toBeUndefined();
     });
 
+    it.each([
+      ['private_key_jwt without a supported list', { token_endpoint_auth_method: 'private_key_jwt' }],
+      [
+        'private_key_jwt whose supported list lacks none',
+        {
+          token_endpoint_auth_method: 'private_key_jwt',
+          token_endpoint_auth_methods_supported: ['private_key_jwt'],
+        },
+      ],
+      [
+        'a shared-secret method even when none is listed',
+        {
+          token_endpoint_auth_method: 'client_secret_post',
+          token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+        },
+      ],
+    ])('rejects %s', (_name, extra) => {
+      expect(mapCimdDocument(url, { ...base(), ...extra } as never)).toBeUndefined();
+    });
+
+    it("accepts ChatGPT's published document (prefers private_key_jwt, also supports none)", () => {
+      const chatgpt = 'https://chatgpt.com/oauth/client.json';
+      const client = mapCimdDocument(chatgpt, {
+        client_id: chatgpt,
+        client_uri: 'https://chatgpt.com/',
+        redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'],
+        token_endpoint_auth_method: 'private_key_jwt',
+        token_endpoint_auth_methods_supported: ['none', 'private_key_jwt'],
+        grant_types: [
+          'authorization_code',
+          'refresh_token',
+          'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        ],
+        response_types: ['code'],
+        client_name: 'ChatGPT',
+        logo_uri: 'https://persistent.oaistatic.com/sonic/misc/openai-logo.png',
+        token_endpoint_auth_signing_alg: 'RS256',
+        jwks_uri: 'https://chatgpt.com/oauth/jwks.json',
+      } as never);
+      expect(client).toMatchObject({
+        clientId: chatgpt,
+        name: 'ChatGPT',
+        redirectUris: ['https://chatgpt.com/connector_platform_oauth_redirect'],
+        grants: ['authorization_code', 'refresh_token'],
+      });
+    });
+
     it('accepts none in the plural auth-method list and overlapping grant types', () => {
       expect(
         mapCimdDocument(url, {
