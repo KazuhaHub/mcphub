@@ -509,9 +509,7 @@ describe('file staging (#1056)', () => {
         args: ['-y', 'pkg'],
         tools: { mcphub_file_upload: { enabled: true } },
       }),
-    ).toThrow(
-      "tool name `mcphub_file_upload` is reserved by the hub's built-in staging tools",
-    );
+    ).toThrow("tool name `mcphub_file_upload` is reserved by the hub's built-in staging tools");
   });
 
   it('still accepts ordinary tool names', () => {
@@ -603,5 +601,29 @@ describe('readStoredServerTags (#1506)', () => {
     expect(warn).toHaveBeenCalledTimes(2);
     expect(warn.mock.calls[0][0]).toContain('"hand-edited"');
     expect(warn.mock.calls[1][0]).toContain('"scalar-tags"');
+  });
+});
+
+describe('server tag limits', () => {
+  it('removes control and format characters from tags', async () => {
+    const { normalizeServerTags } = await import('../../src/utils/serverConfigPersistence.js');
+    expect(normalizeServerTags(['pr‮od', 'a​b', '\u0007dev'])).toEqual(['prod', 'ab', 'dev']);
+  });
+
+  it('refuses more than 32 tags when saving', async () => {
+    const { normalizeServerTags, SERVER_TAG_MAX_COUNT } = await import(
+      '../../src/utils/serverConfigPersistence.js'
+    );
+    const many = Array.from({ length: SERVER_TAG_MAX_COUNT + 1 }, (_, i) => `t${i}`);
+    expect(() => normalizeServerTags(many)).toThrow(/at most 32 tags/);
+    expect(normalizeServerTags(many.slice(0, SERVER_TAG_MAX_COUNT))).toHaveLength(32);
+  });
+
+  it('keeps the first 32 stored tags instead of failing to read', () => {
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const many = Array.from({ length: 40 }, (_, i) => `t${i}`);
+    expect(readStoredServerTags('many-tags', many)).toHaveLength(32);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

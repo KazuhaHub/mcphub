@@ -54,10 +54,20 @@ const normalizeStringArray = (value?: string[]): string[] | undefined => {
 };
 
 export const SERVER_TAG_MAX_LENGTH = 64;
+export const SERVER_TAG_MAX_COUNT = 32;
 
-const normalizeTagText = (tag: string): string => tag.trim().replace(/\s+/g, ' ');
+// Control and format characters (zero-width, bidi overrides) are dropped so a
+// tag can't hide or reorder text on another user's screen.
+const normalizeTagText = (tag: string): string =>
+  tag
+    .replace(/[\p{Cc}\p{Cf}]/gu, '')
+    .trim()
+    .replace(/\s+/g, ' ');
 
-export const normalizeServerTags = (value: unknown): string[] | undefined => {
+export const normalizeServerTags = (
+  value: unknown,
+  options: { truncate?: boolean } = {},
+): string[] | undefined => {
   if (value === undefined || value === null) {
     return undefined;
   }
@@ -83,7 +93,11 @@ export const normalizeServerTags = (value: unknown): string[] | undefined => {
       tags.push(tag);
     }
   }
-  return tags.length > 0 ? tags : undefined;
+  if (tags.length > SERVER_TAG_MAX_COUNT && !options.truncate) {
+    throw new ServerConfigValidationError(`a server can have at most ${SERVER_TAG_MAX_COUNT} tags`);
+  }
+  const kept = tags.slice(0, SERVER_TAG_MAX_COUNT);
+  return kept.length > 0 ? kept : undefined;
 };
 
 const warnedStoredTags = new Set<string>();
@@ -107,7 +121,15 @@ export const readStoredServerTags = (serverName: string, value: unknown): string
       );
     }
   }
-  return normalizeServerTags(valid);
+  // Stored data is read leniently: tags over the limit are dropped, not fatal.
+  const tags = normalizeServerTags(valid, { truncate: true });
+  if (valid.length > SERVER_TAG_MAX_COUNT && !warnedStoredTags.has(`${serverName}\u0000count`)) {
+    warnedStoredTags.add(`${serverName}\u0000count`);
+    logger.warn(
+      `Server "${serverName}" has more than ${SERVER_TAG_MAX_COUNT} tags; only the first ${SERVER_TAG_MAX_COUNT} are used`,
+    );
+  }
+  return tags;
 };
 
 const normalizeSharedUsers = (value?: string[]): string[] | undefined => {
@@ -435,9 +457,7 @@ export const normalizeToolConfig = (key: string, tool: unknown): ToolConfig => {
  * when there is nothing to store so an explicit `tools: undefined` is dropped
  * rather than persisted as null.
  */
-const normalizeToolsConfig = (
-  tools: ServerConfig['tools'],
-): ServerConfig['tools'] | undefined => {
+const normalizeToolsConfig = (tools: ServerConfig['tools']): ServerConfig['tools'] | undefined => {
   // A nullable simple-json column surfaces as null in DB mode; treat it as absent.
   if (tools === undefined || tools === null) return undefined;
   if (typeof tools !== 'object' || Array.isArray(tools)) {
