@@ -3,8 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Plug } from 'lucide-react';
 import { EndpointCopy } from '@/components/ui/EndpointCopy';
 import { useSettings } from '@/contexts/SettingsContext';
-import { fetchWorkspaceEndpoints, fetchWorkspaceServers } from '@/services/workspaceService';
-import type { WorkspaceEndpoints, WorkspaceServer } from '@/types';
+import { useWorkspaceData } from '@/hooks/useWorkspaceData';
 import {
   CONNECT_CLIENTS,
   CONNECT_TILE_GAP,
@@ -16,8 +15,6 @@ import { getSmartRoutingPath } from '@/utils/runtime';
 import { buildSmartEndpoint } from '@/utils/workspace';
 import ConnectDialog, { type ConnectDialogInitial } from './ConnectDialog';
 import ConnectTile from './ConnectTile';
-
-const STALE_AFTER_MS = 60_000;
 
 interface ConnectTilesProps {
   layout: TileLayout;
@@ -59,41 +56,13 @@ ConnectTiles.displayName = 'ConnectTiles';
 const ConnectCard: React.FC = () => {
   const { t } = useTranslation();
   const { smartRoutingConfig } = useSettings();
-  const [servers, setServers] = useState<WorkspaceServer[]>([]);
-  const [endpoints, setEndpoints] = useState<WorkspaceEndpoints | null>(null);
-  const [failed, setFailed] = useState(false);
+  const { endpoints, loaded } = useWorkspaceData();
   const [smart, setSmart] = useState(false);
   const [dialog, setDialog] = useState<{ nonce: number; initial: ConnectDialogInitial } | null>(
     null,
   );
   const [width, setWidth] = useState(0);
   const tilesRef = useRef<HTMLDivElement>(null);
-
-  // Data is loaded once and only refreshed when the dialog opens after it has gone stale, so
-  // tile clicks do not refetch. A failed refresh keeps the last good data (and any open dialog).
-  const loadedAtRef = useRef(0);
-  const hasDataRef = useRef(false);
-
-  const load = useCallback(async () => {
-    try {
-      const [nextServers, nextEndpoints] = await Promise.all([
-        fetchWorkspaceServers(),
-        fetchWorkspaceEndpoints(),
-      ]);
-      setServers(nextServers);
-      setEndpoints(nextEndpoints);
-      setFailed(false);
-      hasDataRef.current = true;
-      loadedAtRef.current = Date.now();
-    } catch {
-      // The services tab reports a failing or disabled workspace; without data the card stays away.
-      if (!hasDataRef.current) setFailed(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   // Measure the container itself rather than assuming breakpoints: the sidebar, the page
   // padding and the viewport all change how much room the row has.
@@ -112,15 +81,11 @@ const ConnectCard: React.FC = () => {
 
   const layout = useMemo(() => computeConnectTileLayout(width, CONNECT_CLIENTS.length), [width]);
 
-  if (failed || !endpoints) return null;
+  if (!loaded || !endpoints) return null;
 
   const smartUrl = buildSmartEndpoint(endpoints.aggregate, getSmartRoutingPath());
   const activeUrl = smart ? smartUrl : endpoints.aggregate;
-  const open = (initial: ConnectDialogInitial) => {
-    // Selection may have changed on the services tab since this card loaded.
-    if (Date.now() - loadedAtRef.current > STALE_AFTER_MS) void load();
-    setDialog({ nonce: Date.now(), initial });
-  };
+  const open = (initial: ConnectDialogInitial) => setDialog({ nonce: Date.now(), initial });
 
   return (
     <section className="hub-card space-y-4 p-4" aria-labelledby="connect-ai-title">
@@ -179,8 +144,6 @@ const ConnectCard: React.FC = () => {
         <ConnectDialog
           key={dialog.nonce}
           aggregateUrl={activeUrl}
-          servers={servers}
-          endpoints={endpoints}
           initial={dialog.initial}
           onClose={() => setDialog(null)}
         />

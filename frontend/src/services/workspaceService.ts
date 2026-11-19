@@ -1,15 +1,16 @@
 import type {
+  MyCredentialBinding,
   ToolRiskLevel,
   WorkspaceActivityPage,
   WorkspaceClient,
   WorkspaceEndpoints,
   WorkspaceServer,
-  WorkspaceSummary,
 } from '../types';
 import {
   WorkspaceApiError,
   buildActivityQuery,
   isWorkspaceDisabledMessage,
+  resolveOAuthLaunch,
   type ActivityFilters,
 } from '../utils/workspace';
 import { apiDelete, apiGet, apiPost, apiPut, type ApiResponse } from '../utils/fetchInterceptor';
@@ -24,9 +25,6 @@ const unwrap = <T>(result: ApiResponse<T>, _context: string): T => {
 
 export const fetchWorkspaceServers = async (): Promise<WorkspaceServer[]> =>
   unwrap(await apiGet<ApiResponse<WorkspaceServer[]>>('/workspace/servers'), 'servers');
-
-export const fetchWorkspaceSummary = async (): Promise<WorkspaceSummary> =>
-  unwrap(await apiGet<ApiResponse<WorkspaceSummary>>('/workspace/summary'), 'summary');
 
 export const fetchWorkspaceEndpoints = async (): Promise<WorkspaceEndpoints> =>
   unwrap(await apiGet<ApiResponse<WorkspaceEndpoints>>('/workspace/endpoints'), 'endpoints');
@@ -65,14 +63,9 @@ export const revokeAllWorkspaceClients = async (): Promise<void> => {
   unwrap(await apiDelete<ApiResponse>('/workspace/clients'), 'revoke');
 };
 
-/** Names of shared servers that have personal credential slots (the Credentials page list). */
-export const fetchCredentialServerNames = async (): Promise<Set<string>> => {
-  const bindings = unwrap(
-    await apiGet<ApiResponse<{ serverName: string }[]>>('/credentials'),
-    'credentials',
-  );
-  return new Set((bindings || []).map((binding) => binding.serverName));
-};
+/** The user's credential bindings for shared servers that have personal credential slots. */
+export const fetchCredentialBindings = async (): Promise<MyCredentialBinding[]> =>
+  unwrap(await apiGet<ApiResponse<MyCredentialBinding[]>>('/credentials'), 'credentials') || [];
 
 /** Starts (or refreshes) the personal OAuth flow; resolves with the authorization URL if any. */
 export const startPersonalOAuth = async (name: string): Promise<string | undefined> => {
@@ -84,6 +77,36 @@ export const startPersonalOAuth = async (name: string): Promise<string | undefin
     'oauth',
   );
   return data?.authorizationUrl;
+};
+
+export type PersonalOAuthResult =
+  | { kind: 'started' }
+  | { kind: 'link'; url: string }
+  | { kind: 'invalid' };
+
+/**
+ * Starts the personal sign-in in a new tab. The tab is opened during the click, before any
+ * await, because browsers may block popups afterwards; cutting the opener link keeps the
+ * identity provider's page from reaching back into this one. A blocked popup comes back as a
+ * link to show instead. Throws when the server refuses.
+ */
+export const launchPersonalOAuth = async (name: string): Promise<PersonalOAuthResult> => {
+  const popup = window.open('about:blank', '_blank');
+  if (popup) popup.opener = null;
+  try {
+    const launch = resolveOAuthLaunch(await startPersonalOAuth(name), Boolean(popup));
+    if (launch.kind === 'navigate') {
+      popup?.location.replace(launch.url);
+      return { kind: 'started' };
+    }
+    popup?.close();
+    if (launch.kind === 'link') return { kind: 'link', url: launch.url };
+    if (launch.kind === 'invalid') return { kind: 'invalid' };
+    return { kind: 'started' };
+  } catch (err) {
+    popup?.close();
+    throw err;
+  }
 };
 
 export const fetchWorkspaceActivity = async (

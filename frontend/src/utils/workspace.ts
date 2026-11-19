@@ -1,10 +1,10 @@
 import type {
+  MyCredentialBinding,
   WorkspaceActivityClient,
   WorkspaceActivityItem,
   WorkspaceActivityStatus,
   WorkspaceServer,
   WorkspaceStatusCode,
-  WorkspaceSummary,
 } from '../types';
 
 /** More tools than this starts to crowd a model's context. */
@@ -23,28 +23,6 @@ export const countExposedTools = (servers: readonly WorkspaceServer[]): number =
     .filter((server) => server.selected && server.status.code === 'available')
     .reduce((sum, server) => sum + (server.toolCount || 0), 0);
 
-export type SummaryBannerKind = 'normal' | 'partial' | 'none_selected' | 'none_usable';
-
-export interface SummaryBanner {
-  kind: SummaryBannerKind;
-  selected: number;
-  attention: number;
-}
-
-/** Selected services that are not usable right now. */
-export const countNeedingAttention = (counts: WorkspaceSummary['counts']): number =>
-  (Object.keys(counts) as WorkspaceStatusCode[])
-    .filter((code) => code !== 'available' && code !== 'not_selected')
-    .reduce((sum, code) => sum + (counts[code] || 0), 0);
-
-export const resolveSummaryBanner = (summary: WorkspaceSummary): SummaryBanner => {
-  const attention = countNeedingAttention(summary.counts);
-  const selected = (summary.counts.available || 0) + attention;
-  if (summary.endpointState === 'normal') return { kind: 'normal', selected, attention };
-  if (summary.endpointState === 'partial') return { kind: 'partial', selected, attention };
-  return { kind: selected === 0 ? 'none_selected' : 'none_usable', selected, attention };
-};
-
 export type ServiceAction =
   | { kind: 'none' }
   | { kind: 'select' }
@@ -54,21 +32,21 @@ export type ServiceAction =
   | { kind: 'retry_later'; until?: string };
 
 /**
- * Maps a server's status action to what the UI offers. `connect` goes to the Credentials page
- * (deep link) for servers with credential slots, and starts the personal OAuth flow otherwise.
+ * Maps a server's status action to what the UI offers. `connect` opens the credential panel
+ * for servers with credential slots, and starts the personal OAuth flow otherwise.
  * A disconnected personal OAuth (`revoked`) always reconnects through OAuth.
  * `credentialServers` is null when the list of servers with slots could not be loaded; the
- * Credentials page is the safer destination then.
+ * credential panel is the safer destination then.
  */
 export const resolveServiceAction = (
-  server: Pick<WorkspaceServer, 'name' | 'status'>,
+  server: Pick<WorkspaceServer, 'name' | 'status' | 'hasCredentialSlots'>,
   credentialServers: ReadonlySet<string> | null,
 ): ServiceAction => {
   switch (server.status.action) {
     case 'select':
       return { kind: 'select' };
     case 'connect': {
-      const hasSlots = credentialServers ? credentialServers.has(server.name) : true;
+      const hasSlots = hasCredentialSlots(server, credentialServers);
       return hasSlots && server.status.code !== 'revoked'
         ? { kind: 'credentials', server: server.name }
         : { kind: 'oauth', server: server.name };
@@ -82,8 +60,106 @@ export const resolveServiceAction = (
   }
 };
 
-export const credentialsPath = (server: string): string =>
-  `/credentials?server=${encodeURIComponent(server)}`;
+export type ServiceChip =
+  | 'ready'
+  | 'not_enabled'
+  | 'needs_signin'
+  | 'needs_credentials'
+  | 'credentials_outdated'
+  | 'credentials_rejected'
+  | 'contact_admin'
+  | 'unavailable';
+
+export interface ServiceChipState {
+  chip: ServiceChip;
+  /** The one thing the user can do about it, shown as a button on the row. */
+  action: 'signin' | 'credentials' | null;
+  /** Signing in again: the service rejected a sign-in that had worked. */
+  reauth?: boolean;
+}
+
+/**
+ * Whether the service takes credentials the user enters (it has slots) rather than a personal
+ * sign-in. The server says so; the list of the user's bindings is the fallback for an older
+ * server, and the credential panel the safer guess while neither is known.
+ */
+export const hasCredentialSlots = (
+  server: Pick<WorkspaceServer, 'name' | 'hasCredentialSlots'>,
+  credentialServers: ReadonlySet<string> | null,
+): boolean =>
+  server.hasCredentialSlots ?? (credentialServers ? credentialServers.has(server.name) : true);
+
+/**
+ * The single state a service row shows. Most important wins: a service the administrator
+ * paused, in maintenance or failing is unavailable whatever else is true; one the user has not
+ * turned on is simply not enabled; one the user may not hold credentials for needs an
+ * administrator; then outdated or rejected credentials, then missing credentials or sign-in,
+ * and otherwise ready. Whether the user is sent to the credentials or to a sign-in follows
+ * from what the service takes, never from the failure code alone.
+ */
+export const resolveServiceChip = (
+  server: Pick<WorkspaceServer, 'name' | 'status' | 'hasCredentialSlots'>,
+  credentialServers: ReadonlySet<string> | null,
+  binding?: Pick<MyCredentialBinding, 'stale'>,
+): ServiceChipState => {
+  const { code, action: statusAction } = server.status;
+  if (code === 'paused' || code === 'maintenance' || code === 'error') {
+    return { chip: 'unavailable', action: null };
+  }
+  if (code === 'not_selected') return { chip: 'not_enabled', action: null };
+  if (code === 'needs_auth' && statusAction === 'contact_admin') {
+    return { chip: 'contact_admin', action: null };
+  }
+  const slots = hasCredentialSlots(server, credentialServers);
+  if (code === 'credential_invalid') {
+    if (!slots) return { chip: 'needs_signin', action: 'signin', reauth: true };
+    return {
+      chip: binding?.stale ? 'credentials_outdated' : 'credentials_rejected',
+      action: 'credentials',
+    };
+  }
+  if (binding?.stale && code !== 'revoked') {
+    return { chip: 'credentials_outdated', action: 'credentials' };
+  }
+  if (code === 'needs_auth' || code === 'revoked') {
+    const action = resolveServiceAction(server, credentialServers);
+    return action.kind === 'credentials'
+      ? { chip: 'needs_credentials', action: 'credentials' }
+      : { chip: 'needs_signin', action: 'signin' };
+  }
+  return { chip: 'ready', action: null };
+};
+
+export const serviceChipTone = (chip: ServiceChip): StatusTone => {
+  switch (chip) {
+    case 'ready':
+      return 'ok';
+    case 'needs_signin':
+    case 'needs_credentials':
+    case 'contact_admin':
+      return 'warn';
+    case 'credentials_outdated':
+    case 'credentials_rejected':
+    case 'unavailable':
+      return 'err';
+    default:
+      return 'muted';
+  }
+};
+
+/** Where a workspace link that opens one service's credential panel leads. */
+export const workspaceCredentialsPath = (server: string): string =>
+  `/workspace?credentials=${encodeURIComponent(server)}`;
+
+/** Where a workspace link that opens one service's panel leads. */
+export const workspaceServicePath = (server: string): string =>
+  `/workspace?service=${encodeURIComponent(server)}`;
+
+/** The binding of one service, or undefined. The panel never shows any other service. */
+export const findCredentialBinding = (
+  bindings: readonly MyCredentialBinding[],
+  serverName: string,
+): MyCredentialBinding | undefined => bindings.find((binding) => binding.serverName === serverName);
 
 export const applySelection = (
   servers: readonly WorkspaceServer[],

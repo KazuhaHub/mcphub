@@ -6,6 +6,8 @@ import { BookOpen, Loader2, Menu } from 'lucide-react';
 import ThemeSwitch from '@/components/ui/ThemeSwitch';
 import LanguageSwitch from '@/components/ui/LanguageSwitch';
 import GitHubIcon from '@/components/icons/GitHubIcon';
+import { useAuth } from '@/contexts/AuthContext';
+import { useSettings } from '@/contexts/SettingsContext';
 import { useEmbeddingSync } from '@/contexts/EmbeddingSyncContext';
 import { PROJECT_DOCS_URL, PROJECT_REPO_URL } from '@/constants/links';
 
@@ -19,6 +21,9 @@ const useCrumbs = (): string[] => {
   const { dashboardTitle } = useBranding();
   const location = useLocation();
   const params = useParams();
+  const { auth } = useAuth();
+  const { workspaceEnabled } = useSettings();
+  const adminCredentials = workspaceEnabled && Boolean(auth.user?.isAdmin);
 
   return useMemo(() => {
     const path = location.pathname;
@@ -40,7 +45,8 @@ const useCrumbs = (): string[] => {
     }
     if (path.startsWith('/oauth-applications')) return [root, t('oauthApprovals.title')];
     if (path.startsWith('/passkeys')) return [root, t('passkeys.title')];
-    if (path.startsWith('/credentials')) return [root, t('credentials.title')];
+    if (path.startsWith('/credentials'))
+      return [root, t(adminCredentials ? 'credentials.adminTitle' : 'credentials.title')];
     if (path.startsWith('/servers')) return [root, t('nav.servers')];
     if (path.startsWith('/groups')) return [root, t('nav.groups')];
     if (path.startsWith('/prompts')) return [root, t('nav.prompts')];
@@ -56,7 +62,7 @@ const useCrumbs = (): string[] => {
     if (path.startsWith('/activity')) return [root, t('nav.activity')];
     if (path.startsWith('/settings')) return [root, t('nav.settings')];
     return [root];
-  }, [location.pathname, location.search, params, t, dashboardTitle]);
+  }, [location.pathname, location.search, params, t, dashboardTitle, adminCredentials]);
 };
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar, menuExpanded }) => {

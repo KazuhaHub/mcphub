@@ -517,8 +517,6 @@
     "noServices": "暂无可用服务,请先在“服务”标签页中选择。",
     "serviceNotReady": "请先在工作区中选择此服务。",
     "serviceConflict": "它的名称与某个分组重名,因此没有独立端点。",
-    "needsCredentials": "{{name}} 需要你自己的凭据才能使用。",
-    "bindCredentials": "添加凭据",
     "useKey": "改用 API 密钥",
     "useKeyHint": "使用你创建的密钥发送 Authorization 请求头,而不是通过 OAuth 登录。",
     "format": "配置格式",
@@ -1772,7 +1770,16 @@
     "sourceUrlMismatch": "URL 允许值不匹配",
     "noOtherServers": "没有其他声明凭据字段的服务器",
     "noSourcesHelp": "请先在其他服务器配置个人凭据，并确保字段匹配，然后再复制。",
-    "deleteConfirm": "确定删除 {{server}} 的凭据？后续请求需要重新配置凭据才能使用。"
+    "deleteConfirm": "确定删除 {{server}} 的凭据？后续请求需要重新配置凭据才能使用。",
+    "adminTitle": "用户凭据",
+    "adminDescription": "仅管理员可用。查看和管理其他用户的凭据。每个人在工作台的服务列表里设置自己的凭据。",
+    "chooseUser": "选择用户",
+    "panelTitle": "{{name}} 的凭据",
+    "panelHint": "仅此一个服务。已保存的值保持遮挡。",
+    "notNeeded": "{{name}} 不需要个人凭据，或你无法使用它。",
+    "outdatedStatus": "凭据需更新",
+    "showingFor": "{{user}} 的凭据",
+    "showingOwn": "你自己的凭据"
   },
   "workspace": {
     "status": {
@@ -1801,30 +1808,18 @@
     "retry": "重试",
     "toggleFailed": "无法更新 {{name}}，更改已撤销。",
     "connectFailed": "无法开始连接。",
-    "banner": {
-      "noneSelected": "选择服务以开始使用",
-      "normal_other": "已选的 {{count}} 个服务均可用。",
-      "partial_other": "已选 {{selected}} 个服务中有 {{attention}} 个需要处理",
-      "noneUsable_other": "你已选的 {{count}} 个服务目前都不可用。"
-    },
     "endpoint": {
       "smartHint": "智能路由只暴露少量搜索与调用工具，而不是全部工具，可以让客户端的上下文保持精简。",
       "mode": "端点类型",
       "mode_direct": "直连",
       "mode_smart": "智能路由"
     },
-    "tools": {
-      "warning": "你的选择共暴露 {{count}} 个工具，工具过多会挤占客户端的上下文。",
-      "strongWarning": "你的选择共暴露 {{count}} 个工具，对大多数客户端来说太多了。请改用智能路由端点或单个服务的端点。",
-      "label_other": "个工具（来自可用服务）"
-    },
     "services": {
       "tab": "服务",
       "title": "可用服务",
-      "description": "为你的端点开启或关闭服务。",
+      "description": "开关决定哪些服务出现在你的接入地址里。点一个服务查看详情。",
       "empty": "暂时没有可供你使用的服务。",
       "toggleFor": "将 {{name}} 加入我的工作区",
-      "copyEndpoint": "复制端点",
       "copyEndpointFor": "复制 {{name}} 的端点",
       "endpointConflict": "没有单独的端点：有分组与此服务同名。请改用你的主端点。",
       "toolCount_other": "{{count}} 个工具"
@@ -1841,8 +1836,6 @@
       "risk_not_enabled": "该工具未在你的工作区中允许"
     },
     "actions": {
-      "select": "加入工作区",
-      "selectFor": "将 {{name}} 加入我的工作区",
       "connect": "连接",
       "connectFor": "连接 {{name}}",
       "contactAdmin": "联系管理员",
@@ -1953,13 +1946,53 @@
       "aboveCap": "管理员不允许",
       "changeFailed": "无法更改 {{name}} 的权限，请重试。",
       "hiddenNotice_other": "你的选择隐藏了 {{count}} 个工具。",
-      "banner_other": "你已选的服务中有 {{count}} 个工具被隐藏：修改数据或代你行动的工具在你允许之前保持关闭。请在下方打开服务进行允许。",
-      "connectToSee": "连接此服务后即可查看其工具，并选择它们可以做什么。",
-      "unknownTools": "连接后可查看工具",
-      "pendingTools": "已连接 — 首次使用后显示工具",
       "connectedPending": "已连接。首次使用此服务后，这里会显示它的工具。",
       "defaultNote": "在你自行选择之前，由管理员设定。",
-      "untrustedHint": "此服务并非由管理员运行，其工具未经验证：全部按“他人可见的操作”处理。"
+      "untrustedHint": "此服务并非由管理员运行，其工具未经验证：全部按“他人可见的操作”处理。",
+      "hiddenSummary_other": "你的权限选择隐藏了 {{count}} 个工具。打开服务即可更改。"
+    },
+    "chip": {
+      "ready": "可用",
+      "not_enabled": "未启用",
+      "needs_signin": "需登录",
+      "needs_credentials": "需凭据",
+      "credentials_outdated": "凭据已过期",
+      "unavailable": "不可用",
+      "action": {
+        "signin": "登录",
+        "signinTo": "登录 {{name}}",
+        "credentials": "添加凭据",
+        "update": "更新",
+        "signinAgain": "重新登录",
+        "signinAgainTo": "重新登录 {{name}}"
+      },
+      "credentials_rejected": "凭据被拒绝",
+      "contact_admin": "你无权使用"
+    },
+    "panel": {
+      "status": "状态",
+      "tools": "工具",
+      "permissions": "权限",
+      "credentials": "你的凭据",
+      "actions": "使用此服务",
+      "copyUrl": "复制地址",
+      "toolsAfterSignIn": "登录后可见。",
+      "permissionsOff": "开启此服务后，才能选择它的工具可以做什么。",
+      "statusText": {
+        "ready": "已在你的工作区中可用。",
+        "not_enabled": "不在你的接入地址中。用列表中的开关开启。",
+        "needs_signin": "请先登录此服务才能使用。",
+        "needs_credentials": "此服务需要你自己的凭据才能使用。",
+        "credentials_outdated": "保存凭据后服务设置发生了变化，请重新填写。",
+        "unavailable": "此服务目前无法使用。",
+        "credentials_rejected": "服务拒绝了你的凭据。请检查后重新保存。",
+        "contact_admin": "你的账号无法使用此服务。请联系管理员获取权限。",
+        "signin_again": "服务不再接受你的登录。请重新登录以继续使用。"
+      }
+    },
+    "toolsHint": {
+      "warn": "你的选择共有 {{count}} 个工具，可能挤占客户端的上下文。",
+      "strong": "你的选择共有 {{count}} 个工具，对多数客户端来说太多：请使用智能路由或单服务地址。"
     }
   },
   "serviceLink": {

@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { WorkspaceServer } from '../../frontend/src/types';
-import WorkspaceServiceRow from '../../frontend/src/components/workspace/WorkspaceServiceRow';
+import ServicePanel from '../../frontend/src/components/workspace/ServicePanel';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -28,21 +28,25 @@ const server = (extra: Partial<WorkspaceServer> = {}): WorkspaceServer => ({
 
 const render = (workspaceServer: WorkspaceServer) =>
   renderToStaticMarkup(
-    createElement(WorkspaceServiceRow, {
+    createElement(ServicePanel, {
       server: workspaceServer,
       credentialServers: null,
+      bindings: null,
+      bindingsError: '',
+      reloadCredentials: jest.fn(),
       busy: false,
-      onToggle: jest.fn(),
+      onClose: jest.fn(),
       onRiskChange: jest.fn(),
       onAction: jest.fn(),
       onCopyEndpoint: jest.fn(),
+      onConnectToAi: jest.fn(),
     }),
   );
 
 const radios = (html: string) =>
   [...html.matchAll(/<button[^>]*role="radio"[^>]*>/g)].map((match) => match[0]);
 
-describe('the tool risk control on a workspace service row', () => {
+describe('the tool risk control in a service panel', () => {
   it('offers three options with the number of tools at each level', () => {
     const html = render(server());
     const options = radios(html);
@@ -84,8 +88,12 @@ describe('the tool risk control on a workspace service row', () => {
     );
   });
 
-  it('is shown only for a service in the workspace', () => {
-    expect(radios(render(server({ selected: false })))).toHaveLength(0);
+  it('is shown only for a service in the workspace, and the explanation only once', () => {
+    const off = render(server({ selected: false }));
+    expect(radios(off)).toHaveLength(0);
+    expect(off).toContain('workspacePage.panel.permissionsOff');
+    const html = render(server());
+    expect(html.split('workspacePage.risk.explanation').length).toBe(2);
   });
 
   it('keeps the existing tool count, which now counts only what the ceiling allows', () => {
@@ -94,8 +102,8 @@ describe('the tool risk control on a workspace service row', () => {
 
   it('says to connect, rather than showing zero tools, when the tools are not known', () => {
     const html = render(server({ toolCount: null, riskCounts: null }));
-    expect(html).toContain('workspacePage.risk.unknownTools');
-    expect(html).toContain('workspacePage.risk.connectToSee');
+    expect(html).toContain('workspacePage.panel.toolsAfterSignIn');
+    expect(html).not.toContain('workspacePage.risk.connectToSee');
     expect(html).not.toContain('workspacePage.services.toolCount');
     expect(html).not.toContain('workspacePage.risk.hiddenNotice');
     expect(radios(html)).toHaveLength(3);
@@ -110,9 +118,8 @@ describe('the tool risk control on a workspace service row', () => {
         credentialConfigured: true,
       }),
     );
-    expect(html).toContain('workspacePage.risk.pendingTools');
-    expect(html).toContain('workspacePage.risk.connectedPending');
-    expect(html).not.toContain('workspacePage.risk.unknownTools');
+    expect(html.split('workspacePage.risk.connectedPending')).toHaveLength(2);
+    expect(html).not.toContain('workspacePage.panel.toolsAfterSignIn');
     expect(html).not.toContain('workspacePage.risk.connectToSee');
   });
 
@@ -132,7 +139,7 @@ describe('the tool risk control on a workspace service row', () => {
           ...extra,
         }),
       );
-      expect(html).not.toContain('workspacePage.risk.pendingTools');
+      expect(html).not.toContain('workspacePage.risk.connectedPending');
     },
   );
 
@@ -145,8 +152,8 @@ describe('the tool risk control on a workspace service row', () => {
         credentialConfigured: false,
       }),
     );
-    expect(html).toContain('workspacePage.risk.connectToSee');
-    expect(html).not.toContain('workspacePage.risk.pendingTools');
+    expect(html).not.toContain('workspacePage.risk.connectToSee');
+    expect(html).not.toContain('workspacePage.risk.connectedPending');
   });
 
   it('tells the user when a level is only the administrator’s default', () => {
@@ -164,7 +171,7 @@ describe('the tool risk control on a workspace service row', () => {
   });
 });
 
-describe('the management link on a workspace service row', () => {
+describe('the management link in a service panel', () => {
   it('links to the stable service page in a new tab, labelled with the service name', () => {
     const html = render(server({ manageUrl: 'https://example.com/account/token' }));
     expect(html).toContain('href="/services/notes"');

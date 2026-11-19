@@ -2,11 +2,8 @@ import type {
   WorkspaceServer,
   WorkspaceStatusAction,
   WorkspaceStatusCode,
-  WorkspaceSummary,
 } from '../../frontend/src/types';
 import {
-  TOOL_COUNT_STRONG,
-  TOOL_COUNT_WARN,
   applySelection,
   buildSmartEndpoint,
   createLatestOnly,
@@ -18,11 +15,13 @@ import {
   resolveWorkspaceSetting,
   shouldRefreshOnFocus,
   countExposedTools,
-  credentialsPath,
-  resolveServiceAction,
-  resolveSummaryBanner,
-  toggleServerSelection,
+  resolveServiceChip,
   toolCountLevel,
+  workspaceServicePath,
+  findCredentialBinding,
+  workspaceCredentialsPath,
+  resolveServiceAction,
+  toggleServerSelection,
 } from '../../frontend/src/utils/workspace';
 
 const server = (
@@ -46,17 +45,7 @@ const server = (
   ...extra,
 });
 
-describe('tool count thresholds', () => {
-  it('warns above 40 and strongly above 80', () => {
-    expect(TOOL_COUNT_WARN).toBe(40);
-    expect(TOOL_COUNT_STRONG).toBe(80);
-    expect(toolCountLevel(0)).toBe('ok');
-    expect(toolCountLevel(40)).toBe('ok');
-    expect(toolCountLevel(41)).toBe('warn');
-    expect(toolCountLevel(80)).toBe('warn');
-    expect(toolCountLevel(81)).toBe('strong');
-  });
-
+describe('exposed tools', () => {
   it('counts tools of selected, available services only', () => {
     const servers = [
       server('a', 'available', null, { toolCount: 10 }),
@@ -128,41 +117,18 @@ describe('action mapping per status code', () => {
     ).toEqual({ kind: 'contact_admin' });
   });
 
-  it('builds a credentials deep link the Credentials page understands', () => {
-    expect(credentialsPath('my server')).toBe('/credentials?server=my%20server');
-  });
-});
-
-describe('summary banner', () => {
-  const summary = (
-    endpointState: WorkspaceSummary['endpointState'],
-    counts: Partial<WorkspaceSummary['counts']>,
-  ): WorkspaceSummary => ({
-    endpointState,
-    counts: {
-      available: 0,
-      not_selected: 0,
-      paused: 0,
-      maintenance: 0,
-      needs_auth: 0,
-      revoked: 0,
-      credential_invalid: 0,
-      error: 0,
-      ...counts,
-    },
+  it('builds a workspace link that opens one service’s credential panel', () => {
+    expect(workspaceCredentialsPath('my server')).toBe('/workspace?credentials=my%20server');
   });
 
-  it('reports normal, partial and empty states', () => {
-    expect(resolveSummaryBanner(summary('normal', { available: 3 }))).toEqual({
-      kind: 'normal',
-      selected: 3,
-      attention: 0,
-    });
-    expect(
-      resolveSummaryBanner(summary('partial', { available: 3, needs_auth: 1, error: 1 })),
-    ).toEqual({ kind: 'partial', selected: 5, attention: 2 });
-    expect(resolveSummaryBanner(summary('empty', { not_selected: 4 })).kind).toBe('none_selected');
-    expect(resolveSummaryBanner(summary('empty', { paused: 2 })).kind).toBe('none_usable');
+  it('builds a workspace link that opens one service’s panel', () => {
+    expect(workspaceServicePath('my server')).toBe('/workspace?service=my%20server');
+  });
+
+  it('finds the binding of exactly one service', () => {
+    const bindings = [{ serverName: 'a' }, { serverName: 'b' }] as never[];
+    expect(findCredentialBinding(bindings, 'b')).toBe(bindings[1]);
+    expect(findCredentialBinding(bindings, 'c')).toBeUndefined();
   });
 });
 
@@ -234,8 +200,14 @@ describe('latest-only loading', () => {
     const first = deferred<string>();
     const second = deferred<string>();
     const applied: string[] = [];
-    const a = gate.run(() => first.promise, (value) => applied.push(value));
-    const b = gate.run(() => second.promise, (value) => applied.push(value));
+    const a = gate.run(
+      () => first.promise,
+      (value) => applied.push(value),
+    );
+    const b = gate.run(
+      () => second.promise,
+      (value) => applied.push(value),
+    );
     second.resolve('new');
     await expect(b).resolves.toBe(true);
     first.resolve('stale');
@@ -247,7 +219,10 @@ describe('latest-only loading', () => {
     const gate = createLatestOnly();
     const pending = deferred<string>();
     const applied: string[] = [];
-    const run = gate.run(() => pending.promise, (value) => applied.push(value));
+    const run = gate.run(
+      () => pending.promise,
+      (value) => applied.push(value),
+    );
     gate.invalidate();
     pending.resolve('stale');
     await run;
@@ -293,10 +268,21 @@ describe('workspace error handling helpers', () => {
   });
 
   it('treats a failed settings read as workspace mode off', () => {
-    expect(resolveWorkspaceSetting({ success: false })).toEqual({ enabled: false, failed: true, signedOut: false });
-    expect(resolveWorkspaceSetting(undefined)).toEqual({ enabled: false, failed: true, signedOut: false });
+    expect(resolveWorkspaceSetting({ success: false })).toEqual({
+      enabled: false,
+      failed: true,
+      signedOut: false,
+    });
+    expect(resolveWorkspaceSetting(undefined)).toEqual({
+      enabled: false,
+      failed: true,
+      signedOut: false,
+    });
     expect(
-      resolveWorkspaceSetting({ success: true, data: { systemConfig: { workspace: { enabled: true } } } }),
+      resolveWorkspaceSetting({
+        success: true,
+        data: { systemConfig: { workspace: { enabled: true } } },
+      }),
     ).toEqual({ enabled: true, failed: false, signedOut: false });
     expect(resolveWorkspaceSetting({ success: true, data: { systemConfig: {} } })).toEqual({
       enabled: false,
@@ -313,23 +299,6 @@ describe('workspace error handling helpers', () => {
     );
     expect(text).toBe("'x' is under maintenance until 1 Nov 2026. Try again later. Back soon.");
     expect(localizeStatusMessage({ message: 'plain' }, () => 'unused')).toBe('plain');
-  });
-});
-
-describe('summary banner source of truth', () => {
-  it('follows the backend endpoint state even when the counts disagree', () => {
-    const counts = {
-      available: 0,
-      not_selected: 0,
-      paused: 0,
-      maintenance: 0,
-      needs_auth: 0,
-      revoked: 0,
-      credential_invalid: 0,
-      error: 0,
-    };
-    expect(resolveSummaryBanner({ endpointState: 'normal', counts: { ...counts, error: 2 } }).kind).toBe('normal');
-    expect(resolveSummaryBanner({ endpointState: 'partial', counts }).kind).toBe('partial');
   });
 });
 
@@ -363,8 +332,14 @@ describe('superseded runs', () => {
     const slow = new Promise<string>((_, reject) => {
       fail = reject;
     });
-    const stale = gate.run(() => slow, () => undefined);
-    await gate.run(async () => 'fresh', () => undefined);
+    const stale = gate.run(
+      () => slow,
+      () => undefined,
+    );
+    await gate.run(
+      async () => 'fresh',
+      () => undefined,
+    );
     fail(new Error('late failure'));
     await expect(stale).resolves.toBe(false);
   });
@@ -386,7 +361,91 @@ describe('authorization links', () => {
   const needs = server('a', 'needs_auth', 'connect');
   it('keeps links only for servers that still need sign-in', () => {
     const links = { a: 'https://x/a', b: 'https://x/b' };
-    expect(pruneAuthLinks(links, [needs, server('b', 'available', null)])).toEqual({ a: 'https://x/a' });
+    expect(pruneAuthLinks(links, [needs, server('b', 'available', null)])).toEqual({
+      a: 'https://x/a',
+    });
     expect(pruneAuthLinks({ a: 'https://x/a' }, [needs])).toEqual({ a: 'https://x/a' });
+  });
+});
+
+describe('resolveServiceChip', () => {
+  const status = (code: string, action: string | null = null) =>
+    ({ name: 'svc', status: { code, message: '', action } }) as never;
+  const slots = new Set(['svc']);
+
+  it('maps every status to exactly one chip and the action it needs', () => {
+    expect(resolveServiceChip(status('available'), slots)).toEqual({ chip: 'ready', action: null });
+    expect(resolveServiceChip(status('not_selected', 'select'), slots)).toEqual({
+      chip: 'not_enabled',
+      action: null,
+    });
+    expect(resolveServiceChip(status('needs_auth', 'connect'), slots)).toEqual({
+      chip: 'needs_credentials',
+      action: 'credentials',
+    });
+    expect(resolveServiceChip(status('needs_auth', 'connect'), new Set())).toEqual({
+      chip: 'needs_signin',
+      action: 'signin',
+    });
+    expect(resolveServiceChip(status('revoked', 'connect'), slots)).toEqual({
+      chip: 'needs_signin',
+      action: 'signin',
+    });
+    // Rejected is a wrong value; outdated is a service whose settings changed.
+    expect(resolveServiceChip(status('credential_invalid', 'connect'), slots)).toEqual({
+      chip: 'credentials_rejected',
+      action: 'credentials',
+    });
+    expect(
+      resolveServiceChip(status('credential_invalid', 'connect'), slots, { stale: true }),
+    ).toEqual({ chip: 'credentials_outdated', action: 'credentials' });
+    for (const code of ['paused', 'maintenance', 'error']) {
+      expect(resolveServiceChip(status(code), slots)).toEqual({
+        chip: 'unavailable',
+        action: null,
+      });
+    }
+  });
+
+  it('lets the most important state win', () => {
+    // Failing beats outdated credentials; outdated beats a plain ready.
+    expect(resolveServiceChip(status('error'), slots, { stale: true }).chip).toBe('unavailable');
+    expect(resolveServiceChip(status('available'), slots, { stale: true }).chip).toBe(
+      'credentials_outdated',
+    );
+    // A service the user has not enabled is just not enabled, whatever its credentials.
+    expect(resolveServiceChip(status('not_selected', 'select'), slots, { stale: true }).chip).toBe(
+      'not_enabled',
+    );
+  });
+});
+
+describe('resolveServiceChip for services that sign in instead of taking credentials', () => {
+  const status = (code: string, action: string | null = null) =>
+    ({ name: 'canvas', status: { code, message: '', action } }) as never;
+  const noSlots = new Set<string>();
+
+  it('sends a rejected personal sign-in to a sign-in again, not to credentials', () => {
+    expect(resolveServiceChip(status('credential_invalid', 'connect'), noSlots)).toEqual({
+      chip: 'needs_signin',
+      action: 'signin',
+      reauth: true,
+    });
+  });
+
+  it('shows a service the user may not use as contact-admin, with no action', () => {
+    expect(resolveServiceChip(status('needs_auth', 'contact_admin'), noSlots)).toEqual({
+      chip: 'contact_admin',
+      action: null,
+    });
+    expect(
+      resolveServiceChip(status('needs_auth', 'contact_admin'), new Set(['canvas'])).action,
+    ).toBeNull();
+  });
+
+  it('knows the thresholds for the tool-count hint', () => {
+    expect(toolCountLevel(40)).toBe('ok');
+    expect(toolCountLevel(41)).toBe('warn');
+    expect(toolCountLevel(81)).toBe('strong');
   });
 });

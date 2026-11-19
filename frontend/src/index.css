@@ -153,6 +153,19 @@
 }
 .hub-tag.accent { color: var(--hub-accent); background: var(--hub-accent-soft); border-color: transparent; }
 .hub-tag.muted { color: var(--hub-ink-3); }
+.hub-tag.attention {
+  color: var(--hub-ink);
+  background: color-mix(in oklch, var(--hub-warn) 20%, transparent);
+  border-color: color-mix(in oklch, var(--hub-warn) 60%, transparent);
+}
+.hub-tag.problem {
+  color: var(--hub-ink);
+  background: color-mix(in oklch, var(--hub-err) 14%, transparent);
+  border-color: color-mix(in oklch, var(--hub-err) 55%, transparent);
+}
+button.hub-tag { cursor: pointer; transition: border-color var(--hub-dur-hover) var(--hub-ease-hover); }
+button.hub-tag:hover { border-color: var(--hub-ink-3); }
+button.hub-tag:focus-visible { outline: 2px solid var(--hub-accent); outline-offset: 2px; }
 
 /* kbd-style chip */
 .hub-kbd {
@@ -1346,21 +1359,26 @@ button.hub-btn.primary.is-loading::after {
     color: var(--hub-ink-2);
     font-size: 14px;
     white-space: nowrap;
+    isolation: isolate;
+    -webkit-tap-highlight-color: transparent;
     transition: color var(--hub-dur-hover) var(--hub-ease-hover);
   }
+  /* No filled plate on a tab: a fill read as a second "selected" tab when the pointer rested on
+     the previous one. Selection is the underline plus ink colour; hover only darkens the text;
+     the focus ring is drawn for keyboard focus alone. */
   .hub-tab::before {
     content: '';
     position: absolute;
     inset: 6px -6px;
     border-radius: var(--hub-radius);
-    background: var(--hub-surface-hover);
     opacity: 0;
     transition: opacity var(--hub-dur-hover) var(--hub-ease-hover);
     z-index: -1;
   }
-  .hub-tab { isolation: isolate; }
-  .hub-tab:hover { color: var(--hub-ink); }
-  .hub-tab:hover::before { opacity: 1; }
+  /* Hover only where a pointer really hovers; on touch screens :hover sticks to the last tap. */
+  @media (hover: hover) {
+    .hub-tab:hover { color: var(--hub-ink); }
+  }
   .hub-tab::after {
     content: '';
     position: absolute;
@@ -1373,11 +1391,12 @@ button.hub-btn.primary.is-loading::after {
     transform: scaleX(0);
     transition: transform var(--hub-dur-state) var(--hub-ease-move);
   }
-  .hub-tab[aria-selected='true'] { color: var(--hub-ink); font-weight: 500; }
+  /* Faux bold: a weight change would resize the tab and make the underline jump. */
+  .hub-tab[aria-selected='true'] { color: var(--hub-ink); text-shadow: 0.4px 0 0 currentColor; }
   .hub-tab[aria-selected='true']::after { transform: scaleX(1); }
   .hub-tab:not(:disabled):active { transform: none; }
-  .hub-tab:focus-visible { outline: none; }
-  .hub-tab:focus-visible::before { opacity: 1; box-shadow: inset 0 0 0 2px var(--hub-accent); }
+  .hub-tab:focus { outline: none; }
+  .hub-tab:focus-visible::before { opacity: 1; box-shadow: 0 0 0 2px var(--hub-accent); }
 
   /* Segmented control: switching between options of one setting. */
   .hub-seg {

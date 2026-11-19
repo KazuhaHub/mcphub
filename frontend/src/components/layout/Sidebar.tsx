@@ -23,6 +23,7 @@ import { useGroupData } from '@/hooks/useGroupData';
 import { useSettings } from '@/contexts/SettingsContext';
 import {
   canViewSystemLogs,
+  getCredentialsNav,
   getWorkspaceNavKeys,
   type NavKey,
 } from '@/utils/navigationPermissions';
@@ -114,6 +115,11 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = fal
     resolved: workspaceResolved,
   }).map((key) => allWorkspaceItems[key]);
 
+  const credentialsNav = getCredentialsNav({
+    isAdmin: Boolean(auth.user?.isAdmin),
+    workspaceEnabled,
+    resolved: workspaceResolved,
+  });
   const systemItems: MenuItem[] = [
     ...(userCanManageUsers
       ? [{ path: '/users', label: t('nav.users'), icon: <UsersIcon className="h-4 w-4" /> }]
@@ -124,7 +130,15 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = fal
     ...(canViewSystemLogs(auth.user)
       ? [{ path: '/logs', label: t('nav.logs'), icon: <ScrollText className="h-4 w-4" /> }]
       : []),
-    { path: '/credentials', label: t('credentials.title'), icon: <KeyRound className="h-4 w-4" /> },
+    ...(credentialsNav
+      ? [
+          {
+            path: '/credentials',
+            label: t(credentialsNav === 'admin' ? 'credentials.adminTitle' : 'credentials.title'),
+            icon: <KeyRound className="h-4 w-4" />,
+          },
+        ]
+      : []),
     { path: '/settings', label: t('nav.settings'), icon: <SettingsIcon className="h-4 w-4" /> },
   ];
 

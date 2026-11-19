@@ -1,0 +1,357 @@
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { getCredentialCopySources } from '../../utils/credentialCopySources';
+import { getSafeManageHref } from '../../utils/manageUrl';
+import { getServiceLinkHref } from '../../utils/serviceLink';
+import type { MyCredentialBinding } from '../../types';
+import { apiDelete, apiPost, apiPut, type ApiResponse } from '../../utils/fetchInterceptor';
+
+export const CredentialForm = ({
+  binding,
+  baseUrl,
+  bindings,
+  onChange,
+  bare = false,
+}: {
+  binding: MyCredentialBinding;
+  baseUrl: string;
+  bindings: MyCredentialBinding[];
+  onChange: () => Promise<void>;
+  // Inside a panel that already names the server: no card chrome and no repeated heading.
+  bare?: boolean;
+}) => {
+  const { t } = useTranslation();
+  const [mode, setMode] = useState<'view' | 'edit' | 'copy' | 'delete'>(
+    binding.configured ? 'view' : 'edit',
+  );
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [sourceServer, setSourceServer] = useState('');
+  const [overwrite, setOverwrite] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ message: string; error: boolean }>();
+  const sources = getCredentialCopySources(binding, bindings);
+  const selectedSource = sources.find(({ source }) => source.serverName === sourceServer);
+  const hasBinding = Boolean(binding.updatedAt);
+  const changeMode = (next: typeof mode) => {
+    setMode(next);
+    setValues({});
+    setSourceServer('');
+    setOverwrite(false);
+    setFeedback(undefined);
+  };
+  const submit = async (action: 'save' | 'copy' | 'delete') => {
+    if (busy) return;
+    setBusy(true);
+    setFeedback(undefined);
+    try {
+      const url = `${baseUrl}/${encodeURIComponent(binding.serverName)}`;
+      const result =
+        action === 'delete'
+          ? await apiDelete<ApiResponse>(url)
+          : action === 'copy'
+            ? await apiPost<ApiResponse>(`${url}/copy`, { sourceServer, overwrite })
+            : await apiPut<ApiResponse>(url, { values });
+      if (!result.success) throw new Error(result.message || t('credentials.failed'));
+      await onChange();
+      changeMode('view');
+      setFeedback({
+        message: t(
+          `credentials.${action === 'copy' ? 'copied' : action === 'delete' ? 'deleted' : 'saved'}`,
+        ),
+        error: false,
+      });
+    } catch (error) {
+      setFeedback({
+        message: error instanceof Error ? error.message : t('credentials.failed'),
+        error: true,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const manageHref = getSafeManageHref(binding.manageUrl);
+  const sourceReason = (entry: (typeof sources)[number]) => {
+    if (entry.reason === 'missing')
+      return t('credentials.sourceMissing', { slots: entry.missing.join(', ') });
+    if (entry.reason === 'unconfigured') return t('credentials.sourceUnconfigured');
+    if (entry.reason === 'url') return t('credentials.sourceUrlMismatch');
+    return '';
+  };
+  return (
+    <section
+      className={bare ? 'space-y-4' : 'hub-card p-5 space-y-4'}
+      aria-label={binding.serverName}
+    >
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+        <div className="min-w-0 space-y-1">
+          {!bare && <h2 className="font-semibold break-words">{binding.serverName}</h2>}
+          {binding.updatedAt && (
+            <p className="text-xs text-[var(--hub-ink-3)]">
+              {t('credentials.updatedAt')}:{' '}
+              <time dateTime={binding.updatedAt}>
+                {new Date(binding.updatedAt).toLocaleString(undefined, {
+                  dateStyle: 'short',
+                  timeStyle: 'short',
+                })}
+              </time>
+            </p>
+          )}
+        </div>
+        <span className="hub-tag shrink-0">
+          {t(
+            binding.stale
+              ? 'credentials.outdatedStatus'
+              : binding.configured
+                ? 'credentials.savedStatus'
+                : 'credentials.required',
+          )}
+        </span>
+      </div>
+      {binding.stale && (
+        <p role="status" className="text-sm" style={{ color: 'var(--hub-err)' }}>
+          {t('credentials.staleNotice')}
+        </p>
+      )}
+      {manageHref && (
+        <a
+          href={getServiceLinkHref(binding.serverName)}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={t('credentials.getCredentialsFor', { name: binding.serverName })}
+          className="block text-sm underline"
+        >
+          {t('credentials.getCredentials')}
+        </a>
+      )}
+      {mode !== 'edit' && (
+        <dl className="divide-y divide-[var(--hub-line-2)]">
+          {binding.credentialTemplate.map((slot) => {
+            const id = `${slot.target}.${slot.name}`;
+            return (
+              <div key={id} className="flex items-start justify-between gap-4 py-2 text-sm">
+                <dt className="min-w-0">
+                  <span className="font-medium break-words">{slot.label || slot.name}</span>
+                  <span className="hub-mono block break-all text-xs text-[var(--hub-ink-3)]">
+                    {id}
+                  </span>
+                </dt>
+                <dd className="hub-mono text-[var(--hub-ink-3)]">
+                  {binding.valuePreviews?.[id] ||
+                    t(
+                      binding.configuredSlots.includes(id)
+                        ? 'credentials.savedStatus'
+                        : 'credentials.notSet',
+                    )}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      )}
+      {mode === 'view' && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="hub-btn primary" onClick={() => changeMode('edit')}>
+            {t(hasBinding ? 'credentials.update' : 'credentials.configure')}
+          </button>
+          <button type="button" className="hub-btn" onClick={() => changeMode('copy')}>
+            {t('credentials.copyFrom')}
+          </button>
+          {hasBinding && (
+            <details className="relative ml-auto">
+              <summary className="hub-btn cursor-pointer">{t('credentials.moreActions')}</summary>
+              <div className="absolute right-0 z-10 mt-2 rounded-lg bg-[var(--hub-surface)] p-2 shadow-lg hub-border">
+                <button
+                  type="button"
+                  className="hub-btn danger whitespace-nowrap"
+                  onClick={() => changeMode('delete')}
+                >
+                  {t('credentials.delete')}
+                </button>
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+      {mode === 'edit' && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit('save');
+          }}
+        >
+          <fieldset disabled={busy} className="space-y-4">
+            <legend className="mb-2 text-sm font-medium">
+              {t(hasBinding ? 'credentials.update' : 'credentials.configure')}
+            </legend>
+            <p className="text-xs text-[var(--hub-ink-3)]">
+              {t(hasBinding ? 'credentials.replaceHint' : 'credentials.configureHint')}
+            </p>
+            {binding.credentialTemplate.map((slot) => {
+              const id = `${slot.target}.${slot.name}`;
+              return (
+                <label key={id} className="block space-y-1 text-sm">
+                  <span className="font-medium">{slot.label || slot.name}</span>
+                  <span className="hub-mono block text-xs text-[var(--hub-ink-3)]">{id}</span>
+                  {slot.target === 'url' ? (
+                    <select
+                      required
+                      className="hub-input"
+                      value={values[id] || ''}
+                      onChange={(event) => setValues({ ...values, [id]: event.target.value })}
+                    >
+                      <option value="">{t('credentials.enterValue')}</option>
+                      {slot.allowed?.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="password"
+                      required
+                      autoComplete="new-password"
+                      maxLength={16384}
+                      value={values[id] || ''}
+                      placeholder={t(
+                        binding.configuredSlots.includes(id)
+                          ? 'credentials.replaceValue'
+                          : 'credentials.enterValue',
+                      )}
+                      className="hub-input"
+                      onChange={(event) => setValues({ ...values, [id]: event.target.value })}
+                    />
+                  )}
+                </label>
+              );
+            })}
+            <div className="flex flex-wrap gap-2">
+              <button type="submit" className="hub-btn primary">
+                {t(hasBinding ? 'credentials.replace' : 'credentials.save')}
+              </button>
+              <button type="button" className="hub-btn" onClick={() => changeMode('view')}>
+                {t('credentials.cancel')}
+              </button>
+              <button type="button" className="hub-btn" onClick={() => changeMode('copy')}>
+                {t('credentials.copyFrom')}
+              </button>
+            </div>
+          </fieldset>
+        </form>
+      )}
+      {mode === 'copy' && (
+        <div className="space-y-3 border-t border-[var(--hub-line)] pt-4">
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">{t('credentials.copyFrom')}</span>
+            <select
+              className="hub-input"
+              value={sourceServer}
+              disabled={busy || !sources.length}
+              onChange={(event) => {
+                setSourceServer(event.target.value);
+                setOverwrite(false);
+              }}
+            >
+              <option value="">
+                {t(sources.length ? 'credentials.chooseSource' : 'credentials.noOtherServers')}
+              </option>
+              {sources.map((entry) => (
+                <option
+                  key={entry.source.serverName}
+                  value={entry.source.serverName}
+                  disabled={Boolean(entry.reason)}
+                >
+                  {entry.source.serverName}
+                  {entry.reason ? ` — ${sourceReason(entry)}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          {!sources.some((entry) => !entry.reason) && (
+            <div className="space-y-1 text-sm text-[var(--hub-ink-3)]">
+              <p>{t('credentials.noSourcesHelp')}</p>
+              {sources.length > 0 && (
+                <ul className="list-disc pl-5">
+                  {sources.map((entry) => (
+                    <li key={entry.source.serverName} className="break-words">
+                      {entry.source.serverName}: {sourceReason(entry)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          <p className="text-xs text-[var(--hub-ink-3)]">{t('credentials.copyHint')}</p>
+          {sourceServer && hasBinding && (
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={overwrite}
+                disabled={busy}
+                onChange={(event) => setOverwrite(event.target.checked)}
+              />
+              <span>{t('credentials.confirmOverwrite')}</span>
+            </label>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="hub-btn primary"
+              disabled={
+                busy ||
+                !selectedSource ||
+                Boolean(selectedSource.reason) ||
+                (hasBinding && !overwrite)
+              }
+              onClick={() => void submit('copy')}
+            >
+              {t('credentials.copy')}
+            </button>
+            <button
+              type="button"
+              className="hub-btn"
+              disabled={busy}
+              onClick={() => changeMode('view')}
+            >
+              {t('credentials.cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+      {mode === 'delete' && (
+        <div className="space-y-3 border-t border-[var(--hub-line)] pt-4">
+          <p className="text-sm">
+            {t('credentials.deleteConfirm', { server: binding.serverName })}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="hub-btn danger"
+              disabled={busy}
+              onClick={() => void submit('delete')}
+            >
+              {t('credentials.delete')}
+            </button>
+            <button
+              type="button"
+              className="hub-btn"
+              disabled={busy}
+              onClick={() => changeMode('view')}
+            >
+              {t('credentials.cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+      {feedback && (
+        <p
+          role={feedback.error ? 'alert' : 'status'}
+          className="text-sm"
+          style={{ color: feedback.error ? 'var(--hub-err)' : 'var(--hub-ink-2)' }}
+        >
+          {feedback.message}
+        </p>
+      )}
+    </section>
+  );
+};

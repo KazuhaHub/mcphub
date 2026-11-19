@@ -33,7 +33,7 @@ import {
   minRisk,
   riskRank,
 } from '../utils/toolRisk.js';
-import { hasPersonalAuthentication } from '../utils/credentialTemplate.js';
+import { hasCredentialTemplate, hasPersonalAuthentication } from '../utils/credentialTemplate.js';
 import { areAnnotationsTrusted, primeAnnotationTrust } from '../services/annotationTrustService.js';
 import { getPublicInstallBaseUrl } from '../utils/protectedResource.js';
 import {
@@ -201,6 +201,8 @@ export const listWorkspaceServers = async (req: Request, res: Response): Promise
             riskCounts: tools.riskCounts,
             maxAllowedRisk: adminCapFor(server, user),
             requiresPersonalCredential: hasPersonalAuthentication(server),
+            // Credential slots only: a personal sign-in (OAuth) has none.
+            hasCredentialSlots: hasCredentialTemplate(server),
             credentialConfigured: personalAuth === 'not_required' || personalAuth === 'configured',
             status,
           };

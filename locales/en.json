@@ -515,8 +515,6 @@
     "noServices": "No services are available yet. Select some in the Services tab.",
     "serviceNotReady": "Select this service in your workspace first.",
     "serviceConflict": "Its name matches a group, so it has no endpoint of its own.",
-    "needsCredentials": "{{name}} needs your own credentials before it will work.",
-    "bindCredentials": "Add credentials",
     "useKey": "Use an API key instead",
     "useKeyHint": "Sends an Authorization header with a key you create, instead of signing in with OAuth.",
     "format": "Configuration format",
@@ -1770,7 +1768,16 @@
     "sourceUrlMismatch": "URL values do not match",
     "noOtherServers": "No other servers with credential slots",
     "noSourcesHelp": "Configure personal credentials on another server with matching fields before copying.",
-    "deleteConfirm": "Delete credentials for {{server}}? Future requests will require you to configure credentials again."
+    "deleteConfirm": "Delete credentials for {{server}}? Future requests will require you to configure credentials again.",
+    "adminTitle": "User credentials",
+    "adminDescription": "Administrators only. Look at and manage the credentials of another user. Everyone sets their own credentials from the workspace services list.",
+    "chooseUser": "Choose a user",
+    "panelTitle": "Credentials for {{name}}",
+    "panelHint": "Only this service. Saved values stay masked.",
+    "notNeeded": "{{name}} does not need personal credentials, or you cannot use it.",
+    "outdatedStatus": "Credentials outdated",
+    "showingFor": "Credentials of {{user}}",
+    "showingOwn": "Your own credentials"
   },
   "workspace": {
     "status": {
@@ -1799,34 +1806,18 @@
     "retry": "Retry",
     "toggleFailed": "Could not update {{name}}. The change was undone.",
     "connectFailed": "Could not start the connection.",
-    "banner": {
-      "noneSelected": "Select services to start",
-      "normal_one": "Your selected service is ready.",
-      "normal_other": "All {{count}} selected services are ready.",
-      "partial_one": "{{attention}} of {{selected}} selected service needs attention",
-      "partial_other": "{{attention}} of {{selected}} selected services need attention",
-      "noneUsable_one": "Your selected service is not available right now.",
-      "noneUsable_other": "None of your {{count}} selected services are available right now."
-    },
     "endpoint": {
       "smartHint": "Smart routing exposes a small set of search and call tools instead of every tool, which keeps your client's context small.",
       "mode": "Endpoint type",
       "mode_direct": "Direct",
       "mode_smart": "Smart routing"
     },
-    "tools": {
-      "warning": "Your selection exposes {{count}} tools. Large tool lists can crowd your client's context.",
-      "strongWarning": "Your selection exposes {{count}} tools, which is too many for most clients. Use the smart routing endpoint or per-service endpoints instead.",
-      "label_one": "tool from your available services",
-      "label_other": "tools from your available services"
-    },
     "services": {
       "tab": "Services",
       "title": "Available services",
-      "description": "Turn services on or off for your endpoint.",
+      "description": "The switch decides which services appear in your endpoint. Click a service for details.",
       "empty": "No services are available to you yet.",
       "toggleFor": "Include {{name}} in my workspace",
-      "copyEndpoint": "Copy endpoint",
       "copyEndpointFor": "Copy endpoint for {{name}}",
       "endpointConflict": "No separate endpoint: a group has the same name as this service. Use your main endpoint instead.",
       "toolCount_one": "{{count}} tool",
@@ -1844,8 +1835,6 @@
       "risk_not_enabled": "Tool not allowed in your workspace"
     },
     "actions": {
-      "select": "Add to workspace",
-      "selectFor": "Add {{name}} to my workspace",
       "connect": "Connect",
       "connectFor": "Connect {{name}}",
       "contactAdmin": "Ask an administrator",
@@ -1959,14 +1948,54 @@
       "changeFailed": "Could not change what {{name}} may do. Try again.",
       "hiddenNotice_one": "{{count}} tool is hidden by your choice.",
       "hiddenNotice_other": "{{count}} tools are hidden by your choice.",
-      "banner_one": "{{count}} tool in your selected services is hidden: tools that change data or act for you stay off until you allow them. Open a service below to allow more.",
-      "banner_other": "{{count}} tools in your selected services are hidden: tools that change data or act for you stay off until you allow them. Open a service below to allow more.",
-      "connectToSee": "Connect this service to see its tools and choose what they may do.",
-      "unknownTools": "Connect to see tools",
-      "pendingTools": "Connected — tools appear after first use",
       "connectedPending": "Connected. This service's tools appear here after you first use it.",
       "defaultNote": "Set by your administrator until you choose.",
-      "untrustedHint": "This service is not run by an administrator, so its tools are not verified: all of them count as actions others can see."
+      "untrustedHint": "This service is not run by an administrator, so its tools are not verified: all of them count as actions others can see.",
+      "hiddenSummary_one": "{{count}} tool is hidden by your permission choices. Open a service to change.",
+      "hiddenSummary_other": "{{count}} tools are hidden by your permission choices. Open a service to change."
+    },
+    "chip": {
+      "ready": "Ready",
+      "not_enabled": "Not enabled",
+      "needs_signin": "Needs sign-in",
+      "needs_credentials": "Needs credentials",
+      "credentials_outdated": "Credentials outdated",
+      "unavailable": "Unavailable",
+      "action": {
+        "signin": "Sign in",
+        "signinTo": "Sign in to {{name}}",
+        "credentials": "Add credentials",
+        "update": "Update",
+        "signinAgain": "Sign in again",
+        "signinAgainTo": "Sign in again to {{name}}"
+      },
+      "credentials_rejected": "Credentials rejected",
+      "contact_admin": "Not available to you"
+    },
+    "panel": {
+      "status": "Status",
+      "tools": "Tools",
+      "permissions": "Permissions",
+      "credentials": "Your credentials",
+      "actions": "Use this service",
+      "copyUrl": "Copy URL",
+      "toolsAfterSignIn": "Visible after you sign in.",
+      "permissionsOff": "Turn this service on to choose what its tools may do.",
+      "statusText": {
+        "ready": "Available in your workspace.",
+        "not_enabled": "Not in your endpoint. Turn it on with the switch in the list.",
+        "needs_signin": "Sign in to this service to use it.",
+        "needs_credentials": "This service needs your own credentials before it will work.",
+        "credentials_outdated": "The service settings changed after you saved your credentials. Enter them again.",
+        "unavailable": "This service cannot be used right now.",
+        "credentials_rejected": "The service rejected your credentials. Check them and save again.",
+        "contact_admin": "This service is not available to your account. Contact your administrator to get access.",
+        "signin_again": "The service no longer accepts your sign-in. Sign in again to keep using it."
+      }
+    },
+    "toolsHint": {
+      "warn": "Your selection exposes {{count}} tools, which can crowd your client's context.",
+      "strong": "Your selection exposes {{count}} tools, too many for most clients: use the smart routing or a per-service endpoint."
     }
   },
   "serviceLink": {

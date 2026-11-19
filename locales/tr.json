@@ -516,8 +516,6 @@
     "noServices": "No services are available yet. Select some in the Services tab.",
     "serviceNotReady": "Select this service in your workspace first.",
     "serviceConflict": "Its name matches a group, so it has no endpoint of its own.",
-    "needsCredentials": "{{name}} needs your own credentials before it will work.",
-    "bindCredentials": "Add credentials",
     "useKey": "Use an API key instead",
     "useKeyHint": "Sends an Authorization header with a key you create, instead of signing in with OAuth.",
     "format": "Configuration format",
@@ -1764,7 +1762,16 @@
     "sourceUrlMismatch": "URL değerleri eşleşmiyor",
     "noOtherServers": "Kimlik bilgisi alanları olan başka sunucu yok",
     "noSourcesHelp": "Kopyalamadan önce eşleşen alanları olan başka bir sunucuda kişisel kimlik bilgilerini yapılandırın.",
-    "deleteConfirm": "{{server}} kimlik bilgileri silinsin mi? Sonraki istekler için yeniden yapılandırmanız gerekir."
+    "deleteConfirm": "{{server}} kimlik bilgileri silinsin mi? Sonraki istekler için yeniden yapılandırmanız gerekir.",
+    "adminTitle": "User credentials",
+    "adminDescription": "Administrators only. Look at and manage the credentials of another user. Everyone sets their own credentials from the workspace services list.",
+    "chooseUser": "Choose a user",
+    "panelTitle": "Credentials for {{name}}",
+    "panelHint": "Only this service. Saved values stay masked.",
+    "notNeeded": "{{name}} does not need personal credentials, or you cannot use it.",
+    "outdatedStatus": "Credentials outdated",
+    "showingFor": "Credentials of {{user}}",
+    "showingOwn": "Your own credentials"
   },
   "workspace": {
     "status": {
@@ -1793,34 +1800,18 @@
     "retry": "Yeniden dene",
     "toggleFailed": "{{name}} güncellenemedi. Değişiklik geri alındı.",
     "connectFailed": "Bağlantı başlatılamadı.",
-    "banner": {
-      "noneSelected": "Başlamak için hizmet seçin",
-      "normal_one": "Seçtiğiniz hizmet hazır.",
-      "normal_other": "Seçilen {{count}} hizmetin tümü hazır.",
-      "partial_one": "Seçilen {{selected}} hizmetten {{attention}} tanesi ilgi gerektiriyor",
-      "partial_other": "Seçilen {{selected}} hizmetten {{attention}} tanesi ilgi gerektiriyor",
-      "noneUsable_one": "Seçtiğiniz hizmet şu anda kullanılabilir değil.",
-      "noneUsable_other": "Seçtiğiniz {{count}} hizmetin hiçbiri şu anda kullanılabilir değil."
-    },
     "endpoint": {
       "smartHint": "Akıllı yönlendirme, tüm araçlar yerine az sayıda arama ve çağırma aracı sunar; bu da istemcinizin bağlamını küçük tutar.",
       "mode": "Uç nokta türü",
       "mode_direct": "Doğrudan",
       "mode_smart": "Akıllı yönlendirme"
     },
-    "tools": {
-      "warning": "Seçiminiz {{count}} araç sunuyor. Uzun araç listeleri istemcinizin bağlamını doldurabilir.",
-      "strongWarning": "Seçiminiz {{count}} araç sunuyor; bu çoğu istemci için fazla. Bunun yerine akıllı yönlendirme uç noktasını veya hizmet bazlı uç noktaları kullanın.",
-      "label_one": "araç (kullanılabilir hizmetlerinizden)",
-      "label_other": "araç (kullanılabilir hizmetlerinizden)"
-    },
     "services": {
       "tab": "Hizmetler",
       "title": "Kullanılabilir hizmetler",
-      "description": "Hizmetleri uç noktanız için açın veya kapatın.",
+      "description": "The switch decides which services appear in your endpoint. Click a service for details.",
       "empty": "Henüz kullanabileceğiniz bir hizmet yok.",
       "toggleFor": "{{name}} hizmetini çalışma alanıma ekle",
-      "copyEndpoint": "Uç noktayı kopyala",
       "copyEndpointFor": "{{name}} uç noktasını kopyala",
       "endpointConflict": "Ayrı bir uç nokta yok: bir grup bu hizmetle aynı ada sahip. Bunun yerine ana uç noktanızı kullanın.",
       "toolCount_one": "{{count}} araç",
@@ -1838,8 +1829,6 @@
       "risk_not_enabled": "Araca çalışma alanınızda izin verilmiyor"
     },
     "actions": {
-      "select": "Çalışma alanına ekle",
-      "selectFor": "{{name}} hizmetini çalışma alanıma ekle",
       "connect": "Bağlan",
       "connectFor": "{{name}} hizmetine bağlan",
       "contactAdmin": "Bir yöneticiye danışın",
@@ -1952,14 +1941,54 @@
       "changeFailed": "{{name}} için izinler değiştirilemedi. Tekrar deneyin.",
       "hiddenNotice_one": "Seçiminiz nedeniyle {{count}} araç gizli.",
       "hiddenNotice_other": "Seçiminiz nedeniyle {{count}} araç gizli.",
-      "banner_one": "Seçtiğiniz hizmetlerde {{count}} araç gizli: veri değiştiren veya sizin adınıza işlem yapan araçlar siz izin verene kadar kapalı kalır. Daha fazlasına izin vermek için aşağıdan bir hizmeti açın.",
-      "banner_other": "Seçtiğiniz hizmetlerde {{count}} araç gizli: veri değiştiren veya sizin adınıza işlem yapan araçlar siz izin verene kadar kapalı kalır. Daha fazlasına izin vermek için aşağıdan bir hizmeti açın.",
-      "connectToSee": "Araçlarını görmek ve neler yapabileceklerini seçmek için bu hizmeti bağlayın.",
-      "unknownTools": "Araçları görmek için bağlanın",
-      "pendingTools": "Bağlandı — araçlar ilk kullanımdan sonra görünür",
       "connectedPending": "Bağlandı. Bu hizmetin araçları ilk kullanımdan sonra burada görünür.",
       "defaultNote": "Siz seçene kadar yöneticiniz tarafından belirlenir.",
-      "untrustedHint": "Bu hizmeti bir yönetici işletmiyor; araçları doğrulanmadı ve hepsi başkalarının görebileceği işlemler sayılır."
+      "untrustedHint": "Bu hizmeti bir yönetici işletmiyor; araçları doğrulanmadı ve hepsi başkalarının görebileceği işlemler sayılır.",
+      "hiddenSummary_one": "{{count}} tool is hidden by your permission choices. Open a service to change.",
+      "hiddenSummary_other": "{{count}} tools are hidden by your permission choices. Open a service to change."
+    },
+    "chip": {
+      "ready": "Ready",
+      "not_enabled": "Not enabled",
+      "needs_signin": "Needs sign-in",
+      "needs_credentials": "Needs credentials",
+      "credentials_outdated": "Credentials outdated",
+      "unavailable": "Unavailable",
+      "action": {
+        "signin": "Sign in",
+        "signinTo": "Sign in to {{name}}",
+        "credentials": "Add credentials",
+        "update": "Update",
+        "signinAgain": "Sign in again",
+        "signinAgainTo": "Sign in again to {{name}}"
+      },
+      "credentials_rejected": "Credentials rejected",
+      "contact_admin": "Not available to you"
+    },
+    "panel": {
+      "status": "Status",
+      "tools": "Tools",
+      "permissions": "Permissions",
+      "credentials": "Your credentials",
+      "actions": "Use this service",
+      "copyUrl": "Copy URL",
+      "toolsAfterSignIn": "Visible after you sign in.",
+      "permissionsOff": "Turn this service on to choose what its tools may do.",
+      "statusText": {
+        "ready": "Available in your workspace.",
+        "not_enabled": "Not in your endpoint. Turn it on with the switch in the list.",
+        "needs_signin": "Sign in to this service to use it.",
+        "needs_credentials": "This service needs your own credentials before it will work.",
+        "credentials_outdated": "The service settings changed after you saved your credentials. Enter them again.",
+        "unavailable": "This service cannot be used right now.",
+        "credentials_rejected": "The service rejected your credentials. Check them and save again.",
+        "contact_admin": "This service is not available to your account. Contact your administrator to get access.",
+        "signin_again": "The service no longer accepts your sign-in. Sign in again to keep using it."
+      }
+    },
+    "toolsHint": {
+      "warn": "Your selection exposes {{count}} tools, which can crowd your client's context.",
+      "strong": "Your selection exposes {{count}} tools, too many for most clients: use the smart routing or a per-service endpoint."
     }
   },
   "serviceLink": {
