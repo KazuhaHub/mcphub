@@ -5,7 +5,7 @@ import { validateMaxBufferSize } from './stdioOptions.js';
 import { normalizeCredentialWriteClients } from './credentialWriteScope.js';
 import { ServerConfigValidationError } from './serverConfigValidation.js';
 import { normalizeManageUrl } from './manageUrl.js';
-import { normalizeReadiness, readinessSlotProblem } from './readinessConfig.js';
+import { normalizeReadiness, readinessServerProblem } from './readinessConfig.js';
 import { normalizeServerIcon } from './serverIcon.js';
 import {
   assertStagingConfigConsistent,
@@ -520,9 +520,13 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
   const readiness = Object.prototype.hasOwnProperty.call(config, 'readiness')
     ? normalizeReadiness(config.readiness)
     : undefined;
-  // An edit replaces the credential template (omitted means none), so the slot is checked
-  // against the template this very config carries.
-  const readinessProblem = readinessSlotProblem(readiness, config.credentialTemplate);
+  // An edit replaces the credential template, url and OAuth settings (omitted means none), so
+  // the declaration is checked against the values this very config carries.
+  const readinessProblem = readinessServerProblem(readiness, {
+    url,
+    oauth,
+    credentialTemplate: config.credentialTemplate,
+  });
   if (readinessProblem) throw new ServerConfigValidationError(readinessProblem);
   const tools = normalizeToolsConfig(config.tools);
   const staging = normalizeServerStaging(config.staging);

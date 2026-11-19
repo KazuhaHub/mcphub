@@ -31,7 +31,11 @@ An administrator sets `readiness` on a server in the server form (**Readiness ch
 
 ## Trust model
 
-The readiness URL is chosen by an administrator, who is trusted with the server's own URL as well. The probe sends a user's credential only to that URL, never follows a redirect, and never reaches private or loopback addresses, even ones the system allowlist (`network.allowedCidrs`) permits for MCP servers. Changing `readiness.url` does not mark existing credential bindings outdated, unlike changing the server's `url`, so review it as carefully as the server URL.
+The probe sends a user's credential only to the readiness URL, never follows a redirect, and never reaches private or loopback addresses, even ones the system allowlist (`network.allowedCidrs`) permits for MCP servers.
+
+- **Servers with a `url`:** `readiness.url` must have the **same origin** (`https`, host and port; the path is free) as the server's `url`. A different host, a subdomain, another port or `http` is rejected when the server is saved (API, dashboard, CLI, settings sync and template import), and the probe re-checks it every time, so a later change of the server `url` makes the check report `unknown` instead of sending the credential elsewhere. The credential therefore only ever goes to the origin the user already connected to, and no credential binding is invalidated.
+- **Servers without a `url` (stdio, OpenAPI) using `{ "credential": ... }`:** there is no origin to compare. The readiness check becomes part of the binding's destination, so adding or changing it marks existing bindings as outdated and users must enter their values again (same as changing the server's command).
+- **`"oauth"`** requires a server with personal OAuth and is rejected otherwise.
 
 ## Contract, version 1
 

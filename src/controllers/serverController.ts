@@ -18,7 +18,7 @@ import {
   listValidBindingUsers,
 } from '../services/credentialBindingService.js';
 import { renameServerSelections } from '../services/userServerSelectionService.js';
-import { readinessSlotProblem } from '../utils/readinessConfig.js';
+import { readinessServerProblem } from '../utils/readinessConfig.js';
 import { assertMaintenanceEndsInFuture } from '../utils/serverMaintenance.js';
 import { primeAnnotationTrust, areAnnotationsTrusted } from '../services/annotationTrustService.js';
 import {
@@ -1405,12 +1405,12 @@ export const updateServer = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // A stored readiness declaration must still find its credential slot when this edit
-    // changes the template without naming readiness. (A readiness sent in the body was
+    // A stored readiness declaration must still fit the server this edit produces (credential
+    // slot, same origin as the url, personal OAuth) when the edit does not name it. (A readiness sent in the body was
     // already checked against the body's own template while normalizing.)
     const readinessProblem = hasOwnKey(normalizedConfig, 'readiness')
       ? null
-      : readinessSlotProblem(existingServer.readiness, normalizedConfig.credentialTemplate);
+      : readinessServerProblem(existingServer.readiness, normalizedConfig);
     if (readinessProblem) {
       res.status(400).json({ success: false, message: readinessProblem });
       return;

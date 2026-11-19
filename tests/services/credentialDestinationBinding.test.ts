@@ -740,3 +740,43 @@ describe('the status of a URL-slot server', () => {
     expect(status.reason).toBeUndefined();
   });
 });
+
+describe('readiness in the credential destination', () => {
+  const { canonicalCredentialDestination } = jest.requireActual(
+    '../../src/utils/credentialDestination.js',
+  ) as typeof import('../../src/utils/credentialDestination.js');
+  const stdio = {
+    type: 'stdio' as const,
+    command: 'node',
+    args: ['server.js'],
+    credentialTemplate: [{ target: 'env' as const, name: 'TOKEN' }],
+  };
+  const withReadiness = (url: string) => ({
+    ...stdio,
+    readiness: { url, auth: { credential: 'TOKEN' } },
+  });
+
+  it('is unchanged for a server without readiness', () => {
+    expect(canonicalCredentialDestination(stdio)).toBe(
+      canonicalCredentialDestination({ ...stdio, readiness: undefined }),
+    );
+    expect(canonicalCredentialDestination(stdio)).not.toContain('readiness');
+  });
+
+  it('changes when a stdio server gains or changes its readiness url', () => {
+    const none = canonicalCredentialDestination(stdio);
+    const a = canonicalCredentialDestination(withReadiness('https://a.example.com/r'));
+    const b = canonicalCredentialDestination(withReadiness('https://b.example.com/r'));
+    expect(new Set([none, a, b]).size).toBe(3);
+  });
+
+  it('is not part of the destination of a remote server (same origin is enforced instead)', () => {
+    const remote = { type: 'streamable-http' as const, url: 'https://svc.example.com/mcp' };
+    expect(
+      canonicalCredentialDestination({
+        ...remote,
+        readiness: { url: 'https://svc.example.com/r', auth: 'oauth' },
+      }),
+    ).toBe(canonicalCredentialDestination(remote));
+  });
+});

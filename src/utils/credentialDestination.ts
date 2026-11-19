@@ -9,7 +9,7 @@ import { credentialSlotId } from './credentialTemplate.js';
 // except the headers a slot fills; command, args (slot placeholders as written) and env
 // except the variables a slot fills (env can redirect traffic, e.g. HTTPS_PROXY); the
 // proxychains routing; the OpenAPI document and its security declaration; the slots'
-// targets and names.
+// targets and names; and, for a server with no url, the readiness check.
 //
 // Not included: description, visibility, sharing, enabled, tools/prompts/resources
 // settings, request options (timeouts), keep-alive, on-demand and idle settings,
@@ -56,6 +56,9 @@ export const credentialDestinationDeclaration = (config: ServerConfig): unknown 
     env: Object.fromEntries(env),
     proxy: config.proxy,
     openapi,
+    // A server without a url has no origin the readiness URL must share, so the URL is part of
+    // where a credential goes. Only present when set: other fingerprints are unchanged.
+    ...(!config.url && config.readiness ? { readiness: config.readiness } : {}),
     slots: slots
       .map((slot) =>
         slot.target === 'headers' ? `headers.${slot.name.toLowerCase()}` : credentialSlotId(slot),

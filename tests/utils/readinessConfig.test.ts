@@ -1,4 +1,8 @@
-import { normalizeReadiness, readinessSlotProblem } from '../../src/utils/readinessConfig.js';
+import {
+  normalizeReadiness,
+  readinessServerProblem,
+  readinessSlotProblem,
+} from '../../src/utils/readinessConfig.js';
 import { normalizeServerConfigForPersistence } from '../../src/utils/serverConfigPersistence.js';
 import { ServerConfigValidationError } from '../../src/utils/serverConfigValidation.js';
 
@@ -66,12 +70,71 @@ describe('readinessSlotProblem', () => {
   });
 });
 
+describe('readinessServerProblem: the bearer only goes where the user already trusts', () => {
+  const server = {
+    url: 'https://canvas.example.com/mcp',
+    oauth: { identityMode: 'personal' },
+  } as never;
+  const at = (url: string) => readinessServerProblem({ url, auth: 'oauth' }, server);
+
+  it('accepts the same origin, whatever the path or query', () => {
+    expect(at('https://canvas.example.com/readiness')).toBeNull();
+    expect(at('https://canvas.example.com/other/path?x=1')).toBeNull();
+    expect(at('https://canvas.example.com:443/readiness')).toBeNull();
+  });
+
+  it.each([
+    ['a different host', 'https://evil.example.org/readiness'],
+    ['a different port', 'https://canvas.example.com:8443/readiness'],
+    ['http', 'http://canvas.example.com/readiness'],
+    ['a subdomain', 'https://api.canvas.example.com/readiness'],
+    ['a parent domain', 'https://example.com/readiness'],
+    ['a lookalike suffix', 'https://canvas.example.com.evil.net/readiness'],
+  ])('rejects %s', (_label, url) => {
+    expect(at(url)).toMatch(/same origin/);
+  });
+
+  it('fails closed when the server url cannot be read as a URL', () => {
+    expect(
+      readinessServerProblem({ url: 'https://canvas.example.com/r', auth: 'oauth' }, {
+        url: '{{url.HOST}}/mcp',
+        oauth: { identityMode: 'personal' },
+      } as never),
+    ).toMatch(/same origin/);
+  });
+
+  it('does not constrain a server without a url, but oauth needs personal OAuth', () => {
+    const stdio = {
+      command: 'node',
+      credentialTemplate: [{ target: 'env', name: 'TOKEN' }],
+    } as never;
+    expect(
+      readinessServerProblem(
+        { url: 'https://any.example.com/r', auth: { credential: 'TOKEN' } },
+        stdio,
+      ),
+    ).toBeNull();
+    expect(
+      readinessServerProblem({ url: 'https://any.example.com/r', auth: 'oauth' }, stdio),
+    ).toMatch(/personal OAuth/);
+  });
+
+  it('rejects oauth auth on a remote server without personal OAuth', () => {
+    expect(
+      readinessServerProblem({ url: 'https://canvas.example.com/r', auth: 'oauth' }, {
+        url: 'https://canvas.example.com/mcp',
+      } as never),
+    ).toMatch(/personal OAuth/);
+  });
+});
+
 describe('server config persistence', () => {
   const base = { type: 'streamable-http' as const, url: 'https://example.com/mcp' };
 
   it('keeps a normalized readiness', () => {
     const out = normalizeServerConfigForPersistence({
       ...base,
+      oauth: { identityMode: 'personal' },
       readiness: { url: ' https://example.com/ready ', auth: 'oauth' },
     });
     expect(out.readiness).toEqual({ url: 'https://example.com/ready', auth: 'oauth' });
@@ -98,6 +161,22 @@ describe('server config persistence', () => {
         readiness: { url: 'https://example.com/ready', auth: { credential: 'NOPE' } },
       }),
     ).toThrow(ServerConfigValidationError);
+  });
+
+  it('rejects a cross-origin url, and oauth without personal OAuth, on save', () => {
+    expect(() =>
+      normalizeServerConfigForPersistence({
+        ...base,
+        oauth: { identityMode: 'personal' },
+        readiness: { url: 'https://other.example.org/ready', auth: 'oauth' },
+      }),
+    ).toThrow(/same origin/);
+    expect(() =>
+      normalizeServerConfigForPersistence({
+        ...base,
+        readiness: { url: 'https://example.com/ready', auth: 'oauth' },
+      }),
+    ).toThrow(/personal OAuth/);
   });
 
   it('accepts a declared slot', () => {

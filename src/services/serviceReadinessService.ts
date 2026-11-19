@@ -6,7 +6,7 @@ import type {
 } from '../types/index.js';
 import { MissingCredentialError, resolvedCredentialValues } from '../utils/credentialTemplate.js';
 import { logger } from '../utils/logger.js';
-import { isSafeHttpsUrl } from '../utils/readinessConfig.js';
+import { isSafeHttpsUrl, readinessOriginAllowed } from '../utils/readinessConfig.js';
 import { createRedirectValidatingFetch, type FetchLike, type SsrfLookup } from '../utils/ssrf.js';
 import { credentialBindingEvents } from './credentialBindingService.js';
 
@@ -210,7 +210,9 @@ const probe = async (
   deps: ReadinessDeps,
 ): Promise<ServiceReadiness> => {
   const now = deps.now();
-  if (!isSafeHttpsUrl(readiness.url)) {
+  // The server's url may have changed since the declaration was saved: the bearer only ever goes
+  // to the origin of the server the user connected to.
+  if (!isSafeHttpsUrl(readiness.url) || !readinessOriginAllowed(readiness, definition.url)) {
     note(serverName, 'blocked');
     return unknownResult(now);
   }

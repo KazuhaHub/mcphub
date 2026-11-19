@@ -76,3 +76,47 @@ export const readinessSlotProblem = (
     ? null
     : `readiness.auth.credential must name one of the server's credential slots ("${name}" is not one)`;
 };
+
+const originOf = (value: string): string | null => {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' ? parsed.origin : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Whether the readiness URL may receive this server's users' credentials. A server with a `url`
+ * only ever sends credentials to that origin, so the readiness URL must share its origin (https,
+ * host and port; the path is free). A server without a `url` (stdio, OpenAPI) has no such origin;
+ * its credential bindings are instead tied to the readiness URL (credentialDestination.ts).
+ * `auth: 'oauth'` needs personal OAuth, otherwise there is no token to send. Fails closed when
+ * the server URL cannot be read.
+ */
+export const readinessServerProblem = (
+  readiness: ReadinessConfig | undefined,
+  server: {
+    url?: string;
+    oauth?: { identityMode?: string };
+    credentialTemplate?: readonly Pick<CredentialSlot, 'name'>[];
+  },
+): string | null => {
+  if (!readiness) return null;
+  if (readiness.auth === 'oauth' && server.oauth?.identityMode !== 'personal') {
+    return 'readiness.auth "oauth" requires a server with personal OAuth';
+  }
+  const slotProblem = readinessSlotProblem(readiness, server.credentialTemplate);
+  if (slotProblem) return slotProblem;
+  if (server.url) {
+    const serverOrigin = originOf(server.url);
+    if (!serverOrigin || serverOrigin !== originOf(readiness.url)) {
+      return "readiness.url must have the same origin (https, host and port) as the server's url";
+    }
+  }
+  return null;
+};
+
+// The probe-time form of the same rule, for a server definition as stored.
+export const readinessOriginAllowed = (readiness: ReadinessConfig, serverUrl?: string): boolean =>
+  !serverUrl || (originOf(serverUrl) !== null && originOf(serverUrl) === originOf(readiness.url));

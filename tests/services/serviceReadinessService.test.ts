@@ -42,7 +42,7 @@ const BEARER = 'secret-bearer-value-123';
 const user = { username: 'alice' };
 const definition = (extra: Partial<ServerConfig> = {}): ServerConfig => ({
   type: 'streamable-http',
-  url: 'https://mcp.example.com/mcp',
+  url: 'https://svc.example.com/mcp',
   readiness: { url: 'https://svc.example.com/readiness', auth: 'oauth' },
   ...extra,
 });
@@ -275,6 +275,22 @@ describe('getServiceReadiness', () => {
     );
     expect(broken?.state).toBe('unknown');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('same-origin rule at probe time', () => {
+  it('fails closed when the server url no longer shares the readiness origin', async () => {
+    const moved = definition({ url: 'https://moved.example.net/mcp' });
+    expect((await check(moved))?.state).toBe('unknown');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('probes when the origin matches and when the server has no url', async () => {
+    await check(definition({ url: 'https://svc.example.com/mcp' }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    clearReadinessCache();
+    await check(definition({ url: undefined, command: 'node' }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
