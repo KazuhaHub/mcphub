@@ -1767,7 +1767,14 @@
     "sourceUrlMismatch": "Los valores de URL no coinciden",
     "noOtherServers": "No hay otros servidores con campos de credenciales",
     "noSourcesHelp": "Configura credenciales personales en otro servidor con campos coincidentes antes de copiar.",
-    "deleteConfirm": "¿Eliminar las credenciales de {{server}}? Las próximas solicitudes requerirán configurarlas de nuevo."
+    "deleteConfirm": "¿Eliminar las credenciales de {{server}}? Las próximas solicitudes requerirán configurarlas de nuevo.",
+    "adminTitle": "User credentials",
+    "adminDescription": "Administrators only. Look at and manage the credentials of another user. Everyone sets their own credentials from the workspace services list.",
+    "chooseUser": "Choose a user",
+    "panelTitle": "Credentials for {{name}}",
+    "panelHint": "Only this service. Saved values stay masked.",
+    "notNeeded": "{{name}} does not need personal credentials, or you cannot use it.",
+    "outdatedStatus": "Credentials outdated"
   },
   "workspace": {
     "status": {
@@ -1855,7 +1862,11 @@
       "retryUntil": "Inténtalo de nuevo después de {{until}}",
       "openAuthorization": "Abrir la página de inicio de sesión",
       "manageAccount": "Gestionar cuenta",
-      "manageAccountFor": "Gestionar cuenta de {{name}}"
+      "manageAccountFor": "Gestionar cuenta de {{name}}",
+      "configureCredentials": "Configure credentials",
+      "configureCredentialsFor": "Configure credentials for {{name}}",
+      "manageCredentials": "Credentials",
+      "manageCredentialsFor": "Manage credentials for {{name}}"
     },
     "clients": {
       "tab": "Clientes conectados",
@@ -1971,6 +1982,11 @@
       "connectedPending": "Conectado. Las herramientas de este servicio aparecen aquí tras usarlo por primera vez.",
       "defaultNote": "Lo fija tu administrador hasta que elijas.",
       "untrustedHint": "Este servicio no lo gestiona un administrador, así que sus herramientas no están verificadas: todas cuentan como acciones visibles para otros."
+    },
+    "credentialBadge": {
+      "required": "Binding required",
+      "outdated": "Credentials outdated",
+      "bound": "Credentials set"
     }
   },
   "serviceLink": {

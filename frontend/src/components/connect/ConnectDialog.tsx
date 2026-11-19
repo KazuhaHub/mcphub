@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, ExternalLink, X } from 'lucide-react';
 import { CopyBlock } from '@/components/ui/CopyBlock';
 import { EndpointCopy } from '@/components/ui/EndpointCopy';
@@ -20,7 +19,7 @@ import {
 } from '@/utils/connectClients';
 import { copyText } from '@/utils/clipboard';
 import { CLIENT_SNIPPET_PRESETS, type ClientSnippetId } from '@/utils/mcpClientSnippets';
-import { credentialsPath } from '@/utils/workspace';
+import CredentialDialog from '@/components/credentials/CredentialDialog';
 import { ClientIcon } from './ClientIcon';
 import ConnectTile from './ConnectTile';
 
@@ -42,6 +41,8 @@ interface ConnectDialogProps {
   endpoints: WorkspaceEndpoints | null;
   initial: ConnectDialogInitial;
   onClose: () => void;
+  // Called after credentials were saved from the panel opened here, so the caller can refresh.
+  onCredentialsChanged?: () => void;
 }
 
 const ConnectDialog: React.FC<ConnectDialogProps> = ({
@@ -50,9 +51,11 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
   endpoints,
   initial,
   onClose,
+  onCredentialsChanged,
 }) => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  // Service whose credential panel is open on top of this dialog.
+  const [credentialService, setCredentialService] = useState<string | null>(null);
   const { showToast } = useToast();
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -272,10 +275,7 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
                   <button
                     type="button"
                     className="hub-btn"
-                    onClick={() => {
-                      onClose();
-                      navigate(credentialsPath(service));
-                    }}
+                    onClick={() => setCredentialService(service)}
                   >
                     {t('connect.bindCredentials')}
                   </button>
@@ -382,6 +382,13 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
           )}
         </div>
       </div>
+      {credentialService && (
+        <CredentialDialog
+          serverName={credentialService}
+          onChanged={onCredentialsChanged}
+          onClose={() => setCredentialService(null)}
+        />
+      )}
     </div>
   );
 };

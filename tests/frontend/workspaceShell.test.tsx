@@ -75,15 +75,30 @@ const admin = { username: 'admin', isAdmin: true };
 const ready = { workspaceEnabled: true, workspaceResolved: true, workspaceLoadFailed: false };
 
 describe('Sidebar', () => {
-  it('shows an ordinary user only workspace, credentials and settings in workspace mode', () => {
+  it('shows an ordinary user only workspace and settings in workspace mode', () => {
     setSettings(alice, ready);
     const html = renderSidebar();
     expect(html).toContain('workspacePage.nav');
-    expect(html).toContain('credentials.title');
+    // Credentials are set from the workspace services list, not from a page of their own.
+    expect(html).not.toContain('credentials.title');
+    expect(html).not.toContain('credentials.adminTitle');
+    expect(html).not.toContain('href="/credentials"');
     expect(html).toContain('nav.settings');
     for (const hidden of ['nav.dashboard', 'nav.servers', 'nav.groups', 'nav.prompts', 'nav.resources', 'nav.market']) {
       expect(html).not.toContain(hidden);
     }
+  });
+
+  it('gives an administrator a clearly labelled user credentials entry in workspace mode', () => {
+    setSettings(admin, ready);
+    const html = renderSidebar();
+    expect(html).toContain('href="/credentials"');
+    expect(html).toContain('credentials.adminTitle');
+  });
+
+  it('keeps the Credentials entry for everyone while Workspace Mode is off', () => {
+    setSettings(alice, { workspaceEnabled: false, workspaceResolved: true, workspaceLoadFailed: false });
+    expect(renderSidebar()).toContain('credentials.title');
   });
 
   it('renders no admin entries for an ordinary user until the setting is known', () => {

@@ -1764,7 +1764,14 @@
     "sourceUrlMismatch": "URL değerleri eşleşmiyor",
     "noOtherServers": "Kimlik bilgisi alanları olan başka sunucu yok",
     "noSourcesHelp": "Kopyalamadan önce eşleşen alanları olan başka bir sunucuda kişisel kimlik bilgilerini yapılandırın.",
-    "deleteConfirm": "{{server}} kimlik bilgileri silinsin mi? Sonraki istekler için yeniden yapılandırmanız gerekir."
+    "deleteConfirm": "{{server}} kimlik bilgileri silinsin mi? Sonraki istekler için yeniden yapılandırmanız gerekir.",
+    "adminTitle": "User credentials",
+    "adminDescription": "Administrators only. Look at and manage the credentials of another user. Everyone sets their own credentials from the workspace services list.",
+    "chooseUser": "Choose a user",
+    "panelTitle": "Credentials for {{name}}",
+    "panelHint": "Only this service. Saved values stay masked.",
+    "notNeeded": "{{name}} does not need personal credentials, or you cannot use it.",
+    "outdatedStatus": "Credentials outdated"
   },
   "workspace": {
     "status": {
@@ -1847,7 +1854,11 @@
       "retryUntil": "{{until}} sonrasında tekrar deneyin",
       "openAuthorization": "Oturum açma sayfasını aç",
       "manageAccount": "Hesabı yönet",
-      "manageAccountFor": "{{name}} için hesabı yönet"
+      "manageAccountFor": "{{name}} için hesabı yönet",
+      "configureCredentials": "Configure credentials",
+      "configureCredentialsFor": "Configure credentials for {{name}}",
+      "manageCredentials": "Credentials",
+      "manageCredentialsFor": "Manage credentials for {{name}}"
     },
     "clients": {
       "tab": "Bağlı istemciler",
@@ -1960,6 +1971,11 @@
       "connectedPending": "Bağlandı. Bu hizmetin araçları ilk kullanımdan sonra burada görünür.",
       "defaultNote": "Siz seçene kadar yöneticiniz tarafından belirlenir.",
       "untrustedHint": "Bu hizmeti bir yönetici işletmiyor; araçları doğrulanmadı ve hepsi başkalarının görebileceği işlemler sayılır."
+    },
+    "credentialBadge": {
+      "required": "Binding required",
+      "outdated": "Credentials outdated",
+      "bound": "Credentials set"
     }
   },
   "serviceLink": {

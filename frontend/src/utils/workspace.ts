@@ -1,4 +1,5 @@
 import type {
+  MyCredentialBinding,
   WorkspaceActivityClient,
   WorkspaceActivityItem,
   WorkspaceActivityStatus,
@@ -54,11 +55,11 @@ export type ServiceAction =
   | { kind: 'retry_later'; until?: string };
 
 /**
- * Maps a server's status action to what the UI offers. `connect` goes to the Credentials page
- * (deep link) for servers with credential slots, and starts the personal OAuth flow otherwise.
+ * Maps a server's status action to what the UI offers. `connect` opens the credential panel
+ * for servers with credential slots, and starts the personal OAuth flow otherwise.
  * A disconnected personal OAuth (`revoked`) always reconnects through OAuth.
  * `credentialServers` is null when the list of servers with slots could not be loaded; the
- * Credentials page is the safer destination then.
+ * credential panel is the safer destination then.
  */
 export const resolveServiceAction = (
   server: Pick<WorkspaceServer, 'name' | 'status'>,
@@ -82,8 +83,29 @@ export const resolveServiceAction = (
   }
 };
 
-export const credentialsPath = (server: string): string =>
-  `/credentials?server=${encodeURIComponent(server)}`;
+/** Where a workspace link that opens one service's credential panel leads. */
+export const workspaceCredentialsPath = (server: string): string =>
+  `/workspace?credentials=${encodeURIComponent(server)}`;
+
+export type CredentialBadge = 'required' | 'outdated' | 'bound';
+
+/**
+ * How a service's personal credential binding looks on its row. `outdated` is a binding whose
+ * connection settings changed after it was saved, so it is not used; it needs entering again.
+ */
+export const credentialBadge = (
+  binding: Pick<MyCredentialBinding, 'configured' | 'stale'> | undefined,
+): CredentialBadge | null => {
+  if (!binding) return null;
+  if (binding.stale) return 'outdated';
+  return binding.configured ? 'bound' : 'required';
+};
+
+/** The binding of one service, or undefined. The panel never shows any other service. */
+export const findCredentialBinding = (
+  bindings: readonly MyCredentialBinding[],
+  serverName: string,
+): MyCredentialBinding | undefined => bindings.find((binding) => binding.serverName === serverName);
 
 export const applySelection = (
   servers: readonly WorkspaceServer[],

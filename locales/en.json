@@ -1770,7 +1770,14 @@
     "sourceUrlMismatch": "URL values do not match",
     "noOtherServers": "No other servers with credential slots",
     "noSourcesHelp": "Configure personal credentials on another server with matching fields before copying.",
-    "deleteConfirm": "Delete credentials for {{server}}? Future requests will require you to configure credentials again."
+    "deleteConfirm": "Delete credentials for {{server}}? Future requests will require you to configure credentials again.",
+    "adminTitle": "User credentials",
+    "adminDescription": "Administrators only. Look at and manage the credentials of another user. Everyone sets their own credentials from the workspace services list.",
+    "chooseUser": "Choose a user",
+    "panelTitle": "Credentials for {{name}}",
+    "panelHint": "Only this service. Saved values stay masked.",
+    "notNeeded": "{{name}} does not need personal credentials, or you cannot use it.",
+    "outdatedStatus": "Credentials outdated"
   },
   "workspace": {
     "status": {
@@ -1853,7 +1860,11 @@
       "retryUntil": "Try again after {{until}}",
       "openAuthorization": "Open the sign-in page",
       "manageAccount": "Manage account",
-      "manageAccountFor": "Manage account for {{name}}"
+      "manageAccountFor": "Manage account for {{name}}",
+      "configureCredentials": "Configure credentials",
+      "configureCredentialsFor": "Configure credentials for {{name}}",
+      "manageCredentials": "Credentials",
+      "manageCredentialsFor": "Manage credentials for {{name}}"
     },
     "clients": {
       "tab": "Connected clients",
@@ -1967,6 +1978,11 @@
       "connectedPending": "Connected. This service's tools appear here after you first use it.",
       "defaultNote": "Set by your administrator until you choose.",
       "untrustedHint": "This service is not run by an administrator, so its tools are not verified: all of them count as actions others can see."
+    },
+    "credentialBadge": {
+      "required": "Binding required",
+      "outdated": "Credentials outdated",
+      "bound": "Credentials set"
     }
   },
   "serviceLink": {

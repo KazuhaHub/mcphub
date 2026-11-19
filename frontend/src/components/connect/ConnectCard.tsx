@@ -183,6 +183,7 @@ const ConnectCard: React.FC = () => {
           endpoints={endpoints}
           initial={dialog.initial}
           onClose={() => setDialog(null)}
+          onCredentialsChanged={() => void load()}
         />
       )}
     </section>

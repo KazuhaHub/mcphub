@@ -1,12 +1,18 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Copy, Plug } from 'lucide-react';
+import { Copy, KeyRound, Plug } from 'lucide-react';
 import { StatusDot } from '@/components/ui/StatusDot';
-import type { ToolRiskLevel, WorkspaceServer, WorkspaceServerEndpoint } from '@/types';
+import type {
+  MyCredentialBinding,
+  ToolRiskLevel,
+  WorkspaceServer,
+  WorkspaceServerEndpoint,
+} from '@/types';
 import { getSafeManageHref } from '@/utils/manageUrl';
 import { getServiceLinkHref } from '@/utils/serviceLink';
 import { TOOL_RISK_LEVELS, countHiddenByCeiling, isRiskChoiceAllowed } from '@/utils/toolRisk';
 import {
+  credentialBadge,
   localizeStatusMessage,
   resolveServiceAction,
   statusTone,
@@ -17,6 +23,8 @@ interface WorkspaceServiceRowProps {
   server: WorkspaceServer;
   endpoint?: WorkspaceServerEndpoint;
   credentialServers: ReadonlySet<string> | null;
+  // The user's binding for this service, when it takes personal credentials.
+  credentialBinding?: MyCredentialBinding;
   busy: boolean;
   // Set when the authorization popup was blocked.
   authorizationUrl?: string;
@@ -25,7 +33,11 @@ interface WorkspaceServiceRowProps {
   onAction: (action: ServiceAction) => void;
   onCopyEndpoint: (url: string) => void;
   onConnectToAi: (name: string) => void;
+  // Opens the credential panel for this one service.
+  onConfigureCredentials?: (name: string) => void;
 }
+
+const BADGE_CLASS = { required: 'attention', outdated: 'problem', bound: 'muted' } as const;
 
 const formatUntil = (value: string): string => {
   const date = new Date(value);
@@ -36,6 +48,7 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
   server,
   endpoint,
   credentialServers,
+  credentialBinding,
   busy,
   authorizationUrl,
   onToggle,
@@ -43,6 +56,7 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
   onAction,
   onCopyEndpoint,
   onConnectToAi,
+  onConfigureCredentials,
 }) => {
   const { t } = useTranslation();
   const action = resolveServiceAction(server, credentialServers);
@@ -63,6 +77,17 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
           </button>
         );
       case 'credentials':
+        return (
+          <button
+            type="button"
+            className="hub-btn primary"
+            disabled={busy}
+            onClick={() => onAction(action)}
+            aria-label={t('workspacePage.actions.configureCredentialsFor', { name: server.name })}
+          >
+            {t('workspacePage.actions.configureCredentials')}
+          </button>
+        );
       case 'oauth':
         return (
           <button
@@ -208,6 +233,7 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
   };
 
   const manageHref = getSafeManageHref(server.manageUrl);
+  const badge = credentialBadge(credentialBinding);
 
   return (
     <li
@@ -228,6 +254,20 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{server.name}</span>
           <StatusDot kind={statusTone(code)} label={t(`workspacePage.status.${code}`)} />
+          {badge && (
+            <button
+              type="button"
+              className={`hub-tag ${BADGE_CLASS[badge]}`}
+              data-testid={`credential-badge-${server.name}`}
+              data-credential-state={badge}
+              onClick={() => onConfigureCredentials?.(server.name)}
+              aria-label={t('workspacePage.actions.configureCredentialsFor', {
+                name: server.name,
+              })}
+            >
+              {t(`workspacePage.credentialBadge.${badge}`)}
+            </button>
+          )}
         </div>
         {server.description && (
           <div className="text-[12px] leading-[1.625]" style={{ color: 'var(--hub-ink-3)' }}>
@@ -268,7 +308,20 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
             : t('workspacePage.risk.unknownTools')
           : t('workspacePage.services.toolCount', { count: server.toolCount })}
       </span>
-      <div className="flex min-w-[96px] justify-end">{renderAction()}</div>
+      <div className="flex min-w-[96px] justify-end">
+        {renderAction() ??
+          (badge && (
+            <button
+              type="button"
+              className="hub-btn sm"
+              disabled={busy}
+              onClick={() => onConfigureCredentials?.(server.name)}
+              aria-label={t('workspacePage.actions.manageCredentialsFor', { name: server.name })}
+            >
+              <KeyRound size={12} /> {t('workspacePage.actions.manageCredentials')}
+            </button>
+          ))}
+      </div>
       <button
         type="button"
         className="hub-btn sm"

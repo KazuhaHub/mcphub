@@ -1767,7 +1767,14 @@
     "sourceUrlMismatch": "Giá trị URL không khớp",
     "noOtherServers": "Không có máy chủ khác có trường xác thực",
     "noSourcesHelp": "Cấu hình thông tin xác thực cá nhân trên máy chủ khác có trường tương ứng trước khi sao chép.",
-    "deleteConfirm": "Xóa thông tin xác thực của {{server}}? Các yêu cầu tiếp theo sẽ cần cấu hình lại."
+    "deleteConfirm": "Xóa thông tin xác thực của {{server}}? Các yêu cầu tiếp theo sẽ cần cấu hình lại.",
+    "adminTitle": "User credentials",
+    "adminDescription": "Administrators only. Look at and manage the credentials of another user. Everyone sets their own credentials from the workspace services list.",
+    "chooseUser": "Choose a user",
+    "panelTitle": "Credentials for {{name}}",
+    "panelHint": "Only this service. Saved values stay masked.",
+    "notNeeded": "{{name}} does not need personal credentials, or you cannot use it.",
+    "outdatedStatus": "Credentials outdated"
   },
   "workspace": {
     "status": {
@@ -1845,7 +1852,11 @@
       "retryUntil": "Hãy thử lại sau {{until}}",
       "openAuthorization": "Mở trang đăng nhập",
       "manageAccount": "Quản lý tài khoản",
-      "manageAccountFor": "Quản lý tài khoản cho {{name}}"
+      "manageAccountFor": "Quản lý tài khoản cho {{name}}",
+      "configureCredentials": "Configure credentials",
+      "configureCredentialsFor": "Configure credentials for {{name}}",
+      "manageCredentials": "Credentials",
+      "manageCredentialsFor": "Manage credentials for {{name}}"
     },
     "clients": {
       "tab": "Ứng dụng khách đã kết nối",
@@ -1955,6 +1966,11 @@
       "connectedPending": "Đã kết nối. Công cụ của dịch vụ này sẽ hiện ở đây sau lần dùng đầu tiên.",
       "defaultNote": "Do quản trị viên đặt cho đến khi bạn tự chọn.",
       "untrustedHint": "Dịch vụ này không do quản trị viên vận hành nên công cụ của nó chưa được xác minh: tất cả được tính là hành động người khác nhìn thấy."
+    },
+    "credentialBadge": {
+      "required": "Binding required",
+      "outdated": "Credentials outdated",
+      "bound": "Credentials set"
     }
   },
   "serviceLink": {

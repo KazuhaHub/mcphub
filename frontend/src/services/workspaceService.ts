@@ -1,4 +1,5 @@
 import type {
+  MyCredentialBinding,
   ToolRiskLevel,
   WorkspaceActivityPage,
   WorkspaceClient,
@@ -65,14 +66,9 @@ export const revokeAllWorkspaceClients = async (): Promise<void> => {
   unwrap(await apiDelete<ApiResponse>('/workspace/clients'), 'revoke');
 };
 
-/** Names of shared servers that have personal credential slots (the Credentials page list). */
-export const fetchCredentialServerNames = async (): Promise<Set<string>> => {
-  const bindings = unwrap(
-    await apiGet<ApiResponse<{ serverName: string }[]>>('/credentials'),
-    'credentials',
-  );
-  return new Set((bindings || []).map((binding) => binding.serverName));
-};
+/** The user's credential bindings for shared servers that have personal credential slots. */
+export const fetchCredentialBindings = async (): Promise<MyCredentialBinding[]> =>
+  unwrap(await apiGet<ApiResponse<MyCredentialBinding[]>>('/credentials'), 'credentials') || [];
 
 /** Starts (or refreshes) the personal OAuth flow; resolves with the authorization URL if any. */
 export const startPersonalOAuth = async (name: string): Promise<string | undefined> => {

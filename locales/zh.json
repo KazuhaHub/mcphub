@@ -1772,7 +1772,14 @@
     "sourceUrlMismatch": "URL 允许值不匹配",
     "noOtherServers": "没有其他声明凭据字段的服务器",
     "noSourcesHelp": "请先在其他服务器配置个人凭据，并确保字段匹配，然后再复制。",
-    "deleteConfirm": "确定删除 {{server}} 的凭据？后续请求需要重新配置凭据才能使用。"
+    "deleteConfirm": "确定删除 {{server}} 的凭据？后续请求需要重新配置凭据才能使用。",
+    "adminTitle": "用户凭据",
+    "adminDescription": "仅管理员可用。查看和管理其他用户的凭据。每个人在工作台的服务列表里设置自己的凭据。",
+    "chooseUser": "选择用户",
+    "panelTitle": "{{name}} 的凭据",
+    "panelHint": "仅此一个服务。已保存的值保持遮挡。",
+    "notNeeded": "{{name}} 不需要个人凭据，或你无法使用它。",
+    "outdatedStatus": "凭据需更新"
   },
   "workspace": {
     "status": {
@@ -1850,7 +1857,11 @@
       "retryUntil": "请在 {{until}} 之后重试",
       "openAuthorization": "打开登录页面",
       "manageAccount": "管理账号",
-      "manageAccountFor": "管理 {{name}} 的账号"
+      "manageAccountFor": "管理 {{name}} 的账号",
+      "configureCredentials": "配置凭据",
+      "configureCredentialsFor": "配置 {{name}} 的凭据",
+      "manageCredentials": "凭据",
+      "manageCredentialsFor": "管理 {{name}} 的凭据"
     },
     "clients": {
       "tab": "已连接的客户端",
@@ -1960,6 +1971,11 @@
       "connectedPending": "已连接。首次使用此服务后，这里会显示它的工具。",
       "defaultNote": "在你自行选择之前，由管理员设定。",
       "untrustedHint": "此服务并非由管理员运行，其工具未经验证：全部按“他人可见的操作”处理。"
+    },
+    "credentialBadge": {
+      "required": "需要绑定",
+      "outdated": "凭据需更新",
+      "bound": "已设置凭据"
     }
   },
   "serviceLink": {

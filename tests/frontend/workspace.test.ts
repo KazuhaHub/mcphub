@@ -18,7 +18,9 @@ import {
   resolveWorkspaceSetting,
   shouldRefreshOnFocus,
   countExposedTools,
-  credentialsPath,
+  credentialBadge,
+  findCredentialBinding,
+  workspaceCredentialsPath,
   resolveServiceAction,
   resolveSummaryBanner,
   toggleServerSelection,
@@ -128,8 +130,21 @@ describe('action mapping per status code', () => {
     ).toEqual({ kind: 'contact_admin' });
   });
 
-  it('builds a credentials deep link the Credentials page understands', () => {
-    expect(credentialsPath('my server')).toBe('/credentials?server=my%20server');
+  it('builds a workspace link that opens one service’s credential panel', () => {
+    expect(workspaceCredentialsPath('my server')).toBe('/workspace?credentials=my%20server');
+  });
+
+  it('derives the credential badge from the binding', () => {
+    expect(credentialBadge(undefined)).toBeNull();
+    expect(credentialBadge({ configured: false })).toBe('required');
+    expect(credentialBadge({ configured: false, stale: true })).toBe('outdated');
+    expect(credentialBadge({ configured: true })).toBe('bound');
+  });
+
+  it('finds the binding of exactly one service', () => {
+    const bindings = [{ serverName: 'a' }, { serverName: 'b' }] as never[];
+    expect(findCredentialBinding(bindings, 'b')).toBe(bindings[1]);
+    expect(findCredentialBinding(bindings, 'c')).toBeUndefined();
   });
 });
 

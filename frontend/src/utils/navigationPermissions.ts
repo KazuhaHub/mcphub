@@ -1,3 +1,5 @@
+import { workspaceCredentialsPath } from './workspace';
+
 type UserLike = {
   isAdmin?: boolean;
 } | null | undefined;
@@ -68,4 +70,32 @@ export const getWorkspaceNavKeys = (ctx: NavContext): NavKey[] => {
   if (ctx.resolved === false && !ctx.isAdmin) return [];
   if (!ctx.workspaceEnabled) return [...WORKSPACE_GROUP_ITEMS];
   return ctx.isAdmin ? ['workspace', ...WORKSPACE_GROUP_ITEMS] : ['workspace'];
+};
+
+/** Title key of the sidebar entry for credentials, or null when there is none. */
+export type CredentialsNav = 'own' | 'admin' | null;
+
+/**
+ * With Workspace Mode on, people set their own credentials on the workspace services list, so
+ * ordinary users have no credentials page and administrators keep one for managing other
+ * users' credentials. With the mode off the page stays what it was: each person's own list.
+ */
+export const getCredentialsNav = (ctx: NavContext): CredentialsNav => {
+  if (ctx.resolved === false && !ctx.isAdmin) return null;
+  if (!ctx.workspaceEnabled) return 'own';
+  return ctx.isAdmin ? 'admin' : null;
+};
+
+/**
+ * Where an old `/credentials` link goes. Null means the page itself is shown. `server` is the
+ * old deep link parameter; it now opens that service's credential panel on the workspace.
+ */
+export const credentialsRedirect = (
+  ctx: NavContext,
+  params: { user?: string | null; server?: string | null },
+): string | null => {
+  if (!ctx.workspaceEnabled) return null;
+  if (ctx.isAdmin && params.user) return null;
+  if (ctx.isAdmin && !params.server) return null;
+  return params.server ? workspaceCredentialsPath(params.server) : '/workspace';
 };
