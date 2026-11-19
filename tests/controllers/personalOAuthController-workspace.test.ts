@@ -34,6 +34,7 @@ jest.mock('../../src/services/authorizationService.js', () => ({
 }));
 jest.mock('../../src/services/personalOAuthService.js', () => ({
   hasPersonalOAuth: () => true,
+  personalOAuthContexts: new WeakMap(),
   findPersonalOAuthFlow: jest.fn(),
   disconnectPersonalOAuth: (...args: unknown[]) => mockDisconnect(...args),
   PersonalOAuthContext: {

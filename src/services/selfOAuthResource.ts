@@ -11,6 +11,7 @@ import { buildRedirectUriFromBase } from '../utils/oauthRedirectUri.js';
 import { resolveInstallBaseUrl } from '../utils/installBaseUrl.js';
 import type { FetchLike } from '../utils/ssrf.js';
 import { logger } from '../utils/logger.js';
+import { personalOAuthContexts } from './personalOAuthService.js';
 import { CredentialBindingError } from '../utils/credentialTemplate.js';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 
@@ -38,10 +39,14 @@ const stripTrailingSlashes = (value: string): string => value.replace(/\/+$/, ''
  * issuer, as for the tokens themselves) and an enabled authorization server. A server that pins
  * its own authorization endpoints is left alone.
  */
-export const resolveSelfResource = async (
+export const resolveSelfResourceStrict = async (
   conf: ServerConfig,
 ): Promise<SelfResource | undefined> => {
   const oauth = conf.oauth;
+  // A per-user config also carries the client id the SDK stored in the user's binding; only the
+  // one in the server definition is the administrator's.
+  const personal = personalOAuthContexts.get(conf);
+  const adminClientId = personal ? personal.definitionClientId : oauth?.clientId;
   if (
     oauth?.identityMode !== 'personal' ||
     !conf.url ||
@@ -50,19 +55,26 @@ export const resolveSelfResource = async (
     oauth.tokenEndpoint ||
     // An explicit client is the administrator's own configuration and keeps it. (The SDK stores
     // the public client's own id in the user's binding after the first authorization.)
-    (oauth.clientId && oauth.clientId !== SELF_OAUTH_CLIENT_ID)
+    (adminClientId && adminClientId !== SELF_OAUTH_CLIENT_ID)
   ) {
     return undefined;
   }
+  const systemConfig = await getSystemConfigDao().get();
+  const entry = findExternalResource(systemConfig, conf.url);
+  if (!entry) return undefined;
+  const merged = { ...cloneDefaultOAuthServerConfig(), ...systemConfig?.oauthServer };
+  if (merged.enabled === false) return undefined;
+  const base = resolveInstallBaseUrl(systemConfig);
+  if (!base) return undefined;
+  return { issuer: stripTrailingSlashes(base), entry };
+};
+
+/** As above, but a failure to read the configuration is logged and read as "not self-resource". */
+export const resolveSelfResource = async (
+  conf: ServerConfig,
+): Promise<SelfResource | undefined> => {
   try {
-    const systemConfig = await getSystemConfigDao().get();
-    const entry = findExternalResource(systemConfig, conf.url);
-    if (!entry) return undefined;
-    const merged = { ...cloneDefaultOAuthServerConfig(), ...systemConfig?.oauthServer };
-    if (merged.enabled === false) return undefined;
-    const base = resolveInstallBaseUrl(systemConfig);
-    if (!base) return undefined;
-    return { issuer: stripTrailingSlashes(base), entry };
+    return await resolveSelfResourceStrict(conf);
   } catch (error) {
     logger.warn('Could not determine whether a server is an external resource of this hub', error);
     return undefined;
@@ -81,6 +93,47 @@ export const assertSelfClientIdAllowed = async (config: ServerConfig): Promise<v
     throw new CredentialBindingError(RESERVED_CLIENT_MESSAGE);
 };
 
+/** The configuration could not be read: a temporary condition, never "not self-resource". */
+export class SelfResourceUndeterminedError extends Error {
+  constructor(serverName: string) {
+    super(
+      `'${serverName}': could not determine whether this MCPHub is its authorization server. Try again shortly.`,
+    );
+    this.name = 'SelfResourceUndeterminedError';
+  }
+}
+
+/**
+ * Whether a personal binding holds a grant this hub issued. The hub's client id is never stored in
+ * the binding (the provider returns it without saving), so the `grantResource` it records is the mark.
+ */
+export const isHubIssuedBinding = (conf: ServerConfig): boolean =>
+  conf.oauth?.identityMode === 'personal' && conf.oauth.grantResource !== undefined;
+
+/**
+ * The resolver for every path that builds a provider, connects or refreshes. A configuration read
+ * error fails the attempt as a temporary condition (nothing is discovered, refreshed or written);
+ * a binding this hub issued on a server that is positively not self-resource asks to reconnect, and
+ * is never sent to another issuer.
+ */
+export const resolveSelfResourceForConnection = async (
+  serverName: string,
+  conf: ServerConfig,
+): Promise<SelfResource | undefined> => {
+  let self: SelfResource | undefined;
+  try {
+    self = await resolveSelfResourceStrict(conf);
+  } catch (error) {
+    logger.warn('Could not determine whether a server is an external resource of this hub', error);
+    throw new SelfResourceUndeterminedError(serverName);
+  }
+  if (!self && isHubIssuedBinding(conf))
+    throw new CredentialBindingError(
+      `'${serverName}' is no longer served by this MCPHub's own authorization server. Disconnect and reconnect it.`,
+    );
+  return self;
+};
+
 /** Same rule at connect time, for a definition that predates it or an entry that has since gone. */
 export const assertSelfClientIdInUse = async (
   serverName: string,
@@ -88,6 +141,11 @@ export const assertSelfClientIdInUse = async (
   self: SelfResource | undefined,
 ): Promise<void> => {
   if (config.oauth?.clientId === SELF_OAUTH_CLIENT_ID && !self) {
+    const stored = personalOAuthContexts.get(config);
+    if (stored && stored.definitionClientId !== SELF_OAUTH_CLIENT_ID)
+      throw new CredentialBindingError(
+        `'${serverName}' is no longer served by this MCPHub's own authorization server, or that could not be determined. Disconnect and reconnect it.`,
+      );
     throw new CredentialBindingError(`'${serverName}': ${RESERVED_CLIENT_MESSAGE}`);
   }
 };
@@ -299,15 +357,27 @@ export const createSelfIssuerFetch = (
   limiterKey?: string,
 ): FetchLike => {
   const issuerUrl = new URL(issuer);
+  // A refresh token of this hub is only ever sent to this hub's own token endpoint.
+  const guarded: FetchLike = (input, init) => {
+    const body =
+      init?.body instanceof URLSearchParams
+        ? init.body
+        : typeof init?.body === 'string'
+          ? new URLSearchParams(init.body)
+          : undefined;
+    if (body?.get('grant_type') === 'refresh_token')
+      throw new Error('A refresh token of this MCPHub can only be sent to its own token endpoint');
+    return next(input, init);
+  };
   return async (input, init) => {
     let requested: URL;
     try {
       requested = new URL(typeof input === 'string' ? input : input.toString());
     } catch {
-      return next(input, init);
+      return guarded(input, init);
     }
     const localPath = localPathFor(issuerUrl, requested);
-    if (!localPath) return next(input, init);
+    if (!localPath) return guarded(input, init);
     const origin = await loopbackOrigin();
     // The issuer comes from the configured public URL, not the Host header, so the answer is the
     // same as over the public URL.

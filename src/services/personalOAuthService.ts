@@ -17,6 +17,7 @@ import type { ServerConfig } from '../types/index.js';
 import type { OAuthSettingsContext, ServerConfigWithOAuth } from './oauthSettingsStore.js';
 import { isWorkspaceEnabled } from './userServerSelectionService.js';
 import { canonicalJson } from '../utils/canonicalJson.js';
+import { logger } from '../utils/logger.js';
 
 type OAuth = NonNullable<ServerConfig['oauth']>;
 export const hasPersonalOAuth = (config?: ServerConfig): boolean =>
@@ -38,8 +39,10 @@ export const withPersonalOAuthLock = <T>(
   serverName: string,
   username: string,
   action: () => Promise<T>,
-): Promise<T> => withReplicaLock(JSON.stringify(['oauth', serverName, username]), () =>
-  serialize(JSON.stringify([serverName, username]), action));
+): Promise<T> =>
+  withReplicaLock(JSON.stringify(['oauth', serverName, username]), () =>
+    serialize(JSON.stringify([serverName, username]), action),
+  );
 
 // A missing credential to the workspace status (it is not a runtime failure), and recognisable
 // on its own where a request must report that personal authorization is still needed.
@@ -108,7 +111,12 @@ const normalizeLegacyDeclaration = (stored: string): string | undefined => {
     declarationOAuth(oauth as OAuth | undefined),
   ]);
 };
+const announced = new Set<string>();
+
 export class PersonalOAuthContext {
+  // The administrator's own `oauth.clientId` from the server definition (not one the SDK stored in
+  // the user's binding).
+  readonly definitionClientId?: string;
   private revision: string | undefined;
   private declaration: string;
   // True when the stored binding is the empty record written by a disconnect.
@@ -122,6 +130,7 @@ export class PersonalOAuthContext {
   ) {
     this.declaration = declaration;
     const oauth = declarationOAuth(config.oauth);
+    this.definitionClientId = oauth.clientId;
     this.config = {
       ...config,
       oauth,
@@ -132,12 +141,7 @@ export class PersonalOAuthContext {
   }
   static async load(serverName: string, username: string, definition: ServerConfig) {
     const expanded = await expandServerConfig(definition);
-    const context = new PersonalOAuthContext(
-      serverName,
-      username,
-      expanded,
-      fingerprint(expanded),
-    );
+    const context = new PersonalOAuthContext(serverName, username, expanded, fingerprint(expanded));
     const binding = await getCredentialBindingDao().get(serverName, username);
     if (binding) {
       const values = await decryptCredentialValues(binding);
@@ -341,19 +345,91 @@ export class PersonalOAuthContext {
       // Mirror oauthSettingsStore.updatePendingAuthorization: the verifier is
       // bound to its state (drop a stale verifier on state change) and the
       // flow TTL only refreshes when the state actually changes.
-      const stateChanged =
-        pending.state !== undefined && pending.state !== existing?.state;
+      const stateChanged = pending.state !== undefined && pending.state !== existing?.state;
       oauth.pendingAuthorization = {
         ...existing,
         ...pending,
         codeVerifier: pending.codeVerifier ?? (stateChanged ? undefined : existing?.codeVerifier),
         createdAt:
-          pending.createdAt ?? (stateChanged || !existing?.createdAt ? Date.now() : existing.createdAt),
+          pending.createdAt ??
+          (stateChanged || !existing?.createdAt ? Date.now() : existing.createdAt),
       };
       if (oauth.pendingAuthorization.codeVerifier === undefined) {
         delete oauth.pendingAuthorization.codeVerifier;
       }
     });
+  }
+  /**
+   * The user is connecting a server whose authorization server is now this hub (`selfIssuer`).
+   * Drops what their binding holds for another issuer: a client the SDK registered there (any client
+   * id but the hub's own), its tokens and its pending flow. Done through `mutate`, so under the
+   * user's lock with a compare-and-save; on a conflict it throws and nothing is changed. Only this
+   * user's own binding is touched, and nothing is revoked upstream.
+   */
+  /**
+   * The user is connecting a server that is no longer served by this hub's authorization server.
+   * Drops what the hub issued to them (tokens, the recorded resource, the pending flow and the hub's
+   * client id if it was stored), through `mutate` (user lock, compare-and-save; a conflict throws
+   * and changes nothing). Returns the resource the dropped grant was for, if there was one, so the
+   * caller can revoke it.
+   */
+  async discardHubIssuedState(
+    selfClientId: string,
+  ): Promise<{ grantResource: string } | undefined> {
+    const grantResource = this.config.oauth.grantResource;
+    if (grantResource === undefined) return undefined;
+    await this.mutate(({ oauth }) => {
+      for (const key of [
+        'accessToken',
+        'accessTokenExpiresAt',
+        'refreshToken',
+        'revocationEndpoint',
+        'grantResource',
+        'pendingAuthorization',
+      ] as const)
+        delete oauth[key];
+      if (oauth.clientId === selfClientId) delete oauth.clientId;
+    });
+    logger.info(
+      `Discarded the hub-issued grant of '${this.serverName}' for a user: this hub is no longer its authorization server`,
+    );
+    return { grantResource };
+  }
+  async discardForeignIssuerState(selfIssuer: string, selfClientId: string): Promise<boolean> {
+    const oauth = this.config.oauth;
+    const trim = (value: string) => value.replace(/\/+$/, '');
+    const pending = oauth.pendingAuthorization;
+    const state = pending?.discoveryState;
+    const issuers = [
+      pending?.issuer,
+      state?.authorizationServerMetadata?.issuer,
+      state?.authorizationServerUrl,
+    ].filter((value): value is string => typeof value === 'string' && value !== '');
+    const foreign =
+      Boolean(oauth.clientId && oauth.clientId !== selfClientId) ||
+      issuers.some((issuer) => trim(issuer) !== trim(selfIssuer));
+    if (!foreign) return false;
+    await this.mutate(({ oauth: current }) => {
+      for (const key of [
+        'clientId',
+        'clientSecret',
+        'accessToken',
+        'accessTokenExpiresAt',
+        'refreshToken',
+        'revocationEndpoint',
+        'grantResource',
+        'pendingAuthorization',
+      ] as const)
+        delete current[key];
+    });
+    const key = JSON.stringify([this.serverName, this.username]);
+    if (!announced.has(key)) {
+      announced.add(key);
+      logger.info(
+        `Discarded the stored OAuth client and grant of '${this.serverName}' for a user: this hub is now its authorization server`,
+      );
+    }
+    return true;
   }
   clearOAuthData(_name: string, scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') {
     return this.mutate(({ oauth }) => {
