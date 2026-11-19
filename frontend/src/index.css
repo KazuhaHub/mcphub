@@ -212,6 +212,8 @@
     background: var(--hub-scroll-first-bg, var(--hub-surface));
     box-shadow: 1px 0 0 var(--hub-line);
   }
+  /* The pinned cell follows the row's hover background (see `tbody tr:hover`). */
+  .hub-scroll-x tbody tr:hover > td:first-child { background: var(--hub-surface-hover); }
 }
 
 /* Buttons (only used in redesigned screens) */

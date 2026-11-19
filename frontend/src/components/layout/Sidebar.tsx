@@ -267,7 +267,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = fal
       </div>
 
       <div className="p-2.5 border-t border-[var(--hub-line)]">
-        <UserProfileMenu collapsed={collapsed} version={appVersion} />
+        <UserProfileMenu collapsed={collapsed} version={appVersion} onOverlayOpen={onClose} />
       </div>
     </aside>
   );

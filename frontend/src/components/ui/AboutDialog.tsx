@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpRight, CheckCircle2, RefreshCw, X } from 'lucide-react';
 import { ChangelogUpdateInfo } from '@/types';
@@ -32,6 +33,13 @@ const AboutDialog: React.FC<AboutDialogProps> = ({
   );
   const [isChecking, setIsChecking] = useState(false);
   const [localDismissed, setLocalDismissed] = useState(false);
+
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Take focus when opened so keyboard users land in the dialog.
+  useEffect(() => {
+    if (isOpen) dialogRef.current?.focus({ preventScroll: true });
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -94,13 +102,17 @@ const AboutDialog: React.FC<AboutDialogProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  // Portaled: a `fixed` overlay rendered inside the sidebar would be positioned against the
+  // transformed drawer instead of the viewport.
+  return createPortal(
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="about-dialog-title"
-        className="hub-card flex max-h-[calc(100dvh-2rem)] w-full max-w-[520px] flex-col overflow-hidden shadow-xl"
+        className="hub-card flex max-h-[calc(100dvh-2rem)] w-full max-w-[520px] flex-col overflow-hidden shadow-xl outline-none"
       >
         <div className="p-5 relative shrink-0">
           <button
@@ -251,7 +263,8 @@ const AboutDialog: React.FC<AboutDialogProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

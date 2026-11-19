@@ -13,9 +13,11 @@ import {
 interface UserProfileMenuProps {
   collapsed: boolean;
   version: string;
+  // Called when a dialog opens from this menu, so a drawer around it can step aside.
+  onOverlayOpen?: () => void;
 }
 
-const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version }) => {
+const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, onOverlayOpen }) => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { auth, logout } = useAuth();
@@ -57,6 +59,19 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version })
     };
   }, []);
 
+  // Escape closes the menu first; the drawer around it leaves the key alone while it is open.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault();
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen]);
+
   const handleSettingsClick = () => {
     navigate('/settings');
     setIsOpen(false);
@@ -70,6 +85,7 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version })
   const handleAboutClick = () => {
     setShowAboutDialog(true);
     setIsOpen(false);
+    onOverlayOpen?.();
   };
 
   return (
@@ -97,7 +113,7 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version })
       </button>
 
       {isOpen && (
-        <div className="hub-menu absolute bottom-full left-0 z-50 mb-1 w-full min-w-max">
+        <div data-layer="menu" className="hub-menu absolute bottom-full left-0 z-50 mb-1 w-full min-w-max">
           <button
             onClick={() => {
               navigate('/oauth-applications');

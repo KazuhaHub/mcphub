@@ -54,7 +54,7 @@ const MainLayout: React.FC = () => {
 
   return (
     <EmbeddingSyncProvider>
-      <div className="flex h-dvh" style={{ background: 'var(--hub-bg)', color: 'var(--hub-ink)' }}>
+      <div className="flex h-screen supports-[height:100dvh]:h-dvh" style={{ background: 'var(--hub-bg)', color: 'var(--hub-ink)' }}>
         {sidebar.narrow && (
           <div
             aria-hidden="true"

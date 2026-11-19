@@ -10,8 +10,19 @@ interface ModalDrawerOptions {
   containerRef: React.RefObject<HTMLElement | null>;
 }
 
-// While `open`: closes on Escape, locks page scroll, moves focus into the container, keeps Tab
-// inside it, and hands focus back to whatever had it before the drawer opened.
+// Dialogs and menus that sit on top of the drawer. Portaled dialogs declare `aria-modal`; menus
+// rendered inside the drawer carry `data-layer`. While one is open it owns Escape and Tab.
+const outsideModal = (container: HTMLElement | null, el: Element | null): boolean => {
+  const modal = el?.closest('[aria-modal="true"]');
+  return !!modal && !container?.contains(modal);
+};
+const layerOpen = (container: HTMLElement | null): boolean =>
+  !!container?.querySelector('[data-layer]') ||
+  Array.from(document.querySelectorAll('[aria-modal="true"]')).some((m) => !container?.contains(m));
+
+// While `open`: closes on Escape (only when it is the topmost layer), locks page scroll, moves
+// focus into the container, keeps Tab inside it, and on close hands focus back to the control
+// that opened it (found through `aria-controls` when the opener was not focusable).
 export const useModalDrawer = ({ open, onClose, containerRef }: ModalDrawerOptions): void => {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -29,12 +40,17 @@ export const useModalDrawer = ({ open, onClose, containerRef }: ModalDrawerOptio
     initial?.focus({ preventScroll: true });
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.key === 'Escape') {
+        // One Escape closes one layer: a dialog or menu above the drawer gets it first.
+        if (layerOpen(container)) return;
         event.stopPropagation();
         onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
+      // Focus is in a portaled dialog: that dialog manages its own focus.
+      if (outsideModal(container, document.activeElement)) return;
       const items = focusables();
       const target = trapTabTarget(
         items.length,
@@ -53,9 +69,17 @@ export const useModalDrawer = ({ open, onClose, containerRef }: ModalDrawerOptio
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = previousOverflow;
-      // Skip when focus already moved on (for example into the page after a navigation).
-      if (opener && opener.isConnected && (container?.contains(document.activeElement) ?? true)) {
-        opener.focus({ preventScroll: true });
+      // Hand focus back to the menu button, unless it moved on to a dialog opened from here.
+      const active = document.activeElement;
+      const returning = active === document.body || !active || !!container?.contains(active);
+      if (returning && !outsideModal(container, active)) {
+        const target =
+          opener && opener !== document.body && opener.isConnected
+            ? opener
+            : container?.id
+              ? document.querySelector<HTMLElement>(`[aria-controls="${container.id}"]`)
+              : null;
+        target?.focus({ preventScroll: true });
       }
     };
   }, [open, containerRef]);
