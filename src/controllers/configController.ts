@@ -62,7 +62,7 @@ export const getRuntimeConfig = (req: Request, res: Response): void => {
 };
 
 /**
- * Get the running MCPHub version. Mounted under /api, so only authenticated callers reach it.
+ * Get the running MCPHub version. Mounted under /api behind the admin gate, so only administrators reach it.
  */
 export const getVersion = (_req: Request, res: Response): void => {
   res.setHeader('Cache-Control', 'no-store');

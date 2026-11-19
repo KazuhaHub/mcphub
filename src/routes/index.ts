@@ -571,11 +571,15 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
   authenticatedRouter.get('/registry/servers/versions', getRegistryServerVersions);
   authenticatedRouter.get('/registry/servers/version', getRegistryServerVersion);
 
-  // Running MCPHub version, for signed-in dashboard users only
-  authenticatedRouter.get('/version', getVersion);
+  // Running MCPHub version and update information: administrators only
+  authenticatedRouter.get('/version', requireAdminMiddleware, getVersion);
 
   // Changelog routes (latest GitHub release of this fork)
-  authenticatedRouter.get('/changelog/update-info', getChangelogUpdateInfoHandler);
+  authenticatedRouter.get(
+    '/changelog/update-info',
+    requireAdminMiddleware,
+    getChangelogUpdateInfoHandler,
+  );
 
   // Log routes
   authenticatedRouter.get('/logs', getAllLogs);

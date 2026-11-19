@@ -21,6 +21,8 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { auth, logout } = useAuth();
+  // Version and update information are for administrators only.
+  const isAdmin = Boolean(auth.user?.isAdmin);
   const [isOpen, setIsOpen] = useState(false);
   const [showNewVersionInfo, setShowNewVersionInfo] = useState(false);
   const [showAboutDialog, setShowAboutDialog] = useState(false);
@@ -31,7 +33,7 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
   useEffect(() => {
     const checkForNewVersion = async () => {
       // The version arrives after sign-in; nothing to compare until then.
-      if (!version) return;
+      if (!isAdmin || !version) return;
       try {
         const info = await fetchChangelogUpdateInfo({
           currentVersion: version,
@@ -45,7 +47,7 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
     };
 
     checkForNewVersion();
-  }, [version, i18n.language]);
+  }, [isAdmin, version, i18n.language]);
 
   // Close the menu when clicking outside
   useEffect(() => {
@@ -101,7 +103,7 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
           <div className="w-6 h-6 flex items-center justify-center rounded-full border border-[var(--hub-line)] bg-[var(--hub-surface)]">
             <User className="h-3.5 w-3.5" />
           </div>
-          {showNewVersionInfo && (
+          {isAdmin && showNewVersionInfo && (
             <span className="absolute -top-1 -right-1 block w-2 h-2 bg-red-500 rounded-full"></span>
           )}
         </div>
@@ -143,16 +145,18 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
             <Settings className="h-4 w-4" />
             {t('nav.settings')}
           </button>
-          <button
-            onClick={handleAboutClick}
-            className="hub-menu-item relative"
-          >
-            <Info className="h-4 w-4" />
-            {t('about.title')}
-            {showNewVersionInfo && (
-              <span className="absolute top-3 right-3 block w-2 h-2 bg-red-500 rounded-full"></span>
-            )}
-          </button>
+          {isAdmin && (
+            <button
+              onClick={handleAboutClick}
+              className="hub-menu-item relative"
+            >
+              <Info className="h-4 w-4" />
+              {t('about.title')}
+              {showNewVersionInfo && (
+                <span className="absolute top-3 right-3 block w-2 h-2 bg-red-500 rounded-full"></span>
+              )}
+            </button>
+          )}
 
           <div className="my-1 border-t border-[var(--hub-line)]"></div>
 
@@ -166,8 +170,8 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
         </div>
       )}
 
-      {/* About dialog */}
-      <AboutDialog
+      {/* About dialog (administrators only: it holds nothing but version and update information) */}
+      {isAdmin && <AboutDialog
         isOpen={showAboutDialog}
         onClose={() => setShowAboutDialog(false)}
         version={version}
@@ -179,7 +183,7 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
         onDismissUpdate={() => {
           setShowNewVersionInfo(false);
         }}
-      />
+      />}
     </div>
   );
 };
