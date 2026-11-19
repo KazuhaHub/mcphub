@@ -59,7 +59,7 @@ no explicit `authorizationServerMetadata`, `authorizationEndpoint` or `tokenEndp
   personal OAuth flow, for this very server, that the signed-in user started. A link another user
   started and sent to a signed-in user therefore still gets the consent page. Completing a personal
   flow is bound separately to the browser that started it and, for this hub as authorization server, to
-  the user the code was issued to (a cookie nonce and an owner check at `/oauth/callback`), so a
+  the user the code was issued to (a per-flow cookie nonce, and for this hub as authorization server an owner check on the code, both at `/oauth/callback`), so a
   forwarded authorize URL cannot attach someone else's grant to the sender's binding even with
   consent. Any other client (registered, dynamic or URL-shaped) and any other request keeps the page.
   Each skip is logged (`OAuth consent skipped for the administrator-trusted resource`) with user,
