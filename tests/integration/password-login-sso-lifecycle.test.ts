@@ -1,6 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import type { SystemConfig } from '../../src/types/index.js';
+import { listenOnLoopback } from '../utils/loopbackServer.js';
 
 // The stored system config; tests change it the way the Settings page does
 let storedConfig: SystemConfig = {};
@@ -80,10 +81,18 @@ const startProcess = async () => {
     },
     login,
   );
-  return { app, getBetterAuthRuntimeConfig };
+  // Served on 127.0.0.1 so a request cannot reach another process holding the same port number
+  const served = await listenOnLoopback(app);
+  openServers.push(served);
+  return { app: served.url, getBetterAuthRuntimeConfig };
 };
 
-const passwordLogin = (app: express.Express) =>
+const openServers: Array<{ close: () => Promise<void> }> = [];
+afterEach(async () => {
+  await Promise.all(openServers.splice(0).map((server) => server.close()));
+});
+
+const passwordLogin = (app: string) =>
   request(app).post('/api/auth/login').send({ username: 'admin', password: 'secret123' });
 
 describe('password login while SSO is enabled without a restart', () => {

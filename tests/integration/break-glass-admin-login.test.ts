@@ -1,8 +1,8 @@
 import express from 'express';
-import type { RequestHandler } from 'express';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import type { SystemConfig } from '../../src/types/index.js';
+import { listenOnLoopback } from '../utils/loopbackServer.js';
 
 // Break-glass admin password sign-in while password login is disabled. The policy resolver, the
 // login controller, the public config and the login rate limiter run for real; the user store
@@ -64,6 +64,24 @@ const settings = (betterAuth: { disablePasswordLogin: boolean; adminPasswordLogi
 });
 
 /** A fresh process with the OIDC provider mounted, the real login limiter and the public config. */
+// Environment variables the code under test reads. Each test starts from a copy of the worker's
+// environment with all of them removed, so nothing a developer or another suite set can leak in
+// (src/config and the rate limiter also call dotenv.config(), which only fills unset keys).
+const ISOLATED_ENV =
+  /^(BETTER_AUTH_|AUTH_RATE_LIMIT_|REGISTER_RATE_LIMIT_|OIDC_|GOOGLE_CLIENT_|GITHUB_CLIENT_|USE_DB$|DB_URL$|BASE_PATH$|INSTALL_BASE_URL$)/;
+const isolatedEnv = (base: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (!ISOLATED_ENV.test(key)) env[key] = value;
+  }
+  // The limiter is off under a test runner unless a test turns it on explicitly
+  return { ...env, ...ENV, NODE_ENV: 'test', JEST_WORKER_ID: base.JEST_WORKER_ID ?? '1' };
+};
+
+/**
+ * A fresh process with the OIDC provider mounted, the real POST /auth/login route definition
+ * (validators, login limiter, controller) and the public config.
+ */
 const startProcess = async ({ limited = false } = {}) => {
   jest.resetModules();
   if (limited) {
@@ -76,23 +94,32 @@ const startProcess = async ({ limited = false } = {}) => {
   const { registeredSsoProviders } = await import('../../src/betterAuth.js');
   const { setMountedSsoProviders } = await import('../../src/services/betterAuthConfig.js');
   setMountedSsoProviders(registeredSsoProviders);
-  const { login } = await import('../../src/controllers/authController.js');
+  expect(registeredSsoProviders).toEqual(['oidc']);
+  const { mountPasswordLoginRoute } = await import('../../src/routes/passwordLoginRoute.js');
   const { getPublicConfig } = await import('../../src/controllers/configController.js');
-  const { authAttemptRateLimiter } = await import('../../src/utils/rateLimit.js');
   const { logger } = await import('../../src/utils/logger.js');
 
+  const api = express.Router();
+  mountPasswordLoginRoute(api);
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     (req as any).t = (key: string) => key;
     next();
   });
-  app.post('/api/auth/login', authAttemptRateLimiter as unknown as RequestHandler, login);
+  app.use('/api', api);
   app.get('/public-config', getPublicConfig);
-  return { app, logger };
+  const served = await listenOnLoopback(app);
+  openServers.push(served);
+  return { app: served.url, logger };
 };
 
-const signIn = (app: express.Express, username: string, password: string) =>
+const openServers: Array<{ close: () => Promise<void> }> = [];
+afterEach(async () => {
+  await Promise.all(openServers.splice(0).map((server) => server.close()));
+});
+
+const signIn = (app: string, username: string, password: string) =>
   request(app).post('/api/auth/login').send({ username, password });
 
 describe('break-glass admin password sign-in', () => {
@@ -112,8 +139,8 @@ describe('break-glass admin password sign-in', () => {
   });
 
   beforeEach(() => {
-    process.env = { ...originalEnv, ...ENV };
-    delete process.env.BETTER_AUTH_DISABLE_PASSWORD_LOGIN;
+    process.env = isolatedEnv(originalEnv);
+    mockVerifyPassword.mockClear();
   });
 
   afterEach(() => {
@@ -194,6 +221,47 @@ describe('break-glass admin password sign-in', () => {
       const blocked = await signIn(app, 'root', 'root-secret');
       expect(blocked.status).toBe(429);
     });
+  });
+
+  it('does the same password work for every refusal, with the setting on or off', async () => {
+    const attempts: Array<[string, string]> = [
+      ['mallory', 'whatever'], // unknown account
+      ['alice', 'alice-secret'], // non-admin, right password
+      ['root', 'not-the-password'], // admin, wrong password
+    ];
+    const bcryptCalls: Record<string, number[]> = {};
+    for (const adminPasswordLogin of [false, true]) {
+      storedConfig = settings({ disablePasswordLogin: true, adminPasswordLogin });
+      const { app } = await startProcess();
+      const calls: number[] = [];
+      for (const [username, password] of attempts) {
+        mockVerifyPassword.mockClear();
+        const response = await signIn(app, username, password);
+        expect(response.status).toBe(403);
+        expect(response.body).toEqual({
+          success: false,
+          message: 'api.errors.password_login_disabled',
+        });
+        calls.push(mockVerifyPassword.mock.calls.length);
+      }
+      bcryptCalls[adminPasswordLogin ? 'admins' : 'none'] = calls;
+    }
+    // One bcrypt comparison per attempt, whatever the setting or the reason
+    expect(bcryptCalls.none).toEqual([1, 1, 1]);
+    expect(bcryptCalls.admins).toEqual(bcryptCalls.none);
+  });
+
+  it('runs the route validators: a blank field is a 400 only while password login is open', async () => {
+    storedConfig = settings({ disablePasswordLogin: false });
+    let { app } = await startProcess();
+    expect((await signIn(app, 'root', '')).status).toBe(400);
+
+    // While it is disabled the refusal comes first, so a blank field reveals nothing either
+    storedConfig = settings({ disablePasswordLogin: true, adminPasswordLogin: true });
+    ({ app } = await startProcess());
+    const blank = await signIn(app, 'root', '');
+    expect(blank.status).toBe(403);
+    expect(blank.body.message).toBe('api.errors.password_login_disabled');
   });
 
   it('rejects everyone, admins included, with the setting off, with the same answer', async () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import express from 'express';
 import type { RequestHandler } from 'express';
 import request from 'supertest';
+import { listenOnLoopback } from '../utils/loopbackServer.js';
 
 const ENV_KEYS = [
   'AUTH_RATE_LIMIT_MAX',
@@ -39,7 +40,10 @@ const loadLimiters = async (env: Record<string, string>) => {
   };
 };
 
-const buildApp = (limiters: { login: RequestHandler; register: RequestHandler }) => {
+const openServers: Array<{ close: () => Promise<void> }> = [];
+
+// Served on 127.0.0.1 so a request cannot reach another process holding the same port number
+const buildApp = async (limiters: { login: RequestHandler; register: RequestHandler }) => {
   const app = express();
   app.post('/api/auth/login', limiters.login, (req, res) => {
     if (req.headers['x-valid-credentials'] === 'true') {
@@ -51,10 +55,12 @@ const buildApp = (limiters: { login: RequestHandler; register: RequestHandler })
   app.post('/api/auth/register', limiters.register, (_req, res) => {
     res.status(200).json({ success: true });
   });
-  return app;
+  const served = await listenOnLoopback(app);
+  openServers.push(served);
+  return served.url;
 };
 
-const post = (app: express.Express, path: string, valid = false) => {
+const post = (app: string, path: string, valid = false) => {
   const pending = request(app).post(path);
   return valid ? pending.set('x-valid-credentials', 'true') : pending;
 };
@@ -64,13 +70,14 @@ describe('auth rate limiting', () => {
     process.env = { ...originalEnv };
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     process.env = originalEnv;
     jest.resetModules();
+    await Promise.all(openServers.splice(0).map((server) => server.close()));
   });
 
   it('does not spend the login budget on successful logins', async () => {
-    const app = buildApp(
+    const app = await buildApp(
       await loadLimiters({ AUTH_RATE_LIMIT_MAX: '20', AUTH_RATE_LIMIT_WINDOW_MS: '900000' }),
     );
 
@@ -84,7 +91,7 @@ describe('auth rate limiting', () => {
   });
 
   it('still blocks repeated failed logins', async () => {
-    const app = buildApp(
+    const app = await buildApp(
       await loadLimiters({ AUTH_RATE_LIMIT_MAX: '20', AUTH_RATE_LIMIT_WINDOW_MS: '900000' }),
     );
 
@@ -98,7 +105,7 @@ describe('auth rate limiting', () => {
   });
 
   it('answers a blocked request with a JSON body', async () => {
-    const app = buildApp(
+    const app = await buildApp(
       await loadLimiters({ AUTH_RATE_LIMIT_MAX: '1', AUTH_RATE_LIMIT_WINDOW_MS: '900000' }),
     );
 
@@ -113,7 +120,7 @@ describe('auth rate limiting', () => {
   });
 
   it('keeps capping successful registrations', async () => {
-    const app = buildApp(
+    const app = await buildApp(
       await loadLimiters({ REGISTER_RATE_LIMIT_MAX: '3', REGISTER_RATE_LIMIT_WINDOW_MS: '900000' }),
     );
 
@@ -127,7 +134,7 @@ describe('auth rate limiting', () => {
   });
 
   it('does not let login traffic exhaust the registration budget', async () => {
-    const app = buildApp(
+    const app = await buildApp(
       await loadLimiters({ AUTH_RATE_LIMIT_MAX: '2', REGISTER_RATE_LIMIT_MAX: '3' }),
     );
 
@@ -140,7 +147,7 @@ describe('auth rate limiting', () => {
   });
 
   it('applies no limit at all when the cap is disabled', async () => {
-    const app = buildApp(await loadLimiters({ AUTH_RATE_LIMIT_MAX: '0' }));
+    const app = await buildApp(await loadLimiters({ AUTH_RATE_LIMIT_MAX: '0' }));
 
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 40; attempt += 1) {
