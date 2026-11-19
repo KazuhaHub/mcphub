@@ -45,6 +45,15 @@
  * - LM Studio: https://lmstudio.ai/docs/app/mcp and https://lmstudio.ai/docs/app/mcp/deeplink . Link format
  *   `lmstudio://add_mcp?name=<name>&config=<base64 JSON>` with the `mcp.json` entry (`url`, `headers`).
  *   The docs only describe header-based auth, so OAuth is not claimed for it.
+ * - Goose: no standalone docs page was found. The link format comes from Goose's own docs-site code
+ *   (`documentation/src/utils/install-links.ts` in github.com/aaif-goose/goose) and its github-mcp.md
+ *   example: `goose://extension?type=streamable_http&url=<enc>&id=<id>&name=<name>&description=<enc>`,
+ *   plus repeatable `header=<enc "Name=value">`. Whether Goose then starts OAuth was not verified, so
+ *   OAuth is flagged unverified and the URL stays copyable as a fallback.
+ * - Claude and ChatGPT settings pages: https://claude.ai/customize/connectors and
+ *   https://chatgpt.com/plugins both loaded in a browser on 2026-11-18 (titles "Connectors - Claude"
+ *   and "Plugins | ChatGPT"). Neither vendor documents a link that prefills the server URL, so the
+ *   button copies the URL and opens the page; the user pastes it. No query parameters are used.
  * - Cherry Studio, OpenCode, Windsurf, Trae, CodeBuddy, Qoder, ZCode, WorkBuddy: no one-click link or
  *   command was verified (Cherry Studio's `mcpProtocolInstall.ts` validates a protocol-install payload but
  *   its docs do not document the link, so no link is built). They reuse the configuration snippets in
@@ -68,6 +77,7 @@ export type ConnectClientId =
   | 'codex'
   | 'gemini-cli'
   | 'lmstudio'
+  | 'goose'
   | 'opencode'
   | 'windsurf'
   | 'cherry-studio'
@@ -148,6 +158,13 @@ export const CONNECT_CLIENTS: readonly ConnectClient[] = [
     letter: 'L',
     supportsKey: true,
     oauth: 'unsupported',
+  },
+  {
+    id: 'goose',
+    name: 'Goose',
+    letter: 'Go',
+    supportsKey: true,
+    oauth: 'unverified',
   },
   {
     id: 'opencode',
@@ -296,6 +313,27 @@ export const buildLmStudioDeepLink = (
     utf8Base64(JSON.stringify(mcpJsonEntry(target.url, headers))),
   )}`;
 
+/** Goose id: lowercase letters, digits and dashes derived from the entry name. */
+const gooseId = (name: string): string =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'mcphub';
+
+export const buildGooseDeepLink = (
+  target: ConnectTarget,
+  headers?: Record<string, string>,
+): string => {
+  const params = [
+    'type=streamable_http',
+    `url=${encodeURIComponent(target.url)}`,
+    `id=${encodeURIComponent(gooseId(target.name))}`,
+    `name=${encodeURIComponent(target.name)}`,
+    `description=${encodeURIComponent('MCPHub')}`,
+    ...Object.entries(headers ?? {}).map(
+      ([name, value]) => `header=${encodeURIComponent(`${name}=${value}`)}`,
+    ),
+  ];
+  return `goose://extension?${params.join('&')}`;
+};
+
 const SHELL_SAFE = /^[A-Za-z0-9._:@/=-]+$/;
 
 /** POSIX single-quote quoting for pasted commands. */
@@ -353,6 +391,8 @@ export interface ConnectPlan {
   settingsUrl?: string;
   /** Translation key for the settings button. */
   settingsLabelKey?: string;
+  /** Clicking the settings button also copies `copyUrl`, because the page cannot be prefilled. */
+  copyOnOpen?: boolean;
   deepLink?: ConnectDeepLink;
   /** Copyable commands and configuration. */
   blocks: ClientSnippetBlock[];
@@ -420,20 +460,22 @@ export const buildConnectPlan = (
               ]
             : ['connect.steps.claude.open', 'connect.steps.claude.add', 'connect.steps.claude.connect'],
         settingsUrl: CLAUDE_CONNECTORS_URL,
-        settingsLabelKey: 'connect.openClaude',
+        settingsLabelKey: 'connect.copyAndOpenClaude',
+        copyOnOpen: true,
         copyUrl: target.url,
         blocks: auth === 'key' ? [{ kind: 'config', text: `Authorization: ${headers?.Authorization}` }] : [],
-        noteKeys: [...noteKeys, 'connect.notes.claudePublic'],
+        noteKeys: [...noteKeys, 'connect.notes.copiedOnOpen', 'connect.notes.claudePublic'],
       };
     case 'chatgpt':
       return {
         kind: 'web',
         stepKeys: ['connect.steps.chatgpt.open', 'connect.steps.chatgpt.add', 'connect.steps.chatgpt.auth'],
         settingsUrl: CHATGPT_PLUGINS_URL,
-        settingsLabelKey: 'connect.openChatgpt',
+        settingsLabelKey: 'connect.copyAndOpenChatgpt',
+        copyOnOpen: true,
         copyUrl: target.url,
         blocks: [],
-        noteKeys,
+        noteKeys: [...noteKeys, 'connect.notes.copiedOnOpen'],
       };
     case 'claude-code':
       return {
@@ -486,6 +528,15 @@ export const buildConnectPlan = (
           ...(auth === 'oauth' ? [{ kind: 'command' as const, text: `/mcp auth ${safeEntryName(target.name)}` }] : []),
         ],
         noteKeys,
+      };
+    case 'goose':
+      return {
+        kind: 'link',
+        stepKeys: ['connect.steps.link.click', 'connect.steps.link.review'],
+        deepLink: { href: buildGooseDeepLink(target, headers), labelKey: 'connect.addToGoose' },
+        copyUrl: target.url,
+        blocks: [],
+        noteKeys: [...noteKeys, 'connect.notes.fallbackUrl'],
       };
     case 'lmstudio':
       return {

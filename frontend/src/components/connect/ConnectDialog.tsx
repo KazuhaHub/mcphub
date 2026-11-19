@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, ExternalLink, X } from 'lucide-react';
 import { CopyBlock } from '@/components/ui/CopyBlock';
 import { EndpointCopy } from '@/components/ui/EndpointCopy';
+import { useToast } from '@/contexts/ToastContext';
 import type { WorkspaceEndpoints, WorkspaceServer } from '@/types';
 import {
   CONNECT_CLIENTS,
@@ -17,6 +18,7 @@ import {
   type ConnectClient,
   type ConnectClientId,
 } from '@/utils/connectClients';
+import { copyText } from '@/utils/clipboard';
 import { CLIENT_SNIPPET_PRESETS, type ClientSnippetId } from '@/utils/mcpClientSnippets';
 import { credentialsPath } from '@/utils/workspace';
 import { ClientIcon } from './ClientIcon';
@@ -51,6 +53,7 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
@@ -117,6 +120,12 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
         : [],
     [client, target, otherFormat, requestedAuth, t],
   );
+
+  // The anchor still navigates natively; the copy runs inside the same click so the browser allows it.
+  const copyBeforeOpen = async (value: string) => {
+    const ok = await copyText(value);
+    showToast(ok ? t('connect.urlCopied') : t('common.copyFailed'), ok ? 'success' : 'error');
+  };
 
   const back = () => {
     if (stage === 'detail') {
@@ -335,6 +344,11 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
                   href={plan.settingsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={
+                    plan.copyOnOpen && plan.copyUrl
+                      ? () => void copyBeforeOpen(plan.copyUrl as string)
+                      : undefined
+                  }
                 >
                   <ExternalLink size={13} /> {t(plan.settingsLabelKey ?? 'connect.openSettings')}
                 </a>
