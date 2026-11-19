@@ -100,6 +100,13 @@ export const managePersonalOAuth = async (req: Request, res: Response): Promise<
       // The user's own connect is the only place stale state of a previous issuer is dropped.
       if (selfResource)
         await context.discardForeignIssuerState(selfResource.issuer, SELF_OAUTH_CLIENT_ID);
+      else {
+        // Positively not self-resource (an error above would have stopped here): a grant this hub
+        // issued is of no use to the upstream issuer. The user's own reconnect ends it.
+        const dropped = await context.discardHubIssuedState(SELF_OAUTH_CLIENT_ID);
+        if (dropped)
+          await revokeSelfGrants(user.username, [dropped.grantResource]).catch(() => undefined);
+      }
       if (selfResource) {
         await revokeSelfGrants(user.username, [
           selfResource.entry.resource,

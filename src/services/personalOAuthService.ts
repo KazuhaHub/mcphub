@@ -366,6 +366,35 @@ export class PersonalOAuthContext {
    * user's lock with a compare-and-save; on a conflict it throws and nothing is changed. Only this
    * user's own binding is touched, and nothing is revoked upstream.
    */
+  /**
+   * The user is connecting a server that is no longer served by this hub's authorization server.
+   * Drops what the hub issued to them (tokens, the recorded resource, the pending flow and the hub's
+   * client id if it was stored), through `mutate` (user lock, compare-and-save; a conflict throws
+   * and changes nothing). Returns the resource the dropped grant was for, if there was one, so the
+   * caller can revoke it.
+   */
+  async discardHubIssuedState(
+    selfClientId: string,
+  ): Promise<{ grantResource: string } | undefined> {
+    const grantResource = this.config.oauth.grantResource;
+    if (grantResource === undefined) return undefined;
+    await this.mutate(({ oauth }) => {
+      for (const key of [
+        'accessToken',
+        'accessTokenExpiresAt',
+        'refreshToken',
+        'revocationEndpoint',
+        'grantResource',
+        'pendingAuthorization',
+      ] as const)
+        delete oauth[key];
+      if (oauth.clientId === selfClientId) delete oauth.clientId;
+    });
+    logger.info(
+      `Discarded the hub-issued grant of '${this.serverName}' for a user: this hub is no longer its authorization server`,
+    );
+    return { grantResource };
+  }
   async discardForeignIssuerState(selfIssuer: string, selfClientId: string): Promise<boolean> {
     const oauth = this.config.oauth;
     const trim = (value: string) => value.replace(/\/+$/, '');

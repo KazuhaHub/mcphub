@@ -230,6 +230,28 @@ test('a hub-issued binding with the entry missing asks to reconnect and changes 
   expect(mockRevoke).not.toHaveBeenCalled();
 });
 
+test("self to non-self: the user's Connect drops the hub grant, then connect resolves; a read error changes nothing", async () => {
+  await hubIssued('bob');
+  delete systemConfig.oauthServer;
+  const before = await rawBinding('bob');
+  const context = await PersonalOAuthContext.load('canvas', 'bob', definition);
+  await withConfigReadError(async () => {
+    await expect(resolveSelfResourceStrict(definition)).rejects.toThrow('boom');
+  });
+  expect(await rawBinding('bob')).toBe(before);
+  // Connect, as the controller does once the strict resolver positively says "not self-resource"
+  expect(await resolveSelfResourceStrict(definition)).toBeUndefined();
+  expect(await context.discardHubIssuedState(SELF_OAUTH_CLIENT_ID)).toEqual({
+    grantResource: URL_,
+  });
+  const after = await PersonalOAuthContext.load('canvas', 'bob', definition);
+  expect(after.config.oauth.accessToken).toBeUndefined();
+  expect(after.config.oauth.refreshToken).toBeUndefined();
+  expect(after.config.oauth.grantResource).toBeUndefined();
+  expect(await resolveSelfResourceForConnection('canvas', after.config)).toBeUndefined();
+  expect(JSON.stringify(info.mock.calls)).not.toContain('hub-refresh-secret');
+});
+
 test('a foreign (upstream-issued) binding with no entry connects as before', async () => {
   await connectUpstream('alice');
   const context = await PersonalOAuthContext.load('canvas', 'alice', definition);
