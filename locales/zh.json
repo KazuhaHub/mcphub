@@ -573,7 +573,8 @@
       "claudePublic": "Claude 从 Anthropic 的服务器发起连接,因此你的 MCPHub 地址必须能通过公网 HTTPS(443 端口)访问。",
       "copiedOnOpen": "这个应用没有可以自动填入地址的链接，所以按钮会先复制地址，再打开设置页，请在那里粘贴。",
       "fallbackUrl": "如果点按钮没有反应，请在应用里添加一个 Streamable HTTP 扩展，并粘贴上面的服务器地址。"
-    }
+    },
+    "needsSignIn": "{{name}} 需要你先登录才能使用。"
   },
   "pagination": {
     "rowsPerPage": "每页行数",
@@ -1779,7 +1780,9 @@
     "panelTitle": "{{name}} 的凭据",
     "panelHint": "仅此一个服务。已保存的值保持遮挡。",
     "notNeeded": "{{name}} 不需要个人凭据，或你无法使用它。",
-    "outdatedStatus": "凭据需更新"
+    "outdatedStatus": "凭据需更新",
+    "showingFor": "{{user}} 的凭据",
+    "showingOwn": "你自己的凭据"
   },
   "workspace": {
     "status": {
@@ -1828,10 +1831,9 @@
     "services": {
       "tab": "服务",
       "title": "可用服务",
-      "description": "为你的端点开启或关闭服务。",
+      "description": "开关决定哪些服务出现在你的接入地址里。点一个服务查看详情。",
       "empty": "暂时没有可供你使用的服务。",
       "toggleFor": "将 {{name}} 加入我的工作区",
-      "copyEndpoint": "复制端点",
       "copyEndpointFor": "复制 {{name}} 的端点",
       "endpointConflict": "没有单独的端点：有分组与此服务同名。请改用你的主端点。",
       "toolCount_other": "{{count}} 个工具"
@@ -1848,8 +1850,6 @@
       "risk_not_enabled": "该工具未在你的工作区中允许"
     },
     "actions": {
-      "select": "加入工作区",
-      "selectFor": "将 {{name}} 加入我的工作区",
       "connect": "连接",
       "connectFor": "连接 {{name}}",
       "contactAdmin": "联系管理员",
@@ -1857,11 +1857,7 @@
       "retryUntil": "请在 {{until}} 之后重试",
       "openAuthorization": "打开登录页面",
       "manageAccount": "管理账号",
-      "manageAccountFor": "管理 {{name}} 的账号",
-      "configureCredentials": "配置凭据",
-      "configureCredentialsFor": "配置 {{name}} 的凭据",
-      "manageCredentials": "凭据",
-      "manageCredentialsFor": "管理 {{name}} 的凭据"
+      "manageAccountFor": "管理 {{name}} 的账号"
     },
     "clients": {
       "tab": "已连接的客户端",
@@ -1965,17 +1961,41 @@
       "changeFailed": "无法更改 {{name}} 的权限，请重试。",
       "hiddenNotice_other": "你的选择隐藏了 {{count}} 个工具。",
       "banner_other": "你已选的服务中有 {{count}} 个工具被隐藏：修改数据或代你行动的工具在你允许之前保持关闭。请在下方打开服务进行允许。",
-      "connectToSee": "连接此服务后即可查看其工具，并选择它们可以做什么。",
-      "unknownTools": "连接后可查看工具",
-      "pendingTools": "已连接 — 首次使用后显示工具",
       "connectedPending": "已连接。首次使用此服务后，这里会显示它的工具。",
       "defaultNote": "在你自行选择之前，由管理员设定。",
       "untrustedHint": "此服务并非由管理员运行，其工具未经验证：全部按“他人可见的操作”处理。"
     },
-    "credentialBadge": {
-      "required": "需要绑定",
-      "outdated": "凭据需更新",
-      "bound": "已设置凭据"
+    "chip": {
+      "ready": "可用",
+      "not_enabled": "未启用",
+      "needs_signin": "需登录",
+      "needs_credentials": "需凭据",
+      "credentials_outdated": "凭据已过期",
+      "unavailable": "不可用",
+      "action": {
+        "signin": "登录",
+        "signinTo": "登录 {{name}}",
+        "credentials": "添加凭据",
+        "update": "更新"
+      }
+    },
+    "panel": {
+      "status": "状态",
+      "tools": "工具",
+      "permissions": "权限",
+      "credentials": "你的凭据",
+      "actions": "使用此服务",
+      "copyUrl": "复制地址",
+      "toolsAfterSignIn": "登录后可见。",
+      "permissionsOff": "开启此服务后，才能选择它的工具可以做什么。",
+      "statusText": {
+        "ready": "已在你的工作区中可用。",
+        "not_enabled": "不在你的接入地址中。用列表中的开关开启。",
+        "needs_signin": "请先登录此服务才能使用。",
+        "needs_credentials": "此服务需要你自己的凭据才能使用。",
+        "credentials_outdated": "保存凭据后服务发生了变化，请重新填写。",
+        "unavailable": "此服务目前无法使用。"
+      }
     }
   },
   "serviceLink": {

@@ -571,7 +571,8 @@
       "claudePublic": "Claude connects from Anthropic's servers, so your MCPHub address must be reachable on public HTTPS (port 443).",
       "copiedOnOpen": "This app has no link that fills in the address for you, so the button copies it and opens the settings page. Paste it there.",
       "fallbackUrl": "If the button does nothing, add a Streamable HTTP extension in the app and paste the server URL above."
-    }
+    },
+    "needsSignIn": "{{name}} needs you to sign in before it will work."
   },
   "pagination": {
     "rowsPerPage": "Số hàng mỗi trang",
@@ -1774,7 +1775,9 @@
     "panelTitle": "Credentials for {{name}}",
     "panelHint": "Only this service. Saved values stay masked.",
     "notNeeded": "{{name}} does not need personal credentials, or you cannot use it.",
-    "outdatedStatus": "Credentials outdated"
+    "outdatedStatus": "Credentials outdated",
+    "showingFor": "Credentials of {{user}}",
+    "showingOwn": "Your own credentials"
   },
   "workspace": {
     "status": {
@@ -1823,10 +1826,9 @@
     "services": {
       "tab": "Dịch vụ",
       "title": "Dịch vụ khả dụng",
-      "description": "Bật hoặc tắt dịch vụ cho endpoint của bạn.",
+      "description": "The switch decides which services appear in your endpoint. Click a service for details.",
       "empty": "Bạn chưa có dịch vụ nào khả dụng.",
       "toggleFor": "Đưa {{name}} vào không gian làm việc của tôi",
-      "copyEndpoint": "Sao chép endpoint",
       "copyEndpointFor": "Sao chép endpoint của {{name}}",
       "endpointConflict": "Không có endpoint riêng: có một nhóm trùng tên với dịch vụ này. Hãy dùng endpoint chính của bạn.",
       "toolCount_other": "{{count}} công cụ"
@@ -1843,8 +1845,6 @@
       "risk_not_enabled": "Công cụ chưa được cho phép trong không gian làm việc của bạn"
     },
     "actions": {
-      "select": "Thêm vào không gian làm việc",
-      "selectFor": "Thêm {{name}} vào không gian làm việc của tôi",
       "connect": "Kết nối",
       "connectFor": "Kết nối {{name}}",
       "contactAdmin": "Hãy hỏi quản trị viên",
@@ -1852,11 +1852,7 @@
       "retryUntil": "Hãy thử lại sau {{until}}",
       "openAuthorization": "Mở trang đăng nhập",
       "manageAccount": "Quản lý tài khoản",
-      "manageAccountFor": "Quản lý tài khoản cho {{name}}",
-      "configureCredentials": "Configure credentials",
-      "configureCredentialsFor": "Configure credentials for {{name}}",
-      "manageCredentials": "Credentials",
-      "manageCredentialsFor": "Manage credentials for {{name}}"
+      "manageAccountFor": "Quản lý tài khoản cho {{name}}"
     },
     "clients": {
       "tab": "Ứng dụng khách đã kết nối",
@@ -1960,17 +1956,41 @@
       "changeFailed": "Không thể thay đổi những gì {{name}} được phép làm. Hãy thử lại.",
       "hiddenNotice_other": "{{count}} công cụ bị ẩn theo lựa chọn của bạn.",
       "banner_other": "{{count}} công cụ trong các dịch vụ bạn đã chọn đang bị ẩn: công cụ thay đổi dữ liệu hoặc hành động thay bạn sẽ tắt cho đến khi bạn cho phép. Hãy mở một dịch vụ bên dưới để cho phép thêm.",
-      "connectToSee": "Hãy kết nối dịch vụ này để xem công cụ của nó và chọn những gì chúng được phép làm.",
-      "unknownTools": "Kết nối để xem công cụ",
-      "pendingTools": "Đã kết nối — công cụ hiện sau lần dùng đầu tiên",
       "connectedPending": "Đã kết nối. Công cụ của dịch vụ này sẽ hiện ở đây sau lần dùng đầu tiên.",
       "defaultNote": "Do quản trị viên đặt cho đến khi bạn tự chọn.",
       "untrustedHint": "Dịch vụ này không do quản trị viên vận hành nên công cụ của nó chưa được xác minh: tất cả được tính là hành động người khác nhìn thấy."
     },
-    "credentialBadge": {
-      "required": "Binding required",
-      "outdated": "Credentials outdated",
-      "bound": "Credentials set"
+    "chip": {
+      "ready": "Ready",
+      "not_enabled": "Not enabled",
+      "needs_signin": "Needs sign-in",
+      "needs_credentials": "Needs credentials",
+      "credentials_outdated": "Credentials outdated",
+      "unavailable": "Unavailable",
+      "action": {
+        "signin": "Sign in",
+        "signinTo": "Sign in to {{name}}",
+        "credentials": "Add credentials",
+        "update": "Update"
+      }
+    },
+    "panel": {
+      "status": "Status",
+      "tools": "Tools",
+      "permissions": "Permissions",
+      "credentials": "Your credentials",
+      "actions": "Use this service",
+      "copyUrl": "Copy URL",
+      "toolsAfterSignIn": "Visible after you sign in.",
+      "permissionsOff": "Turn this service on to choose what its tools may do.",
+      "statusText": {
+        "ready": "Available in your workspace.",
+        "not_enabled": "Not in your endpoint. Turn it on with the switch in the list.",
+        "needs_signin": "Sign in to this service to use it.",
+        "needs_credentials": "This service needs your own credentials before it will work.",
+        "credentials_outdated": "The service changed after you saved your credentials. Enter them again.",
+        "unavailable": "This service cannot be used right now."
+      }
     }
   },
   "serviceLink": {

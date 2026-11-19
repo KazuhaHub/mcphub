@@ -571,7 +571,8 @@
       "claudePublic": "Claude connects from Anthropic's servers, so your MCPHub address must be reachable on public HTTPS (port 443).",
       "copiedOnOpen": "This app has no link that fills in the address for you, so the button copies it and opens the settings page. Paste it there.",
       "fallbackUrl": "If the button does nothing, add a Streamable HTTP extension in the app and paste the server URL above."
-    }
+    },
+    "needsSignIn": "{{name}} needs you to sign in before it will work."
   },
   "pagination": {
     "rowsPerPage": "Rows per page",
@@ -1777,7 +1778,9 @@
     "panelTitle": "Credentials for {{name}}",
     "panelHint": "Only this service. Saved values stay masked.",
     "notNeeded": "{{name}} does not need personal credentials, or you cannot use it.",
-    "outdatedStatus": "Credentials outdated"
+    "outdatedStatus": "Credentials outdated",
+    "showingFor": "Credentials of {{user}}",
+    "showingOwn": "Your own credentials"
   },
   "workspace": {
     "status": {
@@ -1830,10 +1833,9 @@
     "services": {
       "tab": "Services",
       "title": "Available services",
-      "description": "Turn services on or off for your endpoint.",
+      "description": "The switch decides which services appear in your endpoint. Click a service for details.",
       "empty": "No services are available to you yet.",
       "toggleFor": "Include {{name}} in my workspace",
-      "copyEndpoint": "Copy endpoint",
       "copyEndpointFor": "Copy endpoint for {{name}}",
       "endpointConflict": "No separate endpoint: a group has the same name as this service. Use your main endpoint instead.",
       "toolCount_one": "{{count}} tool",
@@ -1851,8 +1853,6 @@
       "risk_not_enabled": "Tool not allowed in your workspace"
     },
     "actions": {
-      "select": "Add to workspace",
-      "selectFor": "Add {{name}} to my workspace",
       "connect": "Connect",
       "connectFor": "Connect {{name}}",
       "contactAdmin": "Ask an administrator",
@@ -1860,11 +1860,7 @@
       "retryUntil": "Try again after {{until}}",
       "openAuthorization": "Open the sign-in page",
       "manageAccount": "Manage account",
-      "manageAccountFor": "Manage account for {{name}}",
-      "configureCredentials": "Configure credentials",
-      "configureCredentialsFor": "Configure credentials for {{name}}",
-      "manageCredentials": "Credentials",
-      "manageCredentialsFor": "Manage credentials for {{name}}"
+      "manageAccountFor": "Manage account for {{name}}"
     },
     "clients": {
       "tab": "Connected clients",
@@ -1972,17 +1968,41 @@
       "hiddenNotice_other": "{{count}} tools are hidden by your choice.",
       "banner_one": "{{count}} tool in your selected services is hidden: tools that change data or act for you stay off until you allow them. Open a service below to allow more.",
       "banner_other": "{{count}} tools in your selected services are hidden: tools that change data or act for you stay off until you allow them. Open a service below to allow more.",
-      "connectToSee": "Connect this service to see its tools and choose what they may do.",
-      "unknownTools": "Connect to see tools",
-      "pendingTools": "Connected — tools appear after first use",
       "connectedPending": "Connected. This service's tools appear here after you first use it.",
       "defaultNote": "Set by your administrator until you choose.",
       "untrustedHint": "This service is not run by an administrator, so its tools are not verified: all of them count as actions others can see."
     },
-    "credentialBadge": {
-      "required": "Binding required",
-      "outdated": "Credentials outdated",
-      "bound": "Credentials set"
+    "chip": {
+      "ready": "Ready",
+      "not_enabled": "Not enabled",
+      "needs_signin": "Needs sign-in",
+      "needs_credentials": "Needs credentials",
+      "credentials_outdated": "Credentials outdated",
+      "unavailable": "Unavailable",
+      "action": {
+        "signin": "Sign in",
+        "signinTo": "Sign in to {{name}}",
+        "credentials": "Add credentials",
+        "update": "Update"
+      }
+    },
+    "panel": {
+      "status": "Status",
+      "tools": "Tools",
+      "permissions": "Permissions",
+      "credentials": "Your credentials",
+      "actions": "Use this service",
+      "copyUrl": "Copy URL",
+      "toolsAfterSignIn": "Visible after you sign in.",
+      "permissionsOff": "Turn this service on to choose what its tools may do.",
+      "statusText": {
+        "ready": "Available in your workspace.",
+        "not_enabled": "Not in your endpoint. Turn it on with the switch in the list.",
+        "needs_signin": "Sign in to this service to use it.",
+        "needs_credentials": "This service needs your own credentials before it will work.",
+        "credentials_outdated": "The service changed after you saved your credentials. Enter them again.",
+        "unavailable": "This service cannot be used right now."
+      }
     }
   },
   "serviceLink": {

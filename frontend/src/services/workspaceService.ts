@@ -11,6 +11,7 @@ import {
   WorkspaceApiError,
   buildActivityQuery,
   isWorkspaceDisabledMessage,
+  resolveOAuthLaunch,
   type ActivityFilters,
 } from '../utils/workspace';
 import { apiDelete, apiGet, apiPost, apiPut, type ApiResponse } from '../utils/fetchInterceptor';
@@ -80,6 +81,36 @@ export const startPersonalOAuth = async (name: string): Promise<string | undefin
     'oauth',
   );
   return data?.authorizationUrl;
+};
+
+export type PersonalOAuthResult =
+  | { kind: 'started' }
+  | { kind: 'link'; url: string }
+  | { kind: 'invalid' };
+
+/**
+ * Starts the personal sign-in in a new tab. The tab is opened during the click, before any
+ * await, because browsers may block popups afterwards; cutting the opener link keeps the
+ * identity provider's page from reaching back into this one. A blocked popup comes back as a
+ * link to show instead. Throws when the server refuses.
+ */
+export const launchPersonalOAuth = async (name: string): Promise<PersonalOAuthResult> => {
+  const popup = window.open('about:blank', '_blank');
+  if (popup) popup.opener = null;
+  try {
+    const launch = resolveOAuthLaunch(await startPersonalOAuth(name), Boolean(popup));
+    if (launch.kind === 'navigate') {
+      popup?.location.replace(launch.url);
+      return { kind: 'started' };
+    }
+    popup?.close();
+    if (launch.kind === 'link') return { kind: 'link', url: launch.url };
+    if (launch.kind === 'invalid') return { kind: 'invalid' };
+    return { kind: 'started' };
+  } catch (err) {
+    popup?.close();
+    throw err;
+  }
 };
 
 export const fetchWorkspaceActivity = async (

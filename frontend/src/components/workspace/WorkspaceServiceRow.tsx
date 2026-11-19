@@ -1,343 +1,113 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Copy, KeyRound, Plug } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { StatusDot } from '@/components/ui/StatusDot';
-import type {
-  MyCredentialBinding,
-  ToolRiskLevel,
-  WorkspaceServer,
-  WorkspaceServerEndpoint,
-} from '@/types';
-import { getSafeManageHref } from '@/utils/manageUrl';
-import { getServiceLinkHref } from '@/utils/serviceLink';
-import { TOOL_RISK_LEVELS, countHiddenByCeiling, isRiskChoiceAllowed } from '@/utils/toolRisk';
-import {
-  credentialBadge,
-  localizeStatusMessage,
-  resolveServiceAction,
-  statusTone,
-  type ServiceAction,
-} from '@/utils/workspace';
+import type { MyCredentialBinding, WorkspaceServer } from '@/types';
+import { resolveServiceChip, serviceChipTone } from '@/utils/workspace';
+
+export type RowAction = 'signin' | 'credentials';
 
 interface WorkspaceServiceRowProps {
   server: WorkspaceServer;
-  endpoint?: WorkspaceServerEndpoint;
   credentialServers: ReadonlySet<string> | null;
   // The user's binding for this service, when it takes personal credentials.
   credentialBinding?: MyCredentialBinding;
   busy: boolean;
-  // Set when the authorization popup was blocked.
-  authorizationUrl?: string;
   onToggle: (name: string, selected: boolean) => void;
-  onRiskChange: (name: string, riskCeiling: ToolRiskLevel) => void;
-  onAction: (action: ServiceAction) => void;
-  onCopyEndpoint: (url: string) => void;
-  onConnectToAi: (name: string) => void;
-  // Opens the credential panel for this one service.
-  onConfigureCredentials?: (name: string) => void;
+  // Opens the service panel; `credentials` also moves to its credentials section.
+  onOpen: (name: string, focus?: 'credentials') => void;
+  onAction: (name: string, action: RowAction) => void;
 }
 
-const BADGE_CLASS = { required: 'attention', outdated: 'problem', bound: 'muted' } as const;
+export const rowButtonId = (name: string): string => `workspace-row-${name}`;
 
-const formatUntil = (value: string): string => {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-};
-
+/**
+ * One line per service: the switch, the name, one status and, only when the user must act,
+ * one button. Everything else lives in the panel the row opens.
+ */
 const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
   server,
-  endpoint,
   credentialServers,
   credentialBinding,
   busy,
-  authorizationUrl,
   onToggle,
-  onRiskChange,
+  onOpen,
   onAction,
-  onCopyEndpoint,
-  onConnectToAi,
-  onConfigureCredentials,
 }) => {
   const { t } = useTranslation();
-  const action = resolveServiceAction(server, credentialServers);
-  const { code } = server.status;
+  const openRef = useRef<HTMLButtonElement>(null);
+  const { chip, action } = resolveServiceChip(server, credentialServers, credentialBinding);
 
-  const renderAction = () => {
-    switch (action.kind) {
-      case 'select':
-        return (
-          <button
-            type="button"
-            className="hub-btn primary"
-            disabled={busy}
-            onClick={() => onAction(action)}
-            aria-label={t('workspacePage.actions.selectFor', { name: server.name })}
-          >
-            {t('workspacePage.actions.select')}
-          </button>
-        );
-      case 'credentials':
-        return (
-          <button
-            type="button"
-            className="hub-btn primary"
-            disabled={busy}
-            onClick={() => onAction(action)}
-            aria-label={t('workspacePage.actions.configureCredentialsFor', { name: server.name })}
-          >
-            {t('workspacePage.actions.configureCredentials')}
-          </button>
-        );
-      case 'oauth':
-        return (
-          <button
-            type="button"
-            className="hub-btn primary"
-            disabled={busy}
-            onClick={() => onAction(action)}
-            aria-label={t('workspacePage.actions.connectFor', { name: server.name })}
-          >
-            {t('workspacePage.actions.connect')}
-          </button>
-        );
-      case 'contact_admin':
-        return (
-          <span className="text-[12px]" style={{ color: 'var(--hub-ink-3)' }}>
-            {t('workspacePage.actions.contactAdmin')}
-          </span>
-        );
-      case 'retry_later':
-        return (
-          <span className="text-[12px]" style={{ color: 'var(--hub-ink-3)' }}>
-            {/* A maintenance message already carries the localized end time below. */}
-            {action.until && code !== 'maintenance'
-              ? t('workspacePage.actions.retryUntil', { until: formatUntil(action.until) })
-              : t('workspacePage.actions.retryLater')}
-          </span>
-        );
-      default:
-        return null;
-    }
+  const open = (focus?: 'credentials') => {
+    // Browsers do not always focus a clicked button; focus returns here when the panel closes.
+    openRef.current?.focus({ preventScroll: true });
+    onOpen(server.name, focus);
   };
 
-  // Connected and usable, but the user's own tool list has not been fetched yet. A paused,
-  // disabled or failing service keeps the text its status gives.
-  const toolsPending =
-    server.toolCount === null &&
-    server.requiresPersonalCredential &&
-    server.credentialConfigured &&
-    server.enabled &&
-    (server.status.code === 'available' || server.status.code === 'not_selected');
-
-  // How far the tools of this service may reach. Options above the administrator's cap stay
-  // visible but cannot be chosen.
-  const renderRisk = () => {
-    if (!server.selected) return null;
-    const hidden = countHiddenByCeiling(server.riskCounts, server.riskCeiling);
-    return (
-      <div
-        className="hub-reveal basis-full pl-[46px] max-sm:pl-0"
-        data-testid={`workspace-risk-${server.name}`}
-      >
-        <div className="mb-2 text-[12px]" style={{ color: 'var(--hub-ink-3)' }}>
-          {t('workspacePage.risk.explanation')}
-        </div>
-        <div
-          role="radiogroup"
-          aria-label={t('workspacePage.risk.groupLabel', { name: server.name })}
-          className="hub-seg sm"
-        >
-          {TOOL_RISK_LEVELS.map((level) => {
-            const allowed = isRiskChoiceAllowed(level, server.maxAllowedRisk);
-            const checked = server.riskCeiling === level;
-            return (
-              <button
-                key={level}
-                type="button"
-                role="radio"
-                aria-checked={checked}
-                disabled={busy || !allowed}
-                title={
-                  allowed
-                    ? t(`workspacePage.risk.level.${level}.hint`)
-                    : t('workspacePage.risk.aboveCap')
-                }
-                data-risk-level={level}
-                onClick={() => !checked && onRiskChange(server.name, level)}
-              >
-                {t(`workspacePage.risk.level.${level}.label`)}
-                <span className="hub-mono hub-num text-[11px] opacity-70">
-                  {server.riskCounts
-                    ? t('workspacePage.services.toolCount', {
-                        count: server.riskCounts[level] || 0,
-                      })
-                    : null}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {!server.riskCounts && (
-          <div className="mt-1 text-[12px]" style={{ color: 'var(--hub-ink-3)' }}>
-            {toolsPending
-              ? t('workspacePage.risk.connectedPending')
-              : t('workspacePage.risk.connectToSee')}
-          </div>
-        )}
-        {server.riskCeilingIsDefault && server.riskCounts && (
-          <div className="mt-1 text-[12px]" style={{ color: 'var(--hub-ink-3)' }}>
-            {t('workspacePage.risk.defaultNote')}
-          </div>
-        )}
-        {!server.annotationsTrusted && (
-          <div className="mt-1 text-[12px]" style={{ color: 'var(--hub-ink-3)' }}>
-            {t('workspacePage.risk.untrustedHint')}
-          </div>
-        )}
-        {hidden > 0 && (
-          <div role="status" className="mt-1 text-[12px]" style={{ color: 'var(--hub-warn)' }}>
-            {t('workspacePage.risk.hiddenNotice', { count: hidden })}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderEndpoint = () => {
-    if (!endpoint) return null;
-    if (endpoint.url) {
-      const { url } = endpoint;
-      return (
-        <button
-          type="button"
-          className="hub-icon-btn"
-          onClick={() => onCopyEndpoint(url)}
-          title={t('workspacePage.services.copyEndpoint')}
-          aria-label={t('workspacePage.services.copyEndpointFor', { name: server.name })}
-        >
-          <Copy size={13} />
-        </button>
-      );
-    }
-    return (
-      <button
-        type="button"
-        className="hub-icon-btn"
-        disabled
-        title={t('workspacePage.services.endpointConflict')}
-        aria-label={t('workspacePage.services.endpointConflict')}
-      >
-        <Copy size={13} />
-      </button>
-    );
-  };
-
-  const manageHref = getSafeManageHref(server.manageUrl);
-  const badge = credentialBadge(credentialBinding);
+  const actionLabel =
+    action === 'signin'
+      ? t('workspacePage.chip.action.signin')
+      : chip === 'credentials_outdated'
+        ? t('workspacePage.chip.action.update')
+        : t('workspacePage.chip.action.credentials');
 
   return (
     <li
-      className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3"
+      className="hub-service-row flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3"
       style={{ borderTop: '1px solid var(--hub-line-2)' }}
       data-testid={`workspace-service-${server.name}`}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest('[data-row-stop]')) return;
+        if (event.target === openRef.current || openRef.current?.contains(event.target as Node)) {
+          return;
+        }
+        open();
+      }}
     >
       <button
         type="button"
         role="switch"
+        data-row-stop
         aria-checked={server.selected}
         aria-label={t('workspacePage.services.toggleFor', { name: server.name })}
         className={'hub-switch compact' + (server.selected ? ' on' : '')}
         disabled={busy}
         onClick={() => onToggle(server.name, !server.selected)}
       />
-      <div className="min-w-[180px] flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium">{server.name}</span>
-          <StatusDot kind={statusTone(code)} label={t(`workspacePage.status.${code}`)} />
-          {badge && (
-            <button
-              type="button"
-              className={`hub-tag ${BADGE_CLASS[badge]}`}
-              data-testid={`credential-badge-${server.name}`}
-              data-credential-state={badge}
-              onClick={() => onConfigureCredentials?.(server.name)}
-              aria-label={t('workspacePage.actions.configureCredentialsFor', {
-                name: server.name,
-              })}
-            >
-              {t(`workspacePage.credentialBadge.${badge}`)}
-            </button>
-          )}
-        </div>
-        {server.description && (
-          <div className="text-[12px] leading-[1.625]" style={{ color: 'var(--hub-ink-3)' }}>
-            {server.description}
-          </div>
-        )}
-        {manageHref && (
-          <a
-            href={getServiceLinkHref(server.name)}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={t('workspacePage.actions.manageAccountFor', { name: server.name })}
-            className="mt-0.5 block text-[12px] underline"
-          >
-            {t('workspacePage.actions.manageAccount')}
-          </a>
-        )}
-        {code !== 'available' && code !== 'not_selected' && (
-          <div className="mt-0.5 text-[12px]" style={{ color: 'var(--hub-ink-2)' }}>
-            {localizeStatusMessage(server.status, formatUntil)}
-          </div>
-        )}
-        {authorizationUrl && (
-          <a
-            href={authorizationUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-0.5 block text-[12px] underline"
-          >
-            {t('workspacePage.actions.openAuthorization')}
-          </a>
-        )}
-      </div>
-      <span className="hub-mono hub-num text-[12px]" style={{ color: 'var(--hub-ink-3)' }}>
-        {server.toolCount === null
-          ? toolsPending
-            ? t('workspacePage.risk.pendingTools')
-            : t('workspacePage.risk.unknownTools')
-          : t('workspacePage.services.toolCount', { count: server.toolCount })}
-      </span>
-      <div className="flex min-w-[96px] justify-end">
-        {renderAction() ??
-          (badge && (
-            <button
-              type="button"
-              className="hub-btn sm"
-              disabled={busy}
-              onClick={() => onConfigureCredentials?.(server.name)}
-              aria-label={t('workspacePage.actions.manageCredentialsFor', { name: server.name })}
-            >
-              <KeyRound size={12} /> {t('workspacePage.actions.manageCredentials')}
-            </button>
-          ))}
-      </div>
       <button
+        ref={openRef}
         type="button"
-        className="hub-btn sm"
-        disabled={!endpoint?.url}
-        onClick={() => onConnectToAi(server.name)}
-        title={
-          endpoint?.url
-            ? undefined
-            : t(endpoint?.conflict ? 'connect.serviceConflict' : 'connect.serviceNotReady')
-        }
-        aria-label={t('connect.rowActionFor', { name: server.name })}
+        id={rowButtonId(server.name)}
+        data-testid={`workspace-open-${server.name}`}
+        aria-haspopup="dialog"
+        className="flex min-w-0 flex-1 basis-[150px] flex-wrap items-center gap-x-3 gap-y-1 text-left"
+        onClick={() => open()}
       >
-        <Plug size={12} /> {t('connect.rowAction')}
+        <span className="min-w-0 break-words font-medium">{server.name}</span>
+        <span data-testid={`workspace-chip-${server.name}`} data-chip={chip}>
+          <StatusDot kind={serviceChipTone(chip)} label={t(`workspacePage.chip.${chip}`)} />
+        </span>
       </button>
-      <div className="flex w-8 justify-end">{renderEndpoint()}</div>
-      {renderRisk()}
+      {action && (
+        <button
+          type="button"
+          data-row-stop
+          className="hub-btn sm shrink-0"
+          data-testid={`workspace-action-${server.name}`}
+          data-action={action}
+          disabled={busy}
+          aria-label={`${actionLabel}: ${server.name}`}
+          onClick={() => onAction(server.name, action)}
+        >
+          {actionLabel}
+        </button>
+      )}
+      <ChevronRight
+        size={16}
+        aria-hidden
+        className="shrink-0"
+        style={{ color: 'var(--hub-ink-3)' }}
+      />
     </li>
   );
 };

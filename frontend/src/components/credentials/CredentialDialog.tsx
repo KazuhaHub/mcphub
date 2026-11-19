@@ -4,6 +4,8 @@ import { X } from 'lucide-react';
 import type { MyCredentialBinding } from '@/types';
 import { apiGet, type ApiResponse } from '@/utils/fetchInterceptor';
 import { findCredentialBinding } from '@/utils/workspace';
+import { notifyWorkspaceChanged } from '@/utils/workspaceEvents';
+import { useModalLayer } from '@/hooks/useModalLayer';
 import { CredentialForm } from './CredentialForm';
 
 const messageOf = (error: unknown, fallback: string) =>
@@ -72,7 +74,6 @@ const CredentialDialog: React.FC<CredentialDialogProps> = ({ serverName, onChang
   const { t } = useTranslation();
   const baseUrl = '/credentials';
   const panelRef = useRef<HTMLDivElement>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
   const [bindings, setBindings] = useState<MyCredentialBinding[] | null>(null);
   const [error, setError] = useState('');
   const loaded = useRef(false);
@@ -87,7 +88,10 @@ const CredentialDialog: React.FC<CredentialDialogProps> = ({ serverName, onChang
       setError(messageOf(err, t('credentials.failed')));
     }
     // The first load is not a change; later ones follow a save, copy or delete.
-    if (loaded.current) onChanged?.();
+    if (loaded.current) {
+      onChanged?.();
+      notifyWorkspaceChanged();
+    }
     loaded.current = true;
   }, [onChanged, t]);
 
@@ -97,23 +101,7 @@ const CredentialDialog: React.FC<CredentialDialogProps> = ({ serverName, onChang
     void reloadRef.current();
   }, []);
 
-  useEffect(() => {
-    returnFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    panelRef.current?.focus();
-    return () => returnFocusRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown, true);
-    return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose]);
+  useModalLayer(panelRef, { onClose });
 
   return (
     <div

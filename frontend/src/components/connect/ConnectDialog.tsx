@@ -18,6 +18,10 @@ import {
   type ConnectClientId,
 } from '@/utils/connectClients';
 import { copyText } from '@/utils/clipboard';
+import { useModalLayer } from '@/hooks/useModalLayer';
+import { fetchCredentialBindings, launchPersonalOAuth } from '@/services/workspaceService';
+import { resolveServiceAction } from '@/utils/workspace';
+import { notifyWorkspaceChanged } from '@/utils/workspaceEvents';
 import { CLIENT_SNIPPET_PRESETS, type ClientSnippetId } from '@/utils/mcpClientSnippets';
 import CredentialDialog from '@/components/credentials/CredentialDialog';
 import { ClientIcon } from './ClientIcon';
@@ -58,12 +62,14 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
   const [credentialService, setCredentialService] = useState<string | null>(null);
   const { showToast } = useToast();
   const panelRef = useRef<HTMLDivElement>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   const [service, setService] = useState<string | null | undefined>(
     initial.pickService ? undefined : (initial.service ?? null),
   );
   const [client, setClient] = useState<ConnectClientChoice | undefined>(initial.client);
+  const [slotServers, setSlotServers] = useState<ReadonlySet<string> | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
+  const [authLink, setAuthLink] = useState<string | null>(null);
   const [wantKey, setWantKey] = useState(false);
   const [otherFormat, setOtherFormat] = useState<ClientSnippetId>('generic-mcp-servers');
   // A service picked here (rather than preselected) should not remember the narrowed client list.
@@ -71,21 +77,7 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
     initial.clientChoices,
   );
 
-  // Like the other hand-rolled modals here, focus moves in on open and back to the trigger on close.
-  useEffect(() => {
-    returnFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    panelRef.current?.focus();
-    return () => returnFocusRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  useModalLayer(panelRef, { onClose });
 
   const endpointByName = useMemo(
     () => new Map((endpoints?.servers ?? []).map((entry) => [entry.name, entry])),
@@ -112,7 +104,12 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
   const plan = useMemo(
     () =>
       activeClient && target
-        ? buildConnectPlan(activeClient, target, { auth: requestedAuth }, t('clientConfig.tokenPrompt'))
+        ? buildConnectPlan(
+            activeClient,
+            target,
+            { auth: requestedAuth },
+            t('clientConfig.tokenPrompt'),
+          )
         : null,
     [activeClient, target, requestedAuth, t],
   );
@@ -149,6 +146,45 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
         : t('connect.dialogTitle', { client: activeClient?.name ?? t('connect.other') });
 
   const needsCredentials = selectedServer?.status.code === 'needs_auth';
+  // The same decision as the services list: services with credential slots take credentials,
+  // the others sign in. Until the slots are known the credential panel is the safe choice.
+  const needsAction = needsCredentials && selectedServer ? selectedServer.name : null;
+  useEffect(() => {
+    if (!needsAction) return;
+    let active = true;
+    fetchCredentialBindings()
+      .then((list) => active && setSlotServers(new Set(list.map((entry) => entry.serverName))))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [needsAction]);
+  const needsSignIn =
+    needsCredentials && selectedServer
+      ? resolveServiceAction(selectedServer, slotServers).kind === 'oauth'
+      : false;
+  const signIn = async (name: string) => {
+    setSigningIn(true);
+    try {
+      const result = await launchPersonalOAuth(name);
+      if (result.kind === 'link') {
+        setAuthLink(result.url);
+        showToast(t('workspacePage.popupBlocked'), 'error');
+      } else if (result.kind === 'invalid') {
+        showToast(t('workspacePage.connectFailed'), 'error');
+      }
+      onCredentialsChanged?.();
+      notifyWorkspaceChanged();
+    } catch (err) {
+      showToast(
+        t('workspacePage.connectFailed') +
+          (err instanceof Error && err.message ? ` (${err.message})` : ''),
+        'error',
+      );
+    } finally {
+      setSigningIn(false);
+    }
+  };
   const auth = activeClient ? effectiveAuth(activeClient, requestedAuth) : requestedAuth;
   const showAuthToggle = activeClient ? canChooseAuth(activeClient) : true;
 
@@ -233,7 +269,9 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
                         className="flex w-full min-w-0 flex-col items-start rounded-md px-3 py-2.5 text-left transition-colors enabled:hover:bg-[var(--hub-surface-hover)] disabled:opacity-60"
                         style={{ border: '1px solid var(--hub-line)' }}
                       >
-                        <span className="w-full truncate text-[13px] font-medium">{server.name}</span>
+                        <span className="w-full truncate text-[13px] font-medium">
+                          {server.name}
+                        </span>
                         {reason && (
                           <span
                             className="w-full truncate text-[12px]"
@@ -250,7 +288,11 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
           )}
 
           {stage === 'client' && (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4" role="group" aria-label={t('connect.pickClient')}>
+            <div
+              className="grid grid-cols-3 gap-2 sm:grid-cols-4"
+              role="group"
+              aria-label={t('connect.pickClient')}
+            >
               {clientList.map((item) => (
                 <ConnectTile key={item.id} client={item} onSelect={() => setClient(item.id)} />
               ))}
@@ -270,15 +312,41 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
                 <div className="hub-callout warn items-center justify-between" role="alert">
                   <span className="flex items-start gap-2">
                     <AlertTriangle size={16} aria-hidden className="mt-0.5 shrink-0" />
-                    <span>{t('connect.needsCredentials', { name: service })}</span>
+                    <span>
+                      {t(needsSignIn ? 'connect.needsSignIn' : 'connect.needsCredentials', {
+                        name: service,
+                      })}
+                    </span>
                   </span>
-                  <button
-                    type="button"
-                    className="hub-btn"
-                    onClick={() => setCredentialService(service)}
-                  >
-                    {t('connect.bindCredentials')}
-                  </button>
+                  {needsSignIn ? (
+                    authLink ? (
+                      <a
+                        className="hub-btn"
+                        href={authLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {t('workspacePage.actions.openAuthorization')}
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        className="hub-btn"
+                        disabled={signingIn}
+                        onClick={() => void signIn(service)}
+                      >
+                        {t('workspacePage.chip.action.signin')}
+                      </button>
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      className="hub-btn"
+                      onClick={() => setCredentialService(service)}
+                    >
+                      {t('connect.bindCredentials')}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -362,20 +430,32 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
               {(plan ? plan.blocks : otherBlocks).map((block, index) => (
                 <div key={`${block.kind}-${index}`} className="space-y-1">
                   <div className="text-[12px]" style={{ color: 'var(--hub-ink-2)' }}>
-                    {t(block.kind === 'command' ? 'clientConfig.commandBlock' : 'clientConfig.configBlock')}
+                    {t(
+                      block.kind === 'command'
+                        ? 'clientConfig.commandBlock'
+                        : 'clientConfig.configBlock',
+                    )}
                   </div>
                   <CopyBlock text={block.text} />
                 </div>
               ))}
 
               {plan?.noteKeys.map((key) => (
-                <p key={key} className="text-[12px] leading-[1.625]" style={{ color: 'var(--hub-ink-3)' }}>
+                <p
+                  key={key}
+                  className="text-[12px] leading-[1.625]"
+                  style={{ color: 'var(--hub-ink-3)' }}
+                >
                   {t(key)}
                 </p>
               ))}
               {client === 'other' && (
                 <p className="text-[12px] leading-[1.625]" style={{ color: 'var(--hub-ink-3)' }}>
-                  {t(auth === 'oauth' ? 'connect.notes.oauthUnverified' : 'connect.notes.keyPlaceholder')}
+                  {t(
+                    auth === 'oauth'
+                      ? 'connect.notes.oauthUnverified'
+                      : 'connect.notes.keyPlaceholder',
+                  )}
                 </p>
               )}
             </>

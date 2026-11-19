@@ -87,7 +87,7 @@ function CredentialList({ baseUrl, showHeading }: { baseUrl: string; showHeading
 export default function CredentialsPage() {
   const { t } = useTranslation();
   const { auth } = useAuth();
-  const { workspaceEnabled } = useSettings();
+  const { workspaceEnabled, workspaceResolved } = useSettings();
   const [search, setSearch] = useSearchParams();
   const [users, setUsers] = useState<User[]>([]);
   const [error, setError] = useState('');
@@ -102,7 +102,8 @@ export default function CredentialsPage() {
   );
   const baseUrl = username ? `/users/${encodeURIComponent(username)}/credentials` : '/credentials';
   useEffect(() => {
-    if (!admin || redirect) return;
+    // Nothing is fetched until the workspace setting is known and the page is really shown.
+    if (!workspaceResolved || !admin || redirect) return;
     let active = true;
     void apiGet<ApiResponse<User[]>>('/users')
       .then((result) => {
@@ -116,7 +117,18 @@ export default function CredentialsPage() {
     return () => {
       active = false;
     };
-  }, [admin, redirect, t]);
+  }, [admin, redirect, workspaceResolved, t]);
+  if (!workspaceResolved) {
+    return (
+      <div
+        className="hub-card mx-auto max-w-4xl p-10 text-center text-sm"
+        style={{ color: 'var(--hub-ink-3)' }}
+        role="status"
+      >
+        {t('credentials.loading')}
+      </div>
+    );
+  }
   if (redirect) return <Navigate to={redirect} replace />;
   return (
     <div className="space-y-5">
@@ -133,13 +145,19 @@ export default function CredentialsPage() {
             <select
               className="hub-input"
               value={username}
-              onChange={(event) =>
+              onChange={(event) => {
+                const chosen = event.target.value;
                 setSearch((params) => {
-                  if (event.target.value) params.set('user', event.target.value);
-                  else params.delete('user');
+                  if (chosen) params.set('user', chosen);
+                  else {
+                    // Back to "choose a user": a leftover ?server= would redirect to the
+                    // administrator's own panel.
+                    params.delete('user');
+                    params.delete('server');
+                  }
                   return params;
-                })
-              }
+                });
+              }}
             >
               <option value="">
                 {t(adminPage ? 'credentials.chooseUser' : 'credentials.myCredentials')}
@@ -151,10 +169,19 @@ export default function CredentialsPage() {
               ))}
             </select>
           </label>
+          {(username || !adminPage) && (
+            <p className="hub-sub mt-2" data-testid="credentials-subject">
+              {username
+                ? t('credentials.showingFor', { user: username })
+                : t('credentials.showingOwn')}
+            </p>
+          )}
           {error && <p role="alert">{error}</p>}
         </div>
       )}
-      {adminPage && !username ? null : <CredentialList key={baseUrl} baseUrl={baseUrl} showHeading={!adminPage} />}
+      {adminPage && !username ? null : (
+        <CredentialList key={baseUrl} baseUrl={baseUrl} showHeading={!adminPage} />
+      )}
     </div>
   );
 }

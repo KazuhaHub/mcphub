@@ -83,23 +83,70 @@ export const resolveServiceAction = (
   }
 };
 
+export type ServiceChip =
+  | 'ready'
+  | 'not_enabled'
+  | 'needs_signin'
+  | 'needs_credentials'
+  | 'credentials_outdated'
+  | 'unavailable';
+
+export interface ServiceChipState {
+  chip: ServiceChip;
+  /** The one thing the user can do about it, shown as a button on the row. */
+  action: 'signin' | 'credentials' | null;
+}
+
+/**
+ * The single state a service row shows. Most important wins: a service the administrator
+ * paused, in maintenance or failing is unavailable whatever else is true; one the user has not
+ * turned on is simply not enabled; then outdated credentials, then missing credentials or
+ * sign-in, and otherwise ready.
+ */
+export const resolveServiceChip = (
+  server: Pick<WorkspaceServer, 'name' | 'status'>,
+  credentialServers: ReadonlySet<string> | null,
+  binding?: Pick<MyCredentialBinding, 'stale'>,
+): ServiceChipState => {
+  const { code } = server.status;
+  if (code === 'paused' || code === 'maintenance' || code === 'error') {
+    return { chip: 'unavailable', action: null };
+  }
+  if (code === 'not_selected') return { chip: 'not_enabled', action: null };
+  if (code === 'credential_invalid' || (binding?.stale && code !== 'revoked')) {
+    return { chip: 'credentials_outdated', action: 'credentials' };
+  }
+  if (code === 'needs_auth' || code === 'revoked') {
+    const action = resolveServiceAction(server, credentialServers);
+    return action.kind === 'credentials'
+      ? { chip: 'needs_credentials', action: 'credentials' }
+      : { chip: 'needs_signin', action: 'signin' };
+  }
+  return { chip: 'ready', action: null };
+};
+
+export const serviceChipTone = (chip: ServiceChip): StatusTone => {
+  switch (chip) {
+    case 'ready':
+      return 'ok';
+    case 'needs_signin':
+    case 'needs_credentials':
+      return 'warn';
+    case 'credentials_outdated':
+    case 'unavailable':
+      return 'err';
+    default:
+      return 'muted';
+  }
+};
+
 /** Where a workspace link that opens one service's credential panel leads. */
 export const workspaceCredentialsPath = (server: string): string =>
   `/workspace?credentials=${encodeURIComponent(server)}`;
 
-export type CredentialBadge = 'required' | 'outdated' | 'bound';
-
-/**
- * How a service's personal credential binding looks on its row. `outdated` is a binding whose
- * connection settings changed after it was saved, so it is not used; it needs entering again.
- */
-export const credentialBadge = (
-  binding: Pick<MyCredentialBinding, 'configured' | 'stale'> | undefined,
-): CredentialBadge | null => {
-  if (!binding) return null;
-  if (binding.stale) return 'outdated';
-  return binding.configured ? 'bound' : 'required';
-};
+/** Where a workspace link that opens one service's panel leads. */
+export const workspaceServicePath = (server: string): string =>
+  `/workspace?service=${encodeURIComponent(server)}`;
 
 /** The binding of one service, or undefined. The panel never shows any other service. */
 export const findCredentialBinding = (

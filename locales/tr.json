@@ -572,7 +572,8 @@
       "claudePublic": "Claude connects from Anthropic's servers, so your MCPHub address must be reachable on public HTTPS (port 443).",
       "copiedOnOpen": "This app has no link that fills in the address for you, so the button copies it and opens the settings page. Paste it there.",
       "fallbackUrl": "If the button does nothing, add a Streamable HTTP extension in the app and paste the server URL above."
-    }
+    },
+    "needsSignIn": "{{name}} needs you to sign in before it will work."
   },
   "pagination": {
     "rowsPerPage": "Sayfa başına satır",
@@ -1771,7 +1772,9 @@
     "panelTitle": "Credentials for {{name}}",
     "panelHint": "Only this service. Saved values stay masked.",
     "notNeeded": "{{name}} does not need personal credentials, or you cannot use it.",
-    "outdatedStatus": "Credentials outdated"
+    "outdatedStatus": "Credentials outdated",
+    "showingFor": "Credentials of {{user}}",
+    "showingOwn": "Your own credentials"
   },
   "workspace": {
     "status": {
@@ -1824,10 +1827,9 @@
     "services": {
       "tab": "Hizmetler",
       "title": "Kullanılabilir hizmetler",
-      "description": "Hizmetleri uç noktanız için açın veya kapatın.",
+      "description": "The switch decides which services appear in your endpoint. Click a service for details.",
       "empty": "Henüz kullanabileceğiniz bir hizmet yok.",
       "toggleFor": "{{name}} hizmetini çalışma alanıma ekle",
-      "copyEndpoint": "Uç noktayı kopyala",
       "copyEndpointFor": "{{name}} uç noktasını kopyala",
       "endpointConflict": "Ayrı bir uç nokta yok: bir grup bu hizmetle aynı ada sahip. Bunun yerine ana uç noktanızı kullanın.",
       "toolCount_one": "{{count}} araç",
@@ -1845,8 +1847,6 @@
       "risk_not_enabled": "Araca çalışma alanınızda izin verilmiyor"
     },
     "actions": {
-      "select": "Çalışma alanına ekle",
-      "selectFor": "{{name}} hizmetini çalışma alanıma ekle",
       "connect": "Bağlan",
       "connectFor": "{{name}} hizmetine bağlan",
       "contactAdmin": "Bir yöneticiye danışın",
@@ -1854,11 +1854,7 @@
       "retryUntil": "{{until}} sonrasında tekrar deneyin",
       "openAuthorization": "Oturum açma sayfasını aç",
       "manageAccount": "Hesabı yönet",
-      "manageAccountFor": "{{name}} için hesabı yönet",
-      "configureCredentials": "Configure credentials",
-      "configureCredentialsFor": "Configure credentials for {{name}}",
-      "manageCredentials": "Credentials",
-      "manageCredentialsFor": "Manage credentials for {{name}}"
+      "manageAccountFor": "{{name}} için hesabı yönet"
     },
     "clients": {
       "tab": "Bağlı istemciler",
@@ -1965,17 +1961,41 @@
       "hiddenNotice_other": "Seçiminiz nedeniyle {{count}} araç gizli.",
       "banner_one": "Seçtiğiniz hizmetlerde {{count}} araç gizli: veri değiştiren veya sizin adınıza işlem yapan araçlar siz izin verene kadar kapalı kalır. Daha fazlasına izin vermek için aşağıdan bir hizmeti açın.",
       "banner_other": "Seçtiğiniz hizmetlerde {{count}} araç gizli: veri değiştiren veya sizin adınıza işlem yapan araçlar siz izin verene kadar kapalı kalır. Daha fazlasına izin vermek için aşağıdan bir hizmeti açın.",
-      "connectToSee": "Araçlarını görmek ve neler yapabileceklerini seçmek için bu hizmeti bağlayın.",
-      "unknownTools": "Araçları görmek için bağlanın",
-      "pendingTools": "Bağlandı — araçlar ilk kullanımdan sonra görünür",
       "connectedPending": "Bağlandı. Bu hizmetin araçları ilk kullanımdan sonra burada görünür.",
       "defaultNote": "Siz seçene kadar yöneticiniz tarafından belirlenir.",
       "untrustedHint": "Bu hizmeti bir yönetici işletmiyor; araçları doğrulanmadı ve hepsi başkalarının görebileceği işlemler sayılır."
     },
-    "credentialBadge": {
-      "required": "Binding required",
-      "outdated": "Credentials outdated",
-      "bound": "Credentials set"
+    "chip": {
+      "ready": "Ready",
+      "not_enabled": "Not enabled",
+      "needs_signin": "Needs sign-in",
+      "needs_credentials": "Needs credentials",
+      "credentials_outdated": "Credentials outdated",
+      "unavailable": "Unavailable",
+      "action": {
+        "signin": "Sign in",
+        "signinTo": "Sign in to {{name}}",
+        "credentials": "Add credentials",
+        "update": "Update"
+      }
+    },
+    "panel": {
+      "status": "Status",
+      "tools": "Tools",
+      "permissions": "Permissions",
+      "credentials": "Your credentials",
+      "actions": "Use this service",
+      "copyUrl": "Copy URL",
+      "toolsAfterSignIn": "Visible after you sign in.",
+      "permissionsOff": "Turn this service on to choose what its tools may do.",
+      "statusText": {
+        "ready": "Available in your workspace.",
+        "not_enabled": "Not in your endpoint. Turn it on with the switch in the list.",
+        "needs_signin": "Sign in to this service to use it.",
+        "needs_credentials": "This service needs your own credentials before it will work.",
+        "credentials_outdated": "The service changed after you saved your credentials. Enter them again.",
+        "unavailable": "This service cannot be used right now."
+      }
     }
   },
   "serviceLink": {

@@ -18,7 +18,8 @@ import {
   resolveWorkspaceSetting,
   shouldRefreshOnFocus,
   countExposedTools,
-  credentialBadge,
+  resolveServiceChip,
+  workspaceServicePath,
   findCredentialBinding,
   workspaceCredentialsPath,
   resolveServiceAction,
@@ -134,11 +135,8 @@ describe('action mapping per status code', () => {
     expect(workspaceCredentialsPath('my server')).toBe('/workspace?credentials=my%20server');
   });
 
-  it('derives the credential badge from the binding', () => {
-    expect(credentialBadge(undefined)).toBeNull();
-    expect(credentialBadge({ configured: false })).toBe('required');
-    expect(credentialBadge({ configured: false, stale: true })).toBe('outdated');
-    expect(credentialBadge({ configured: true })).toBe('bound');
+  it('builds a workspace link that opens one service’s panel', () => {
+    expect(workspaceServicePath('my server')).toBe('/workspace?service=my%20server');
   });
 
   it('finds the binding of exactly one service', () => {
@@ -249,8 +247,14 @@ describe('latest-only loading', () => {
     const first = deferred<string>();
     const second = deferred<string>();
     const applied: string[] = [];
-    const a = gate.run(() => first.promise, (value) => applied.push(value));
-    const b = gate.run(() => second.promise, (value) => applied.push(value));
+    const a = gate.run(
+      () => first.promise,
+      (value) => applied.push(value),
+    );
+    const b = gate.run(
+      () => second.promise,
+      (value) => applied.push(value),
+    );
     second.resolve('new');
     await expect(b).resolves.toBe(true);
     first.resolve('stale');
@@ -262,7 +266,10 @@ describe('latest-only loading', () => {
     const gate = createLatestOnly();
     const pending = deferred<string>();
     const applied: string[] = [];
-    const run = gate.run(() => pending.promise, (value) => applied.push(value));
+    const run = gate.run(
+      () => pending.promise,
+      (value) => applied.push(value),
+    );
     gate.invalidate();
     pending.resolve('stale');
     await run;
@@ -308,10 +315,21 @@ describe('workspace error handling helpers', () => {
   });
 
   it('treats a failed settings read as workspace mode off', () => {
-    expect(resolveWorkspaceSetting({ success: false })).toEqual({ enabled: false, failed: true, signedOut: false });
-    expect(resolveWorkspaceSetting(undefined)).toEqual({ enabled: false, failed: true, signedOut: false });
+    expect(resolveWorkspaceSetting({ success: false })).toEqual({
+      enabled: false,
+      failed: true,
+      signedOut: false,
+    });
+    expect(resolveWorkspaceSetting(undefined)).toEqual({
+      enabled: false,
+      failed: true,
+      signedOut: false,
+    });
     expect(
-      resolveWorkspaceSetting({ success: true, data: { systemConfig: { workspace: { enabled: true } } } }),
+      resolveWorkspaceSetting({
+        success: true,
+        data: { systemConfig: { workspace: { enabled: true } } },
+      }),
     ).toEqual({ enabled: true, failed: false, signedOut: false });
     expect(resolveWorkspaceSetting({ success: true, data: { systemConfig: {} } })).toEqual({
       enabled: false,
@@ -343,7 +361,9 @@ describe('summary banner source of truth', () => {
       credential_invalid: 0,
       error: 0,
     };
-    expect(resolveSummaryBanner({ endpointState: 'normal', counts: { ...counts, error: 2 } }).kind).toBe('normal');
+    expect(
+      resolveSummaryBanner({ endpointState: 'normal', counts: { ...counts, error: 2 } }).kind,
+    ).toBe('normal');
     expect(resolveSummaryBanner({ endpointState: 'partial', counts }).kind).toBe('partial');
   });
 });
@@ -378,8 +398,14 @@ describe('superseded runs', () => {
     const slow = new Promise<string>((_, reject) => {
       fail = reject;
     });
-    const stale = gate.run(() => slow, () => undefined);
-    await gate.run(async () => 'fresh', () => undefined);
+    const stale = gate.run(
+      () => slow,
+      () => undefined,
+    );
+    await gate.run(
+      async () => 'fresh',
+      () => undefined,
+    );
     fail(new Error('late failure'));
     await expect(stale).resolves.toBe(false);
   });
@@ -401,7 +427,57 @@ describe('authorization links', () => {
   const needs = server('a', 'needs_auth', 'connect');
   it('keeps links only for servers that still need sign-in', () => {
     const links = { a: 'https://x/a', b: 'https://x/b' };
-    expect(pruneAuthLinks(links, [needs, server('b', 'available', null)])).toEqual({ a: 'https://x/a' });
+    expect(pruneAuthLinks(links, [needs, server('b', 'available', null)])).toEqual({
+      a: 'https://x/a',
+    });
     expect(pruneAuthLinks({ a: 'https://x/a' }, [needs])).toEqual({ a: 'https://x/a' });
+  });
+});
+
+describe('resolveServiceChip', () => {
+  const status = (code: string, action: string | null = null) =>
+    ({ name: 'svc', status: { code, message: '', action } }) as never;
+  const slots = new Set(['svc']);
+
+  it('maps every status to exactly one chip and the action it needs', () => {
+    expect(resolveServiceChip(status('available'), slots)).toEqual({ chip: 'ready', action: null });
+    expect(resolveServiceChip(status('not_selected', 'select'), slots)).toEqual({
+      chip: 'not_enabled',
+      action: null,
+    });
+    expect(resolveServiceChip(status('needs_auth', 'connect'), slots)).toEqual({
+      chip: 'needs_credentials',
+      action: 'credentials',
+    });
+    expect(resolveServiceChip(status('needs_auth', 'connect'), new Set())).toEqual({
+      chip: 'needs_signin',
+      action: 'signin',
+    });
+    expect(resolveServiceChip(status('revoked', 'connect'), slots)).toEqual({
+      chip: 'needs_signin',
+      action: 'signin',
+    });
+    expect(resolveServiceChip(status('credential_invalid', 'connect'), slots)).toEqual({
+      chip: 'credentials_outdated',
+      action: 'credentials',
+    });
+    for (const code of ['paused', 'maintenance', 'error']) {
+      expect(resolveServiceChip(status(code), slots)).toEqual({
+        chip: 'unavailable',
+        action: null,
+      });
+    }
+  });
+
+  it('lets the most important state win', () => {
+    // Failing beats outdated credentials; outdated beats a plain ready.
+    expect(resolveServiceChip(status('error'), slots, { stale: true }).chip).toBe('unavailable');
+    expect(resolveServiceChip(status('available'), slots, { stale: true }).chip).toBe(
+      'credentials_outdated',
+    );
+    // A service the user has not enabled is just not enabled, whatever its credentials.
+    expect(resolveServiceChip(status('not_selected', 'select'), slots, { stale: true }).chip).toBe(
+      'not_enabled',
+    );
   });
 });

@@ -10,12 +10,13 @@ import {
   fetchWorkspaceSummary,
   saveRiskCeiling,
   saveServerSelection,
-  startPersonalOAuth,
+  launchPersonalOAuth,
 } from '@/services/workspaceService';
 import type {
   MyCredentialBinding,
   ToolRiskLevel,
-  WorkspaceEndpoints,   WorkspaceServer,
+  WorkspaceEndpoints,
+  WorkspaceServer,
   WorkspaceSummary,
 } from '@/types';
 import { changeRiskCeiling, countHiddenTools } from '@/utils/toolRisk';
@@ -25,16 +26,15 @@ import {
   countExposedTools,
   createLatestOnly,
   pruneAuthLinks,
-  resolveOAuthLaunch,
   resolveSummaryBanner,
   shouldRefreshOnFocus,
   toggleServerSelection,
-  type ServiceAction,
 } from '@/utils/workspace';
 import ConnectDialog from '@/components/connect/ConnectDialog';
-import CredentialDialog from '@/components/credentials/CredentialDialog';
+import { onWorkspaceChanged } from '@/utils/workspaceEvents';
 import ToolCountIndicator from './ToolCountIndicator';
-import WorkspaceServiceRow from './WorkspaceServiceRow';
+import ServicePanel from './ServicePanel';
+import WorkspaceServiceRow, { type RowAction } from './WorkspaceServiceRow';
 
 const SummaryBannerView: React.FC<{ summary: WorkspaceSummary }> = ({ summary }) => {
   const { t } = useTranslation();
@@ -70,10 +70,16 @@ const WorkspaceServicesView: React.FC = () => {
   const [endpoints, setEndpoints] = useState<WorkspaceEndpoints | null>(null);
   // Bindings of the services that take personal credentials; null while unknown or failed.
   const [bindings, setBindings] = useState<MyCredentialBinding[] | null>(null);
-  // Service whose credential panel is open. An old `/credentials?server=` link lands here.
-  const [credentialService, setCredentialService] = useState<string | null>(
-    () => search.get('credentials') || null,
-  );
+  const [bindingsError, setBindingsError] = useState('');
+  // Service whose panel is open. `/workspace?service=` opens it; the older
+  // `?credentials=` (an old `/credentials?server=` link lands there) also moves to its
+  // credentials section.
+  const [panel, setPanel] = useState<{ name: string; credentials: boolean } | null>(() => {
+    const credentials = search.get('credentials');
+    if (credentials) return { name: credentials, credentials: true };
+    const service = search.get('service');
+    return service ? { name: service, credentials: false } : null;
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ detail: string; disabled: boolean } | null>(null);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
@@ -120,42 +126,64 @@ const WorkspaceServicesView: React.FC = () => {
     }
   }, [refreshAll]);
 
+  // Read through a ref so a new translate function never restarts the loads.
+  const tRef = useRef(t);
+  tRef.current = t;
+
+  // Servers with credential slots decide what "Connect" opens; failure falls back safely.
+  const loadBindings = useCallback(
+    () =>
+      fetchCredentialBindings().then(
+        (list) => {
+          setBindings(list);
+          setBindingsError('');
+        },
+        (err: unknown) => {
+          setBindingsError(err instanceof Error ? err.message : tRef.current('credentials.failed'));
+        },
+      ),
+    [],
+  );
+
   useEffect(() => {
     void load();
-    // Servers with credential slots decide what "Connect" opens; failure falls back safely.
-    fetchCredentialBindings()
-      .then(setBindings)
-      .catch(() => setBindings(null));
-  }, [load]);
+    void loadBindings();
+  }, [load, loadBindings]);
 
-  // The link parameter has done its job once the panel is open.
+  // The link parameters have done their job once the panel is open.
   useEffect(() => {
-    if (!search.has('credentials')) return;
+    if (!search.has('credentials') && !search.has('service')) return;
     setSearch(
       (params) => {
         params.delete('credentials');
+        params.delete('service');
         return params;
       },
       { replace: true },
     );
   }, [search, setSearch]);
 
-  const closeCredentials = useCallback(() => setCredentialService(null), []);
-  const onCredentialsChanged = useCallback(() => {
-    fetchCredentialBindings()
-      .then(setBindings)
-      .catch(() => undefined);
-    void refreshAll().catch(() => undefined);
-  }, [refreshAll]);
+  // A link to a service the user cannot see opens nothing.
+  useEffect(() => {
+    if (!loading && panel && !servers.some((server) => server.name === panel.name)) setPanel(null);
+  }, [loading, panel, servers]);
 
-  // Coming back from the credentials page or an OAuth tab: pick up the new status.
+  const closePanel = useCallback(() => setPanel(null), []);
+  // Every credential change, wherever it was made (this panel, the Connect dialog opened here
+  // or from the top card), refreshes the list and the bindings it shows.
+  const refreshAfterChange = useCallback(async () => {
+    await Promise.all([loadBindings(), refreshAll().catch(() => undefined)]);
+  }, [loadBindings, refreshAll]);
+  useEffect(() => onWorkspaceChanged(() => void refreshAfterChange()), [refreshAfterChange]);
+
+  // Coming back from an OAuth tab or the provider's site: pick up the new status.
   useEffect(() => {
     const onFocus = () => {
-      if (shouldRefreshOnFocus(pendingRef.current)) void refreshAll().catch(() => undefined);
+      if (shouldRefreshOnFocus(pendingRef.current)) void refreshAfterChange();
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [refreshAll]);
+  }, [refreshAfterChange]);
 
   const withPending = async (name: string, run: () => Promise<void>) => {
     setPending((current) => new Set(current).add(name));
@@ -204,26 +232,16 @@ const WorkspaceServicesView: React.FC = () => {
 
   const connectOAuth = (name: string) =>
     withPending(name, async () => {
-      // Opened during the click gesture; browsers may block popups after awaits. Cutting the
-      // opener link keeps the identity provider's page from reaching back into this one.
-      const popup = window.open('about:blank', '_blank');
-      if (popup) popup.opener = null;
       try {
-        const launch = resolveOAuthLaunch(await startPersonalOAuth(name), Boolean(popup));
-        if (launch.kind === 'navigate') {
-          popup?.location.replace(launch.url);
-        } else {
-          popup?.close();
-          if (launch.kind === 'link') {
-            setAuthLinks((links) => ({ ...links, [name]: launch.url }));
-            showToast(t('workspacePage.popupBlocked'), 'error');
-          } else if (launch.kind === 'invalid') {
-            showToast(t('workspacePage.connectFailed'), 'error');
-          }
+        const result = await launchPersonalOAuth(name);
+        if (result.kind === 'link') {
+          setAuthLinks((links) => ({ ...links, [name]: result.url }));
+          showToast(t('workspacePage.popupBlocked'), 'error');
+        } else if (result.kind === 'invalid') {
+          showToast(t('workspacePage.connectFailed'), 'error');
         }
         await refreshAll().catch(() => undefined);
       } catch (err) {
-        popup?.close();
         showToast(
           t('workspacePage.connectFailed') +
             (err instanceof Error && err.message ? ` (${err.message})` : ''),
@@ -232,10 +250,9 @@ const WorkspaceServicesView: React.FC = () => {
       }
     });
 
-  const onAction = (server: WorkspaceServer, action: ServiceAction) => {
-    if (action.kind === 'select') void onToggle(server.name, true);
-    else if (action.kind === 'credentials') setCredentialService(server.name);
-    else if (action.kind === 'oauth') void connectOAuth(server.name);
+  const onAction = (name: string, action: RowAction) => {
+    if (action === 'signin') void connectOAuth(name);
+    else setPanel({ name, credentials: true });
   };
 
   const onCopyEndpoint = async (url: string) => {
@@ -292,6 +309,7 @@ const WorkspaceServicesView: React.FC = () => {
   const credentialServers = bindings ? new Set(bindings.map((entry) => entry.serverName)) : null;
   const hiddenTools = countHiddenTools(servers);
   const endpointByName = new Map((endpoints?.servers ?? []).map((entry) => [entry.name, entry]));
+  const panelServer = panel ? servers.find((server) => server.name === panel.name) : undefined;
 
   return (
     <div className="space-y-4">
@@ -335,22 +353,38 @@ const WorkspaceServicesView: React.FC = () => {
               <WorkspaceServiceRow
                 key={server.name}
                 server={server}
-                endpoint={endpointByName.get(server.name)}
                 credentialServers={credentialServers}
                 credentialBinding={bindings?.find((entry) => entry.serverName === server.name)}
-                onConfigureCredentials={(name) => setCredentialService(name)}
                 busy={pending.has(server.name)}
-                authorizationUrl={authLinks[server.name]}
                 onToggle={(name, selected) => void onToggle(name, selected)}
-                onRiskChange={(name, riskCeiling) => void onRiskChange(name, riskCeiling)}
-                onAction={(action) => onAction(server, action)}
-                onCopyEndpoint={(url) => void onCopyEndpoint(url)}
-                onConnectToAi={(name) => setConnectService(name)}
+                onOpen={(name, focus) => setPanel({ name, credentials: focus === 'credentials' })}
+                onAction={onAction}
               />
             ))}
           </ul>
         )}
       </section>
+
+      {panelServer && (
+        <ServicePanel
+          key={panelServer.name}
+          server={panelServer}
+          endpoint={endpointByName.get(panelServer.name)}
+          credentialServers={credentialServers}
+          credentialBinding={bindings?.find((entry) => entry.serverName === panelServer.name)}
+          bindings={bindings}
+          bindingsError={bindingsError}
+          reloadCredentials={refreshAfterChange}
+          busy={pending.has(panelServer.name)}
+          authorizationUrl={authLinks[panelServer.name]}
+          focusCredentials={panel?.credentials}
+          onClose={closePanel}
+          onRiskChange={(name, riskCeiling) => void onRiskChange(name, riskCeiling)}
+          onAction={onAction}
+          onCopyEndpoint={(url) => void onCopyEndpoint(url)}
+          onConnectToAi={(name) => setConnectService(name)}
+        />
+      )}
 
       {connectService && endpoints && (
         <ConnectDialog
@@ -359,15 +393,6 @@ const WorkspaceServicesView: React.FC = () => {
           endpoints={endpoints}
           initial={{ service: connectService }}
           onClose={() => setConnectService(null)}
-          onCredentialsChanged={onCredentialsChanged}
-        />
-      )}
-
-      {credentialService && (
-        <CredentialDialog
-          serverName={credentialService}
-          onChanged={onCredentialsChanged}
-          onClose={closeCredentials}
         />
       )}
     </div>
