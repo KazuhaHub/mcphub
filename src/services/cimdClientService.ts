@@ -244,16 +244,26 @@ export const mapCimdDocument = (
     return undefined;
   }
 
-  // Only public clients can be expressed via CIMD on this server (no private_key_jwt),
-  // so "none" must be the declared (or implied) authentication method.
-  if (
-    document.token_endpoint_auth_method !== undefined &&
-    document.token_endpoint_auth_method !== 'none'
-  ) {
-    return undefined;
+  // Only public clients can be expressed via CIMD on this server (no private_key_jwt
+  // verification), so the client must be able to authenticate with "none". A document
+  // may prefer an asymmetric method as long as it also lists "none" as supported: ChatGPT
+  // publishes token_endpoint_auth_method "private_key_jwt" with
+  // token_endpoint_auth_methods_supported ["none", "private_key_jwt"]
+  // (https://chatgpt.com/oauth/client.json, checked 2026-11-19) and picks "none" because
+  // this server's metadata advertises only "none". Shared-secret methods stay rejected.
+  const declaredMethod = document.token_endpoint_auth_method;
+  const supportedMethods =
+    document.token_endpoint_auth_methods_supported === undefined
+      ? undefined
+      : asStringArray(document.token_endpoint_auth_methods_supported);
+  if (declaredMethod !== undefined && declaredMethod !== 'none') {
+    const asymmetric = declaredMethod === 'private_key_jwt';
+    if (!asymmetric || !supportedMethods?.includes('none')) {
+      return undefined;
+    }
   }
   if (document.token_endpoint_auth_methods_supported !== undefined) {
-    const methods = asStringArray(document.token_endpoint_auth_methods_supported);
+    const methods = supportedMethods;
     if (!methods || !methods.includes('none')) {
       return undefined;
     }
