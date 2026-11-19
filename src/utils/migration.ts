@@ -78,6 +78,8 @@ function scrubSourceFileSecrets(): void {
   }
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Migrate from file-based configuration to database
  */
@@ -119,6 +121,8 @@ export async function migrateToDatabase(seedServersAndGroups = true): Promise<bo
         const exists = await userRepo.exists(user.username);
         if (!exists) {
           await userRepo.create({
+            // Keep the account's stable id across the move to the database.
+            ...(user.stableId && UUID_PATTERN.test(user.stableId) ? { id: user.stableId } : {}),
             username: user.username,
             password: user.password,
             isAdmin: user.isAdmin || false,

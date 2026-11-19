@@ -41,6 +41,7 @@ import {
   getProtectedResourceUrlFromMetadataRequest,
 } from '../utils/protectedResource.js';
 import { logger } from '../utils/logger.js';
+import { resolveStableUserId } from '../services/stableUserId.js';
 import { getInstallBaseUrlFromEnv } from '../utils/installBaseUrl.js';
 import {
   injectOAuthConsentShell,
@@ -1061,6 +1062,8 @@ export const getUserInfo = async (req: Request, res: Response): Promise<void> =>
     res.json({
       sub: token.user.username,
       username: token.user.username,
+      // The account's immutable id; `sub` is the username, which can be reused after a deletion.
+      mcphub_uid: await resolveStableUserId(token.user.username).catch(() => undefined),
       // Add more user info as needed
     });
   } catch (error) {

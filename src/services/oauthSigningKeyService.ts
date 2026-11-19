@@ -321,6 +321,8 @@ export interface ExternalAccessTokenClaims {
   issuer: string;
   audience: string;
   subject: string;
+  /** The account's immutable id (`resolveStableUserId`), published as `mcphub_uid`. */
+  stableUserId: string;
   clientId: string;
   scope: string;
   jti: string;
@@ -335,7 +337,11 @@ export const signExternalAccessToken = async (
     throw new SigningKeyUnavailableError('No OAuth signing key could be created');
   }
   const { stored, key } = await currentKey();
-  return new SignJWT({ client_id: claims.clientId, scope: claims.scope })
+  return new SignJWT({
+    client_id: claims.clientId,
+    scope: claims.scope,
+    mcphub_uid: claims.stableUserId,
+  })
     .setProtectedHeader({ alg: ALG, kid: stored.kid, typ: 'at+jwt' })
     .setIssuer(claims.issuer)
     .setAudience(claims.audience)

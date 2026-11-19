@@ -64,7 +64,7 @@ consent is refused identically. An external resource cannot be combined with the
 
 Header `alg: ES256`, `kid`, `typ: at+jwt`. Claims: `iss` (exactly the `issuer` of
 `/.well-known/oauth-authorization-server`), `aud` (the resource URL, a string), `sub` (the MCPHub
-username), `client_id`, `scope` (space separated, may be empty), `iat`, `exp` (the smaller of
+username), `mcphub_uid` (see below), `client_id`, `scope` (space separated, may be empty), `iat`, `exp` (the smaller of
 `oauthServer.accessTokenLifetime` and `oauthServer.externalTokenLifetimeSeconds`, default 900), `jti`.
 
 External tokens are issued only when the public base URL is configured (`install.baseUrl` or
@@ -75,6 +75,29 @@ in the metadata `issuer`, every `iss` claim, the RFC 9207 `iss` parameter and `j
 The refresh token stays an **opaque** MCPHub refresh token, bound to the same resource. Refreshing
 yields a new JWT for the same resource only; a refresh request cannot name a different resource or
 add one to an unbound grant.
+
+### The stable user id (`mcphub_uid`)
+
+`sub` stays the username, because services already match on it (Rackbook compares `sub` with
+`mcphub:<username>`), so changing it would lock them all out. But a username is not permanent: an
+administrator can delete a user and a different person can later take the name, and a service that
+keys its data by `sub` alone would give that person the previous owner's bindings. Every external
+token therefore also carries `mcphub_uid`, an identifier of the account that never changes and is
+never given to another account. Services should key their data by the pair (`iss`, `mcphub_uid`) and
+keep `sub` only as the display name.
+
+- **Database mode:** the user's primary key (`users.id`, a UUID generated once by the database). No
+  schema change and no migration file: the column already exists, nothing in MCPHub updates it, and a
+  re-created user gets a new UUID. `DB_SYNCHRONIZE` is irrelevant to this feature.
+- **File mode:** `stableId` on the user in `mcp_settings.json`, a random UUID written when the user is
+  created and, for users that predate it, on first use (backfill; no manual step). The user DAO treats
+  it as write-once: an update can set it only where none exists, never change it. Moving from file to
+  database mode carries it over as the new `users.id`.
+- It is also returned by `/oauth/userinfo` for MCPHub's own tokens. A token is not issued (`server_error`)
+  if the user no longer exists.
+- It is only as stable as the account record: restoring a settings file or database backup that
+  predates a user's creation cannot bring back an id that was never written, and an administrator who
+  hand-edits `stableId` or recreates the user from a backup changes it.
 
 ### Not a bearer for MCPHub
 
