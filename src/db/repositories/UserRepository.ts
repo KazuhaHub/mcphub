@@ -2,6 +2,7 @@ import { Repository } from 'typeorm';
 import { User } from '../entities/User.js';
 import { getAppDataSource } from '../connection.js';
 import { withDbRetry, RetryOptions } from '../../utils/dbRetry.js';
+import { logger } from '../../utils/logger.js';
 
 // Default retry options
 const DEFAULT_RETRY_OPTIONS: RetryOptions = {
@@ -72,7 +73,13 @@ export class UserRepository {
       const { id, ...rest } = user;
       const taken = id ? await this.repository.exists({ where: { id } }) : false;
       const newUser = this.repository.create(id && !taken ? { ...rest, id } : rest);
-      return await this.repository.save(newUser);
+      const saved = await this.repository.save(newUser);
+      if (id && taken) {
+        logger.warn(
+          `User '${user.username}' keeps a new stable id: the id ${id} carried over from file mode is already used by another account; mcphub_uid changes from ${id} to ${saved.id}`,
+        );
+      }
+      return saved;
     }, 'create');
   }
 
