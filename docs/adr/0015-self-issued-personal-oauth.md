@@ -54,11 +54,17 @@ no explicit `authorizationServerMetadata`, `authorizationEndpoint` or `tokenEndp
   service on is the trigger. The skip applies only when the client id is exactly `mcphub-personal-oauth`,
   the `redirect_uri` is exactly its one callback, the resource is the entry, every requested scope is in
   the entry's `scopes`, the request has a `state`, there is no `credentials:write` scope, and the user is
-  signed in by a header session (a token in the URL never skips). Any other client (registered, dynamic or
-  URL-shaped) and any other request keeps the page. The code can only go to MCPHub's own callback, which
-  accepts only a state it issued, so a page that navigates a signed-in browser here gains nothing. Each
-  skip is logged (`OAuth consent skipped for the administrator-trusted resource`) with user, client,
-  resource and scopes. The consent SPA follows the `{ redirect }` the silent request answers with.
+  signed in by a session (the dashboard header or the Better Auth cookie; a token in the URL never
+  skips). The protection against a forged request is the state binding: `state` must be the pending
+  personal OAuth flow, for this very server, that the signed-in user started. A link another user
+  started and sent to a signed-in user therefore still gets the consent page. Completing a personal
+  flow is bound separately to the browser that started it and, for this hub as authorization server, to
+  the user the code was issued to (a cookie nonce and an owner check at `/oauth/callback`), so a
+  forwarded authorize URL cannot attach someone else's grant to the sender's binding even with
+  consent. Any other client (registered, dynamic or URL-shaped) and any other request keeps the page.
+  Each skip is logged (`OAuth consent skipped for the administrator-trusted resource`) with user,
+  client, resource and scopes. The consent SPA follows the `{ redirect }` the silent request answers
+  with.
 - **Self loop.** Requests for MCPHub's own `/.well-known/oauth-authorization-server` and
   `/oauth/token` are served by a dedicated minimal app on `127.0.0.1` (ephemeral port) that mounts only
   those two handlers, with its own rate limits shared with no public traffic: one per user and server (keyed by a hash

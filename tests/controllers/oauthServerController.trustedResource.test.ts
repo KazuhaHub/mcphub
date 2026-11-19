@@ -1,5 +1,10 @@
 const mockAuthorize = jest.fn();
 let externalResource: Record<string, unknown>;
+let pendingFlow: { username: string; config: { url: string } } | undefined;
+const mockFindFlow = jest.fn(async (_state: string) => pendingFlow);
+jest.mock('../../src/services/personalOAuthService.js', () => ({
+  findPersonalOAuthFlow: (state: string) => mockFindFlow(state),
+}));
 
 jest.mock('../../src/services/oauthServerService.js', () => ({
   getOAuthServer: jest.fn(() => ({ authorize: mockAuthorize })),
@@ -83,6 +88,7 @@ beforeEach(() => {
     scopes: ['canvas:read'],
     skipConsentForPersonalConnection: true,
   };
+  pendingFlow = { username: 'alice', config: { url: RESOURCE } };
   registerClient('mcphub-personal-oauth');
   (injectOAuthConsentShell as jest.Mock).mockReturnValue('<html>shell</html>');
   mockAuthorize.mockResolvedValue({ authorizationCode: 'code-123' });
@@ -123,6 +129,36 @@ describe('consent for an administrator-trusted resource', () => {
     await getAuthorize(makeReq({}, { 'x-auth-token': 'session-jwt' }), res);
     expect(res.redirect).toHaveBeenCalledTimes(1);
     expect(res.redirect.mock.calls[0][0]).toContain('code=code-123');
+  });
+
+  it('checks the state against the pending flow, and skips for a session without the dashboard header', async () => {
+    const res = makeRes();
+    const req = makeReq({}, {});
+    req.user = { username: 'alice', isAdmin: false };
+    await getAuthorize(req, res);
+    expect(mockFindFlow).toHaveBeenCalledWith('st');
+    expect(res.redirect).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for consent when there is no pending flow for this state (a forged or stale link)', async () => {
+    pendingFlow = undefined;
+    const res = makeRes();
+    await getAuthorize(makeReq(), res);
+    expectConsent(res);
+  });
+
+  it("asks for consent when the flow belongs to another user (a link alice sent to bob)", async () => {
+    pendingFlow = { username: 'bob', config: { url: RESOURCE } };
+    const res = makeRes();
+    await getAuthorize(makeReq(), res);
+    expectConsent(res);
+  });
+
+  it('asks for consent when the pending flow is for a different server', async () => {
+    pendingFlow = { username: 'alice', config: { url: 'https://other.example.com/mcp' } };
+    const res = makeRes();
+    await getAuthorize(makeReq(), res);
+    expectConsent(res);
   });
 
   it('asks for consent when the entry did not opt in (the default)', async () => {
