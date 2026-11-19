@@ -121,6 +121,17 @@ export const resetWorkspaceStore = (): void => {
   for (const listener of [...listeners]) listener();
 };
 
+// Whose data the store holds. The store outlives sign-out and sign-in in the same tab, so it is
+// dropped whenever the signed-in user changes; another user's data must never be shown.
+let owner: string | null = null;
+
+/** Binds the store to the signed-in user (null when signed out); drops its data on any change. */
+export const bindWorkspaceStore = (user: string | null): void => {
+  if (user === owner) return;
+  owner = user;
+  resetWorkspaceStore();
+};
+
 /** Sets what the page would have loaded; for tests. */
 export const seedWorkspaceStore = (data: Partial<WorkspaceData>): void =>
   set({ ...EMPTY, loaded: true, ...data });

@@ -4,6 +4,7 @@ import * as authService from '../services/authService';
 import { getPublicConfig } from '../services/configService';
 import { signInWithPasskey, type PasskeySignInResult } from '../services/passkeyService';
 import { clearLoggedOut } from '../utils/loginPresentation';
+import { bindWorkspaceStore } from '../hooks/useWorkspaceData';
 
 // Initial auth state
 const initialState: AuthState = {
@@ -40,6 +41,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     if (auth.isAuthenticated) clearLoggedOut();
   }, [auth.isAuthenticated]);
+
+  // The workspace data belongs to one user: drop it on sign-out and whenever another user signs in.
+  const workspaceOwner = auth.isAuthenticated ? (auth.user?.username ?? '') : null;
+  useEffect(() => {
+    bindWorkspaceStore(workspaceOwner);
+  }, [workspaceOwner]);
 
   // Load user if token exists
   useEffect(() => {
