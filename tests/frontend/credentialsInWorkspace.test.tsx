@@ -329,9 +329,9 @@ describe('stacked layers', () => {
 describe('the /credentials route', () => {
   const page = () => render(<CredentialsPage />);
 
-  it('sends an ordinary user to the workspace', () => {
+  it('sends an ordinary user to the services list', () => {
     page();
-    expect(screen.getByTestId('navigate').getAttribute('data-to')).toBe('/workspace');
+    expect(screen.getByTestId('navigate').getAttribute('data-to')).toBe('/workspace/services');
   });
 
   it('keeps old per-service links working by opening that service in the workspace', () => {

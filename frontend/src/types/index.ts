@@ -1030,6 +1030,11 @@ export interface WorkspaceServer {
   description?: string;
   icon?: string;
   manageUrl?: string;
+  tags?: string[];
+  // In the user's services list. Absent only in data from an older server, where everything the
+  // user could see was listed.
+  added?: boolean;
+  // Switched on in the user's endpoint (only an added service can be).
   selected: boolean;
   enabled: boolean;
   // Enabled tools within the user's risk ceiling: what their endpoint exposes. Null when the
@@ -1133,4 +1138,13 @@ export interface OAuthApproval {
   resource?: string;
   approvedAt: string;
   expiresAt: string;
+}
+
+/** One service a user can see, as an administrator manages it for that user. */
+export interface UserServiceEntry {
+  name: string;
+  description?: string;
+  icon?: string;
+  added: boolean;
+  selected: boolean;
 }

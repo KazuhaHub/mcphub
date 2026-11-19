@@ -1,9 +1,10 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Copy, ExternalLink, Plug, RefreshCw } from 'lucide-react';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Copy, ExternalLink, Plug, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import ServerIcon from '@/components/ServerIcon';
 import { StatusDot } from '@/components/ui/StatusDot';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import ConnectDialog from '@/components/connect/ConnectDialog';
 import { CredentialPanelBody } from '@/components/credentials/CredentialDialog';
 import { refreshWorkspace, useWorkspaceData, type WorkspaceData } from '@/hooks/useWorkspaceData';
@@ -14,6 +15,7 @@ import { getServiceLinkHref } from '@/utils/serviceLink';
 import { TOOL_RISK_LEVELS, countHiddenByCeiling, isRiskChoiceAllowed } from '@/utils/toolRisk';
 import {
   hasCredentialSlots,
+  isAdded,
   localizeStatusMessage,
   resolveServiceChip,
   resolveServiceNotice,
@@ -77,7 +79,7 @@ const BackLink: React.FC = () => {
   const { t } = useTranslation();
   return (
     <Link
-      to="/workspace"
+      to="/workspace/services"
       className="inline-flex items-center gap-1 text-[13px] underline"
       style={{ color: 'var(--hub-ink-2)' }}
     >
@@ -151,10 +153,13 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
     (location.state as { authorizationUrl?: string } | null)?.authorizationUrl,
   );
   const [connecting, setConnecting] = useState(false);
-  const { pending, toggle, changeRisk, signIn, copyEndpoint } = useServiceActions({
+  const [removing, setRemoving] = useState(false);
+  const navigate = useNavigate();
+  const { pending, toggle, setAdded, changeRisk, signIn, copyEndpoint } = useServiceActions({
     onAuthorizationLink: (_name, url) => setAuthorizationUrl(url),
   });
   const busy = pending.has(server.name);
+  const added = isAdded(server);
 
   const endpoint = endpoints?.servers.find((entry) => entry.name === server.name);
   const binding = bindings?.find((entry) => entry.serverName === server.name);
@@ -170,7 +175,7 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
   const tabs: ServiceTab[] = [
     'overview',
     ...(hasCredentials ? (['credentials'] as const) : []),
-    ...(server.selected ? (['permissions'] as const) : []),
+    ...(added && server.selected ? (['permissions'] as const) : []),
   ];
   const requested = search.get('tab');
   const fallback: ServiceTab =
@@ -245,16 +250,28 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
           <span data-testid="service-chip" data-chip={chip}>
             <StatusDot kind={serviceChipTone(chip)} label={t(`workspacePage.chip.${chip}`)} />
           </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={server.selected}
-            aria-label={t('workspacePage.services.toggleFor', { name: server.name })}
-            data-testid="service-toggle"
-            className={'hub-switch ml-auto' + (server.selected ? ' on' : '')}
-            disabled={busy}
-            onClick={() => void toggle(server.name, !server.selected)}
-          />
+          {added ? (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={server.selected}
+              aria-label={t('workspacePage.services.toggleFor', { name: server.name })}
+              data-testid="service-toggle"
+              className={'hub-switch ml-auto' + (server.selected ? ' on' : '')}
+              disabled={busy}
+              onClick={() => void toggle(server.name, !server.selected)}
+            />
+          ) : (
+            <button
+              type="button"
+              className="hub-btn primary ml-auto"
+              data-testid="service-add"
+              disabled={busy}
+              onClick={() => void setAdded(server.name, true)}
+            >
+              <Plus size={13} /> {t('workspacePage.catalog.addToMine')}
+            </button>
+          )}
         </div>
         {server.description && <Description text={server.description} />}
       </header>
@@ -442,6 +459,36 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
           </div>
         )}
       </div>
+
+      {added && (
+        <div className="pt-2" style={{ borderTop: '1px solid var(--hub-line-2)' }}>
+          <button
+            type="button"
+            className="hub-btn ghost sm"
+            data-testid="service-remove"
+            style={{ color: 'var(--hub-err)' }}
+            disabled={busy}
+            onClick={() => setRemoving(true)}
+          >
+            <Trash2 size={13} /> {t('workspacePage.catalog.remove')}
+          </button>
+        </div>
+      )}
+
+      <ConfirmDialog
+        isOpen={removing}
+        variant="danger"
+        title={t('workspacePage.catalog.removeTitle', { name: server.name })}
+        message={t('workspacePage.catalog.removeMessage', { name: server.name })}
+        confirmText={t('workspacePage.catalog.remove')}
+        onClose={() => setRemoving(false)}
+        onConfirm={() => {
+          setRemoving(false);
+          void setAdded(server.name, false).then((ok) => {
+            if (ok) navigate('/workspace/services');
+          });
+        }}
+      />
 
       {connecting && endpoints && (
         <ConnectDialog

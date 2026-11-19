@@ -16,7 +16,7 @@ const userOff = { isAdmin: false, workspaceEnabled: false };
 
 describe('workspace navigation entries', () => {
   const manage = ['dashboard', 'servers', 'groups', 'prompts', 'resources', 'market'];
-  const workspace = ['workspace', 'clients', 'activity'];
+  const workspace = ['workspace', 'services', 'clients', 'activity'];
 
   it('leaves the sidebar as it was when workspace mode is off', () => {
     for (const ctx of [adminOff, userOff]) {

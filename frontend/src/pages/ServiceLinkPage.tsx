@@ -42,7 +42,7 @@ export default function ServiceLinkPage() {
   return (
     <div className="hub-card mx-auto max-w-xl p-10 text-center text-sm" role="status">
       <p style={{ color: 'var(--hub-ink-2)' }}>{t('serviceLink.noManagePage')}</p>
-      <Link to="/workspace" className="mt-3 inline-block underline">
+      <Link to="/workspace/services" className="mt-3 inline-block underline">
         {t('serviceLink.backToWorkspace')}
       </Link>
     </div>

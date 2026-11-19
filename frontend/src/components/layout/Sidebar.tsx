@@ -21,6 +21,7 @@ import {
   Fingerprint,
   ShieldCheck,
   Lock,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useServerContext } from '@/contexts/ServerContext';
@@ -87,11 +88,19 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = fal
   const allItems: Record<NavKey, MenuItem> = {
     workspace: {
       path: '/workspace',
-      label: t('workspacePage.nav'),
+      label: t('workspacePage.home.nav'),
       icon: <Briefcase className="h-4 w-4" />,
-      // Its services have pages of their own below it; its other pages have their own entries.
+      // Only the home page itself; the services, clients and activity pages have their own entries.
       end: true,
-      match: (current) => current === '/workspace' || current.startsWith('/workspace/services/'),
+      match: (current) => current === '/workspace',
+    },
+    services: {
+      path: '/workspace/services',
+      label: t('workspacePage.services.tab'),
+      icon: <Layers className="h-4 w-4" />,
+      // A service's own page belongs here too.
+      match: (current) =>
+        current === '/workspace/services' || current.startsWith('/workspace/services/'),
     },
     clients: {
       path: '/workspace/clients',

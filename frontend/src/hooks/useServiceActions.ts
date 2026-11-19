@@ -4,12 +4,13 @@ import { useToast } from '@/contexts/ToastContext';
 import {
   launchPersonalOAuth,
   saveRiskCeiling,
+  saveServerMembership,
   saveServerSelection,
 } from '@/services/workspaceService';
 import type { ToolRiskLevel } from '@/types';
 import { copyText } from '@/utils/clipboard';
 import { changeRiskCeiling } from '@/utils/toolRisk';
-import { toggleServerSelection } from '@/utils/workspace';
+import { applyMembership, toggleServerSelection } from '@/utils/workspace';
 import {
   mutateWorkspace,
   updateWorkspaceServers,
@@ -54,6 +55,28 @@ export const useServiceActions = ({ onAuthorizationLink }: Options = {}) => {
       if (!saved) showToast(t('workspacePage.toggleFailed', { name }), 'error');
     });
 
+  // Adds the service to the user's list (switched on) or takes it out. Flips the row first and
+  // puts it back if saving fails. Resolves true when saved.
+  const setAdded = async (name: string, added: boolean): Promise<boolean> => {
+    let saved = false;
+    await withPending(name, async () => {
+      updateWorkspaceServers((list) => applyMembership(list, name, added));
+      try {
+        await saveServerMembership(name, added);
+        saved = true;
+      } catch {
+        updateWorkspaceServers((list) => applyMembership(list, name, !added));
+        showToast(
+          t(added ? 'workspacePage.catalog.addFailed' : 'workspacePage.catalog.removeFailed', {
+            name,
+          }),
+          'error',
+        );
+      }
+    });
+    return saved;
+  };
+
   const changeRisk = (name: string, riskCeiling: ToolRiskLevel) =>
     withPending(name, async () => {
       const server = servers.find((candidate) => candidate.name === name);
@@ -89,5 +112,5 @@ export const useServiceActions = ({ onAuthorizationLink }: Options = {}) => {
     else showToast(t('common.copyFailed'), 'error');
   };
 
-  return { pending, toggle, changeRisk, signIn, copyEndpoint };
+  return { pending, toggle, setAdded, changeRisk, signIn, copyEndpoint };
 };

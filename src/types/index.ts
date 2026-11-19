@@ -645,11 +645,16 @@ export interface StoredCredentialBinding {
   destinationFingerprint?: string | null;
 }
 
-// A user's explicit choice to include a server in their personal MCP endpoints.
-// An absent record means not selected.
+// What a user keeps for one server under Workspace Mode: whether they added it to their
+// services list (`added`) and whether it is switched on in their personal MCP endpoints
+// (`selected`). The endpoint exposes a server only when both are true. An absent record means
+// neither.
 export interface UserServerSelection {
   username: string;
   serverName: string;
+  // Absent or null on rows stored before the list existed: such a row counts as added exactly
+  // when it is selected (see isSelectionAdded).
+  added?: boolean | null;
   selected: boolean;
   // The highest tool risk level the user allows on this server; absent means `read`.
   riskCeiling?: ToolRiskLevel;

@@ -45,7 +45,10 @@ const useCrumbs = (): string[] => {
       } catch {
         // keep the raw segment
       }
-      return [root, t('workspacePage.nav'), name];
+      return [root, t('workspacePage.nav'), t('workspacePage.services.tab'), name];
+    }
+    if (path === '/workspace/services') {
+      return [root, t('workspacePage.nav'), t('workspacePage.services.tab')];
     }
     if (path === '/workspace/clients') {
       return [root, t('workspacePage.nav'), t('workspacePage.clients.tab')];

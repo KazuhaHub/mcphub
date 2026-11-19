@@ -56,9 +56,9 @@ describe('credentialsRedirect', () => {
   const admin = { isAdmin: true, workspaceEnabled: true };
 
   it('sends ordinary users to the workspace, opening the old deep-linked service', () => {
-    expect(credentialsRedirect(user, {})).toBe('/workspace');
+    expect(credentialsRedirect(user, {})).toBe('/workspace/services');
     expect(credentialsRedirect(user, { server: 'a b' })).toBe('/workspace/services/a%20b?tab=credentials');
-    expect(credentialsRedirect(user, { user: 'alice' })).toBe('/workspace');
+    expect(credentialsRedirect(user, { user: 'alice' })).toBe('/workspace/services');
   });
 
   it('keeps the administrator page, except for old per-service links', () => {

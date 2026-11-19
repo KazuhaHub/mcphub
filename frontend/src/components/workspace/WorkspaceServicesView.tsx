@@ -1,16 +1,19 @@
-import React, { useLayoutEffect } from 'react';
+import React, { useLayoutEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Info, RefreshCw } from 'lucide-react';
+import { Plus, RefreshCw } from 'lucide-react';
 import { countHiddenTools } from '@/utils/toolRisk';
 import {
   countExposedTools,
+  isAdded,
   toolCountLevel,
   workspaceServicePath,
   type ServiceTab,
 } from '@/utils/workspace';
 import { refreshWorkspace, useWorkspaceData } from '@/hooks/useWorkspaceData';
 import { useServiceActions } from '@/hooks/useServiceActions';
+import WorkspaceDataGate from './WorkspaceDataGate';
+import AddServiceDialog from './AddServiceDialog';
 import WorkspaceServiceRow, { type RowAction } from './WorkspaceServiceRow';
 
 // The main area scrolls, not the window: remember where the list was when a service was opened,
@@ -18,11 +21,14 @@ import WorkspaceServiceRow, { type RowAction } from './WorkspaceServiceRow';
 let savedListScroll: number | null = null;
 const scroller = (): HTMLElement | null => document.querySelector('main');
 
-const WorkspaceServicesView: React.FC = () => {
+const ServicesList: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // The page's single source of truth: servers, endpoints and the user's credential bindings.
-  const { servers, bindings, loaded, error } = useWorkspaceData();
+  const { servers: allServers, bindings, loaded } = useWorkspaceData();
+  const [adding, setAdding] = useState(false);
+  // Only what the user added is listed; the rest is found through Add service.
+  const servers = allServers.filter(isAdded);
 
   const open = (name: string, tab?: ServiceTab, state?: { authorizationUrl: string }) => {
     savedListScroll = scroller()?.scrollTop ?? null;
@@ -43,52 +49,6 @@ const WorkspaceServicesView: React.FC = () => {
     if (action === 'signin') void signIn(name);
     else open(name, 'credentials');
   };
-
-  if (!loaded && !error) {
-    return (
-      <div className="space-y-4" role="status" aria-busy="true">
-        <span className="sr-only">{t('workspacePage.loading')}</span>
-        <span className="hub-skeleton h-11 w-full" aria-hidden />
-        <div className="hub-card divide-y divide-[var(--hub-line-2)]" aria-hidden>
-          {[0, 1, 2].map((row) => (
-            <div key={row} className="flex items-center gap-4 px-4 py-4">
-              <span className="hub-skeleton h-[18px] w-[30px] rounded-full" />
-              <div className="flex-1 space-y-2">
-                <span className="hub-skeleton h-3.5 w-40" />
-                <span className="hub-skeleton h-3 w-64 max-w-full" />
-              </div>
-              <span className="hub-skeleton h-8 w-20" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (error && !loaded) {
-    return (
-      <div className="hub-callout err items-center justify-between" role="alert">
-        <div>
-          <div className="font-medium">
-            {t(error.disabled ? 'workspacePage.disabled' : 'workspacePage.loadFailed')}
-          </div>
-          {error.detail && !error.disabled && (
-            <div className="text-[12px]" style={{ color: 'var(--hub-ink-3)' }}>
-              {error.detail}
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          className="hub-btn"
-          onClick={() => (error.disabled ? window.location.reload() : void refreshWorkspace())}
-        >
-          <RefreshCw size={13} />{' '}
-          {t(error.disabled ? 'workspacePage.reload' : 'workspacePage.retry')}
-        </button>
-      </div>
-    );
-  }
 
   const credentialServers = bindings ? new Set(bindings.map((entry) => entry.serverName)) : null;
   const hiddenTools = countHiddenTools(servers);
@@ -130,17 +90,43 @@ const WorkspaceServicesView: React.FC = () => {
               </p>
             )}
           </div>
-          <button type="button" className="hub-btn" onClick={() => void refreshWorkspace()}>
-            <RefreshCw size={13} /> {t('common.refresh')}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="hub-btn" onClick={() => void refreshWorkspace()}>
+              <RefreshCw size={13} /> {t('common.refresh')}
+            </button>
+            <button
+              type="button"
+              className="hub-btn primary"
+              data-testid="add-service"
+              onClick={() => setAdding(true)}
+            >
+              <Plus size={13} /> {t('workspacePage.catalog.add')}
+            </button>
+          </div>
         </div>
         {servers.length === 0 ? (
-          <p
+          <div
             className="px-4 py-10 text-center text-sm"
             style={{ color: 'var(--hub-ink-3)', borderTop: '1px solid var(--hub-line-2)' }}
+            data-testid="services-empty"
           >
-            {t('workspacePage.services.empty')}
-          </p>
+            <p>
+              {t(
+                allServers.length === 0
+                  ? 'workspacePage.services.empty'
+                  : 'workspacePage.services.noneAdded',
+              )}
+            </p>
+            {allServers.length > 0 && (
+              <button
+                type="button"
+                className="hub-btn primary mt-3"
+                onClick={() => setAdding(true)}
+              >
+                <Plus size={13} /> {t('workspacePage.catalog.add')}
+              </button>
+            )}
+          </div>
         ) : (
           <ul>
             {servers.map((server) => (
@@ -159,8 +145,15 @@ const WorkspaceServicesView: React.FC = () => {
         )}
       </section>
 
+      {adding && <AddServiceDialog onClose={() => setAdding(false)} />}
     </div>
   );
 };
+
+const WorkspaceServicesView: React.FC = () => (
+  <WorkspaceDataGate>
+    <ServicesList />
+  </WorkspaceDataGate>
+);
 
 export default WorkspaceServicesView;

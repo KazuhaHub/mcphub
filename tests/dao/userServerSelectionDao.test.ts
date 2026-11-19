@@ -58,8 +58,9 @@ describe('UserServerSelectionDaoImpl', () => {
     await dao.save(selection('alice', 'fetch'));
     await dao.save(selection('alice', 'fetch', false));
 
+    // The earlier row predates the list: it was selected, so it stays added once deselected.
     await expect(dao.listByUsername('alice')).resolves.toEqual([
-      selection('alice', 'fetch', false),
+      { ...selection('alice', 'fetch', false), added: true },
     ]);
   });
 
@@ -150,7 +151,7 @@ describe('UserServerSelectionDaoImpl', () => {
 
       await dao.save(selection('alice', 'fetch'));
       expect(await dao.listByUsername('alice')).toEqual([
-        { ...selection('alice', 'fetch'), riskCeiling: 'write' },
+        { ...selection('alice', 'fetch'), added: false, riskCeiling: 'write' },
       ]);
     });
 

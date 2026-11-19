@@ -1,5 +1,5 @@
 import { getUserServerSelectionDao } from '../dao/DaoFactory.js';
-import type { ToolRiskLevel } from '../types/index.js';
+import type { ToolRiskLevel, UserServerSelection } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 import { isToolRiskLevel } from '../utils/toolRisk.js';
 import { getCachedSystemConfig } from '../utils/systemConfigCache.js';
@@ -11,7 +11,10 @@ export const SELECTION_CACHE_TTL_MS = 5000;
 // What a user chose for their own scope: the servers they selected and, per server, the
 // highest tool risk level they allow (absent means `read`).
 export interface UserSelectionScope {
+  // The servers the user's endpoint exposes: added and switched on.
   names: Set<string>;
+  // The servers in the user's services list, switched on or not.
+  added: Set<string>;
   ceilings: Map<string, ToolRiskLevel>;
 }
 
@@ -36,6 +39,13 @@ const invalidate = (username?: string): void => {
   selectedByUser.delete(username);
 };
 
+/**
+ * Whether the row puts the server in the user's list. Rows from before the list existed have no
+ * `added`; they count as added when selected, so what users had switched on stays in their list.
+ */
+export const isSelectionAdded = (row: Pick<UserServerSelection, 'added' | 'selected'>): boolean =>
+  typeof row.added === 'boolean' ? row.added : row.selected;
+
 export const isWorkspaceEnabled = (): boolean => {
   try {
     return getCachedSystemConfig()?.workspace?.enabled === true;
@@ -50,7 +60,10 @@ export const getUserSelectionScope = async (username: string): Promise<UserSelec
   const generation = generationOf(username);
   const rows = await getUserServerSelectionDao().listByUsername(username);
   const scope: UserSelectionScope = {
-    names: new Set(rows.filter((row) => row.selected).map((row) => row.serverName)),
+    names: new Set(
+      rows.filter((row) => row.selected && isSelectionAdded(row)).map((row) => row.serverName),
+    ),
+    added: new Set(rows.filter(isSelectionAdded).map((row) => row.serverName)),
     ceilings: new Map(
       rows.flatMap((row) =>
         isToolRiskLevel(row.riskCeiling) ? [[row.serverName, row.riskCeiling] as const] : [],
@@ -74,20 +87,36 @@ export const resolveRiskCeiling = (
   fallback: ToolRiskLevel = 'read',
 ): ToolRiskLevel => ceilings.get(serverName) ?? fallback;
 
-export const setServerSelected = async (
+/**
+ * Changes whether the server is in the user's list and/or switched on, leaving what is not named
+ * as it was. The DAO keeps the risk choice and gives a row from before the list existed an
+ * explicit `added`, so it keeps its meaning once `selected` changes.
+ */
+export const setServerState = async (
   username: string,
   serverName: string,
-  selected: boolean,
+  change: { added?: boolean; selected?: boolean },
 ): Promise<void> => {
-  // Selecting or deselecting never changes the user's risk choice: the DAO keeps it.
   await getUserServerSelectionDao().save({
     username,
     serverName,
-    selected,
+    ...change,
     updatedAt: new Date().toISOString(),
   });
   invalidate(username);
 };
+
+/** Puts a server in the user's list, switched on. Removing it also switches it off. */
+export const setServerAdded = (username: string, serverName: string, added: boolean) =>
+  setServerState(
+    username,
+    serverName,
+    added ? { added, selected: true } : { added, selected: false },
+  );
+
+/** Switching a service on puts it in the list too; switching it off leaves it there. */
+export const setServerSelected = (username: string, serverName: string, selected: boolean) =>
+  setServerState(username, serverName, selected ? { added: true, selected } : { selected });
 
 /** Changes the user's tool risk ceiling for a server without touching their selection. */
 export const setServerRiskCeiling = async (

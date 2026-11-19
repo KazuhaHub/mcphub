@@ -13,7 +13,9 @@ import {
   renameServerSelections,
   resolveRiskCeiling,
   setServerRiskCeiling,
+  setServerAdded,
   setServerSelected,
+  setServerState,
 } from '../../src/services/userServerSelectionService.js';
 import { setCachedSystemConfig } from '../../src/utils/systemConfigCache.js';
 
@@ -267,6 +269,59 @@ describe('userServerSelectionService', () => {
 
       await deleteUserServerSelections({ username: 'alice' });
       expect((await getUserSelectionScope('alice')).ceilings.size).toBe(0);
+    });
+  });
+
+  describe('added and enabled', () => {
+    const writeLegacy = (rows: Array<{ serverName: string; selected: boolean }>) =>
+      fs.writeFileSync(
+        path.join(tmpDir, 'mcp_settings.json.selections.json'),
+        JSON.stringify(rows.map((row) => ({ username: 'alice', updatedAt: 'x', ...row }))),
+      );
+
+    it('keeps what existing users had switched on as added, and adds nothing else', async () => {
+      writeLegacy([
+        { serverName: 'on', selected: true },
+        { serverName: 'off', selected: false },
+      ]);
+      const scope = await getUserSelectionScope('alice');
+      expect([...scope.added]).toEqual(['on']);
+      expect([...scope.names]).toEqual(['on']);
+    });
+
+    it('keeps a legacy row added when it is switched off', async () => {
+      writeLegacy([{ serverName: 'on', selected: true }]);
+      await setServerSelected('alice', 'on', false);
+      const scope = await getUserSelectionScope('alice');
+      expect([...scope.added]).toEqual(['on']);
+      expect(scope.names.size).toBe(0);
+    });
+
+    it('exposes a service only when it is added and enabled', async () => {
+      await setServerState('alice', 'a', { added: true, selected: false });
+      await setServerState('alice', 'b', { added: false, selected: true });
+      await setServerState('alice', 'c', { added: true, selected: true });
+      const scope = await getUserSelectionScope('alice');
+      expect([...scope.names]).toEqual(['c']);
+      expect([...scope.added].sort()).toEqual(['a', 'c']);
+    });
+
+    it('adds switched on and removes switched off, and switching on adds', async () => {
+      await setServerAdded('alice', 'a', true);
+      expect([...(await getSelectedServerNames('alice'))]).toEqual(['a']);
+      await setServerAdded('alice', 'a', false);
+      expect((await getSelectedServerNames('alice')).size).toBe(0);
+      expect((await getUserSelectionScope('alice')).added.size).toBe(0);
+      await setServerSelected('alice', 'a', true);
+      expect([...(await getUserSelectionScope('alice')).added]).toEqual(['a']);
+    });
+
+    it('keeps the risk choice when a service is removed and added again', async () => {
+      await setServerAdded('alice', 'a', true);
+      await setServerRiskCeiling('alice', 'a', 'write');
+      await setServerAdded('alice', 'a', false);
+      await setServerAdded('alice', 'a', true);
+      expect((await getUserSelectionScope('alice')).ceilings.get('a')).toBe('write');
     });
   });
 });

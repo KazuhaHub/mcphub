@@ -90,7 +90,8 @@ describe('Sidebar', () => {
     setSettings(alice, ready);
     const html = renderSidebar();
     for (const shown of [
-      'workspacePage.nav',
+      'workspacePage.home.nav',
+      'workspacePage.services.tab',
       'workspacePage.clients.tab',
       'nav.myActivity',
       'nav.workspace',
@@ -169,14 +170,15 @@ describe('Sidebar', () => {
     const html = renderSidebar();
     expect(html).toContain('nav.servers');
     expect(html).toContain('nav.dashboard');
-    expect(html).not.toContain('workspacePage.nav');
+    expect(html).not.toContain('workspacePage.home.nav');
   });
 
   it('gives admins the same workspace and account entries, plus everything else', () => {
     setSettings(admin, ready);
     const html = renderSidebar();
     for (const shown of [
-      'workspacePage.nav',
+      'workspacePage.home.nav',
+      'workspacePage.services.tab',
       'workspacePage.clients.tab',
       ...personal,
       'nav.manage',
@@ -200,10 +202,16 @@ describe('Sidebar', () => {
     const current = (html: string, href: string) =>
       link(html, href).includes('aria-current="page"');
 
-    it('is Workspace on the list and on a service page, not on its sibling pages', () => {
+    it('is Home only on the home page, Services on the list and on a service page', () => {
       setSettings(alice, ready);
       expect(current(renderSidebar('/workspace'), '/workspace')).toBe(true);
-      expect(current(renderSidebar('/workspace/services/ubc-personal'), '/workspace')).toBe(true);
+      expect(current(renderSidebar('/workspace'), '/workspace/services')).toBe(false);
+      expect(current(renderSidebar('/workspace/services'), '/workspace/services')).toBe(true);
+      expect(current(renderSidebar('/workspace/services'), '/workspace')).toBe(false);
+      expect(
+        current(renderSidebar('/workspace/services/ubc-personal'), '/workspace/services'),
+      ).toBe(true);
+      expect(current(renderSidebar('/workspace/services/ubc-personal'), '/workspace')).toBe(false);
       expect(current(renderSidebar('/workspace/clients'), '/workspace')).toBe(false);
       expect(current(renderSidebar('/workspace/clients'), '/workspace/clients')).toBe(true);
       expect(current(renderSidebar('/workspace/activity'), '/workspace/activity')).toBe(true);
@@ -272,6 +280,7 @@ describe('App routes', () => {
       expect.arrayContaining([
         '/',
         '/workspace',
+        '/workspace/services',
         '/workspace/clients',
         '/workspace/activity',
         '/keys',

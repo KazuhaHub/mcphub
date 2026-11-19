@@ -15,6 +15,7 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const OAuthConsentPage = lazy(() => import('./pages/OAuthConsentPage'));
 const DashboardPage = lazy(() => import('./pages/Dashboard'));
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage'));
+const WorkspaceServicesPage = lazy(() => import('./pages/WorkspaceServicesPage'));
 const WorkspaceServicePage = lazy(() => import('./pages/WorkspaceServicePage'));
 const CredentialsPage = lazy(() => import('./pages/CredentialsPage'));
 const ServiceLinkPage = lazy(() => import('./pages/ServiceLinkPage'));
@@ -84,6 +85,7 @@ function App() {
                       <Route element={<RouteAccessGuard />}>
                         <Route path="/" element={<DashboardPage />} />
                         <Route path="/workspace" element={<WorkspacePage />} />
+                        <Route path="/workspace/services" element={<WorkspaceServicesPage />} />
                         <Route path="/workspace/services/:name" element={<WorkspaceServicePage />} />
                         <Route path="/workspace/clients" element={<WorkspaceClientsPage />} />
                         <Route path="/workspace/activity" element={<WorkspaceActivityPage />} />

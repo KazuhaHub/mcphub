@@ -48,6 +48,7 @@ export const fallbackPath = (ctx: NavContext): string =>
 
 export type NavKey =
   | 'workspace'
+  | 'services'
   | 'clients'
   | 'activity'
   | 'dashboard'
@@ -77,7 +78,7 @@ const MANAGE_GROUP_ITEMS: readonly NavKey[] = [
  */
 export const getWorkspaceNavKeys = (ctx: NavContext): NavKey[] => {
   if (ctx.resolved === false && !ctx.isAdmin) return [];
-  return ctx.workspaceEnabled ? ['workspace', 'clients', 'activity'] : [];
+  return ctx.workspaceEnabled ? ['workspace', 'services', 'clients', 'activity'] : [];
 };
 
 /**
@@ -137,5 +138,5 @@ export const credentialsRedirect = (
   if (!ctx.workspaceEnabled) return null;
   if (ctx.isAdmin && params.user) return null;
   if (ctx.isAdmin && !params.server) return null;
-  return params.server ? workspaceCredentialsPath(params.server) : '/workspace';
+  return params.server ? workspaceCredentialsPath(params.server) : '/workspace/services';
 };

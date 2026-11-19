@@ -11,6 +11,7 @@ const selectionRows: Array<{
   username: string;
   serverName: string;
   selected: boolean;
+  added?: boolean;
   riskCeiling?: 'read' | 'write' | 'external';
   updatedAt: string;
 }> = [];
@@ -43,7 +44,14 @@ jest.mock('../../src/dao/DaoFactory.js', () => ({
       );
       const previous = index >= 0 ? selectionRows.splice(index, 1)[0] : undefined;
       const riskCeiling = selection.riskCeiling ?? previous?.riskCeiling;
-      selectionRows.push({ ...selection, ...(riskCeiling ? { riskCeiling } : {}) });
+      // The real DAO keeps what a save leaves out.
+      const added = selection.added ?? previous?.added;
+      selectionRows.push({
+        ...selection,
+        selected: selection.selected ?? previous?.selected ?? false,
+        ...(added === undefined ? {} : { added }),
+        ...(riskCeiling ? { riskCeiling } : {}),
+      });
     },
     saveRiskCeiling: async (
       username: string,
@@ -96,6 +104,14 @@ jest.mock('../../src/services/annotationTrustService.js', () => ({
 jest.mock('../../src/services/credentialBindingService.js', () => ({
   getCredentialBindingStatus: (...args: unknown[]) => mockGetCredentialBindingStatus(...args),
 }));
+const mockUsers: Record<string, { username: string; isAdmin?: boolean; userGroups?: string[] }> = {
+  alice: { username: 'alice' },
+  bob: { username: 'bob' },
+  root: { username: 'root', isAdmin: true },
+};
+jest.mock('../../src/services/userService.js', () => ({
+  getUserByUsername: async (username: string) => mockUsers[username],
+}));
 const mockPersonalOAuthLoad = jest.fn();
 jest.mock('../../src/services/personalOAuthService.js', () => ({
   hasPersonalOAuth: (config?: { oauth?: { identityMode?: string } }) =>
@@ -107,7 +123,10 @@ import {
   getServiceManageUrl,
   getWorkspaceEndpoints,
   getWorkspaceSummary,
+  listUserServices,
   listWorkspaceServers,
+  updateUserService,
+  updateWorkspaceMembership,
   updateWorkspaceRisk,
   updateWorkspaceSelection,
 } from '../../src/controllers/workspaceController.js';
@@ -133,6 +152,9 @@ const buildApp = () => {
   app.get('/api/services/:name/manage-url', getServiceManageUrl);
   app.get('/api/workspace/summary', getWorkspaceSummary);
   app.put('/api/workspace/servers/:name/selection', updateWorkspaceSelection);
+  app.put('/api/workspace/servers/:name/membership', updateWorkspaceMembership);
+  app.get('/api/users/:username/services', listUserServices);
+  app.put('/api/users/:username/services/:name', updateUserService);
   app.put('/api/workspace/servers/:name/risk', updateWorkspaceRisk);
   app.get('/api/workspace/endpoints', getWorkspaceEndpoints);
   return app;
@@ -213,6 +235,8 @@ describe('workspace API', () => {
       expect(response.body.data).toEqual([
         {
           name: 'public-tool',
+          added: true,
+          tags: [],
           description: 'Shared',
           manageUrl: 'https://tool.example.com/account',
           selected: true,
@@ -230,6 +254,8 @@ describe('workspace API', () => {
         },
         {
           name: 'alice-tool',
+          added: false,
+          tags: [],
           selected: false,
           enabled: false,
           toolCount: 0,
@@ -245,6 +271,8 @@ describe('workspace API', () => {
         },
         {
           name: 'needs-key',
+          added: false,
+          tags: [],
           selected: false,
           enabled: true,
           toolCount: null,
@@ -281,7 +309,9 @@ describe('workspace API', () => {
       const byName = Object.fromEntries(
         response.body.data.map((server: { name: string }) => [server.name, server]),
       );
-      expect(byName['public-tool'].icon).toMatch(/\/api\/servers\/public-tool\/icon\?v=[0-9a-f]{12}$/);
+      expect(byName['public-tool'].icon).toMatch(
+        /\/api\/servers\/public-tool\/icon\?v=[0-9a-f]{12}$/,
+      );
       expect(byName['needs-key']).not.toHaveProperty('icon');
       expect(JSON.stringify(response.body)).not.toContain('base64');
     });
@@ -1001,5 +1031,212 @@ describe('workspace API: tool risk levels', () => {
   it('never exposes the administrator’s overrides themselves', async () => {
     servers[0].toolRiskOverrides = { 'svc::get': 'external' };
     expect(JSON.stringify(await view())).not.toContain('toolRiskOverrides');
+  });
+});
+
+describe('services list (added and enabled)', () => {
+  const app = buildApp();
+  const alice = { 'x-test-user': asUser('alice') };
+  const root = { 'x-test-user': asUser('root', true) };
+  const row = (username: string, serverName: string) =>
+    selectionRows.find((entry) => entry.username === username && entry.serverName === serverName);
+  const endpointNames = async (headers: Record<string, string>) =>
+    (
+      await request(app).get('/api/workspace/endpoints').set(headers).expect(200)
+    ).body.data.servers.map((entry: { name: string }) => entry.name);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    selectionRows.length = 0;
+    userTools = {};
+    liveTools = null;
+    groupNames = [];
+    clearServerSelectionCache();
+    workspaceConfig = { workspace: { enabled: true } };
+    mockGetCredentialBindingStatus.mockResolvedValue({ configured: false });
+    servers = [
+      { name: 'public-tool', owner: 'admin', visibility: 'public', description: 'Shared' },
+      { name: 'private-tool', owner: 'admin', visibility: 'private' },
+      { name: 'other-tool', owner: 'admin', visibility: 'public' },
+    ];
+  });
+
+  it('lists every visible service with whether it is added, and adds none by default', async () => {
+    const body = (await request(app).get('/api/workspace/servers').set(alice).expect(200)).body;
+    expect(body.data.map((entry: any) => [entry.name, entry.added, entry.selected])).toEqual([
+      ['public-tool', false, false],
+      ['other-tool', false, false],
+    ]);
+    expect(await endpointNames(alice)).toEqual([]);
+  });
+
+  it('adds a service switched on, so the endpoint exposes it, and notifies only that user', async () => {
+    await request(app)
+      .put('/api/workspace/servers/public-tool/membership')
+      .set(alice)
+      .send({ added: true })
+      .expect(200);
+    expect(row('alice', 'public-tool')).toMatchObject({ added: true, selected: true });
+    expect(mockNotifyUserListsChanged).toHaveBeenCalledWith('alice');
+    expect(await endpointNames(alice)).toEqual(['public-tool']);
+  });
+
+  it('exposes a service only while it is both added and enabled', async () => {
+    selectionRows.push({
+      username: 'alice',
+      serverName: 'public-tool',
+      added: true,
+      selected: false,
+      updatedAt: 'x',
+    });
+    selectionRows.push({
+      username: 'alice',
+      serverName: 'other-tool',
+      added: false,
+      selected: true,
+      updatedAt: 'x',
+    });
+    expect(await endpointNames(alice)).toEqual([]);
+    await request(app)
+      .put('/api/workspace/servers/public-tool/selection')
+      .set(alice)
+      .send({ selected: true })
+      .expect(200);
+    expect(await endpointNames(alice)).toEqual(['public-tool']);
+  });
+
+  it('removes a service from the list and the endpoint but keeps the permission choice', async () => {
+    selectionRows.push({
+      username: 'alice',
+      serverName: 'public-tool',
+      added: true,
+      selected: true,
+      riskCeiling: 'write',
+      updatedAt: 'x',
+    });
+    await request(app)
+      .put('/api/workspace/servers/public-tool/membership')
+      .set(alice)
+      .send({ added: false })
+      .expect(200);
+    expect(row('alice', 'public-tool')).toMatchObject({
+      added: false,
+      selected: false,
+      riskCeiling: 'write',
+    });
+    expect(await endpointNames(alice)).toEqual([]);
+  });
+
+  it('keeps what an existing user had switched on, and does not add what they had not', async () => {
+    // Rows written before the list existed carry no `added`.
+    selectionRows.push({
+      username: 'alice',
+      serverName: 'public-tool',
+      selected: true,
+      updatedAt: 'x',
+    });
+    selectionRows.push({
+      username: 'alice',
+      serverName: 'other-tool',
+      selected: false,
+      updatedAt: 'x',
+    });
+    const body = (await request(app).get('/api/workspace/servers').set(alice).expect(200)).body;
+    expect(body.data.map((entry: any) => [entry.name, entry.added, entry.selected])).toEqual([
+      ['public-tool', true, true],
+      ['other-tool', false, false],
+    ]);
+    expect(await endpointNames(alice)).toEqual(['public-tool']);
+  });
+
+  it('refuses to add a service the user cannot see, without revealing it', async () => {
+    await request(app)
+      .put('/api/workspace/servers/private-tool/membership')
+      .set(alice)
+      .send({ added: true })
+      .expect(404);
+    await request(app)
+      .put('/api/workspace/servers/public-tool/membership')
+      .set(alice)
+      .send({ added: 'yes' })
+      .expect(400);
+    expect(selectionRows).toEqual([]);
+  });
+
+  describe('administrator managing a user', () => {
+    const bob = '/api/users/bob/services';
+
+    it('is for administrators only, and only while the workspace is on', async () => {
+      await request(app).get(bob).set(alice).expect(403);
+      await request(app).put(`${bob}/public-tool`).set(alice).send({ added: true }).expect(403);
+      await request(app).get(bob).expect(403);
+      expect(selectionRows).toEqual([]);
+      workspaceConfig = { workspace: { enabled: false } };
+      await request(app).get(bob).set(root).expect(404);
+    });
+
+    it('answers 404 for an unknown user', async () => {
+      await request(app).get('/api/users/nobody/services').set(root).expect(404);
+      await request(app)
+        .put('/api/users/nobody/services/public-tool')
+        .set(root)
+        .send({ added: true })
+        .expect(404);
+    });
+
+    it('lists what the user can see, not what the administrator can', async () => {
+      const body = (await request(app).get(bob).set(root).expect(200)).body;
+      expect(body.data.map((entry: any) => [entry.name, entry.added, entry.selected])).toEqual([
+        ['public-tool', false, false],
+        ['other-tool', false, false],
+      ]);
+    });
+
+    it('adds a service for the user, switched on, and logs nothing about their secrets', async () => {
+      await request(app).put(`${bob}/public-tool`).set(root).send({ added: true }).expect(200);
+      expect(row('bob', 'public-tool')).toMatchObject({ added: true, selected: true });
+      expect(mockNotifyUserListsChanged).toHaveBeenCalledWith('bob');
+      expect(await endpointNames({ 'x-test-user': asUser('bob') })).toEqual(['public-tool']);
+      expect(row('alice', 'public-tool')).toBeUndefined();
+    });
+
+    it('sets added and enabled separately, and removing switches off', async () => {
+      await request(app)
+        .put(`${bob}/public-tool`)
+        .set(root)
+        .send({ added: true, selected: false })
+        .expect(200);
+      expect(row('bob', 'public-tool')).toMatchObject({ added: true, selected: false });
+      await request(app).put(`${bob}/public-tool`).set(root).send({ selected: true }).expect(200);
+      expect(row('bob', 'public-tool')).toMatchObject({ added: true, selected: true });
+      await request(app).put(`${bob}/public-tool`).set(root).send({ added: false }).expect(200);
+      expect(row('bob', 'public-tool')).toMatchObject({ added: false, selected: false });
+    });
+
+    it('does not expose a service that is enabled but not added', async () => {
+      await request(app).put(`${bob}/public-tool`).set(root).send({ selected: true }).expect(200);
+      expect(row('bob', 'public-tool')).toMatchObject({ added: false, selected: true });
+      expect(await endpointNames({ 'x-test-user': asUser('bob') })).toEqual([]);
+    });
+
+    it('cannot add a service the user cannot see', async () => {
+      await request(app).put(`${bob}/private-tool`).set(root).send({ added: true }).expect(404);
+      expect(selectionRows).toEqual([]);
+    });
+
+    it('rejects a body with nothing valid in it', async () => {
+      await request(app).put(`${bob}/public-tool`).set(root).send({}).expect(400);
+      await request(app).put(`${bob}/public-tool`).set(root).send({ added: 1 }).expect(400);
+    });
+
+    it('lets the user change it afterwards', async () => {
+      await request(app).put(`${bob}/public-tool`).set(root).send({ added: true }).expect(200);
+      await request(app)
+        .put('/api/workspace/servers/public-tool/selection')
+        .set({ 'x-test-user': asUser('bob') })
+        .send({ selected: false })
+        .expect(200);
+      expect(row('bob', 'public-tool')).toMatchObject({ added: true, selected: false });
+    });
   });
 });

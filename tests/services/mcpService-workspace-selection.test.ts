@@ -177,6 +177,7 @@ import { UserContextService } from '../../src/services/userContextService.js';
 import {
   clearServerSelectionCache,
   setServerSelected,
+  setServerState,
 } from '../../src/services/userServerSelectionService.js';
 
 const callTools: Record<string, jest.Mock> = {};
@@ -253,6 +254,16 @@ describe('mcpService workspace selection', () => {
 
   afterEach(() => {
     cleanupAllServers();
+  });
+
+  it('lists and serves a service only while it is added and enabled', async () => {
+    await setServerState('alice', 'alpha', { added: false, selected: true });
+    expect(await toolNames(alice, 'alpha-session')).toEqual([]);
+    expect((await call(alice, 'alpha-session', 'ping')).isError).toBe(true);
+    await setServerState('alice', 'alpha', { added: true, selected: false });
+    expect(await toolNames(alice, 'alpha-session')).toEqual([]);
+    await setServerState('alice', 'alpha', { added: true, selected: true });
+    expect(await toolNames(alice, 'alpha-session')).toEqual(['ping']);
   });
 
   it('applies no filtering when the setting is off', async () => {

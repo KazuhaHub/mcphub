@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import ActivityPanel from '../../frontend/src/components/workspace/ActivityPanel';
 import WorkspacePage from '../../frontend/src/pages/WorkspacePage';
+import WorkspaceServicesPage from '../../frontend/src/pages/WorkspaceServicesPage';
 import WorkspaceActivityPage from '../../frontend/src/pages/WorkspaceActivityPage';
 import WorkspaceClientsPage from '../../frontend/src/pages/WorkspaceClientsPage';
 import {
@@ -46,6 +47,10 @@ jest.mock('@/components/connect/ConnectCard', () => ({
 jest.mock('@/components/workspace/WorkspaceServicesView', () => ({
   __esModule: true,
   default: () => 'SERVICES_VIEW',
+}));
+jest.mock('@/components/workspace/WorkspaceHome', () => ({
+  __esModule: true,
+  default: () => 'HOME_BODY',
 }));
 jest.mock('@/components/workspace/ConnectedClientsPanel', () => ({
   __esModule: true,
@@ -240,12 +245,20 @@ describe('the workspace pages', () => {
   const page = (url: string, element: ReturnType<typeof createElement>) =>
     renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [url] }, element));
 
-  it('shows the services on the workspace page, with no tabs', () => {
+  it('shows only the quick-start home on the workspace page, with no tabs and no list', () => {
     const html = page('/workspace', createElement(WorkspacePage));
-    expect(html).toContain('SERVICES_VIEW');
+    expect(html).toContain('HOME_BODY');
+    expect(html).toContain('>Home</h1>');
+    expect(html).not.toContain('SERVICES_VIEW');
     expect(html).not.toContain('role="tablist"');
     expect(html).not.toContain('ACTIVITY_PANEL');
     expect(html).not.toContain('CLIENTS_PANEL');
+  });
+
+  it('gives the services list a page of its own', () => {
+    const html = page('/workspace/services', createElement(WorkspaceServicesPage));
+    expect(html).toContain('SERVICES_VIEW');
+    expect(html).not.toContain('HOME_BODY');
   });
 
   it('gives activity and connected clients pages of their own', () => {

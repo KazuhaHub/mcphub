@@ -3,6 +3,8 @@ import config, { getNameSeparator } from '../config/index.js';
 import { getGroupDao, getServerDao } from '../dao/DaoFactory.js';
 import type { RequestPrincipal } from '../services/authorizationService.js';
 import { getDataService } from '../services/services.js';
+import { getUserByUsername } from '../services/userService.js';
+import { logger } from '../utils/logger.js';
 import {
   listConnectedClients,
   revokeAllConnectedClients,
@@ -13,8 +15,10 @@ import {
   getUserSelectionScope,
   isWorkspaceEnabled,
   resolveRiskCeiling,
+  setServerAdded,
   setServerRiskCeiling,
   setServerSelected,
+  setServerState,
 } from '../services/userServerSelectionService.js';
 import {
   countUserServerStatuses,
@@ -134,6 +138,9 @@ const loadServerInfo = async (name: string) => {
 
 type WorkspaceServerView = {
   server: ServerRecord;
+  // In the user's services list.
+  added: boolean;
+  // Switched on in the user's endpoint; only an added service can be.
   selected: boolean;
   riskCeiling: ToolRiskLevel;
   // True until the user chooses a level, so the server's default applies.
@@ -148,7 +155,7 @@ const buildServerViews = async (
   user: RequestPrincipal,
 ): Promise<WorkspaceServerView[]> => {
   await primeAnnotationTrust();
-  const { names: selected, ceilings } = await getUserSelectionScope(user.username);
+  const { names: selected, added, ceilings } = await getUserSelectionScope(user.username);
   const language = (req as Request & { language?: string }).language;
   return Promise.all(
     (await listVisibleServers(user)).map(async (server) => {
@@ -167,6 +174,7 @@ const buildServerViews = async (
       });
       return {
         server,
+        added: added.has(server.name),
         selected: selected.has(server.name),
         // The user's choice, else the server's default; never above what the cap allows.
         riskCeiling: minRisk(
@@ -187,13 +195,23 @@ export const listWorkspaceServers = async (req: Request, res: Response): Promise
   try {
     const data = await Promise.all(
       (await buildServerViews(req, user)).map(
-        async ({ server, selected, riskCeiling, riskCeilingIsDefault, personalAuth, status }) => {
+        async ({
+          server,
+          added,
+          selected,
+          riskCeiling,
+          riskCeilingIsDefault,
+          personalAuth,
+          status,
+        }) => {
           const tools = await summarizeTools(server, user, riskCeiling, personalAuth);
           return {
             name: server.name,
             description: server.description,
+            tags: server.tags ?? [],
             icon: serverIconUrl(server.name, server.icon, config.basePath),
             manageUrl: server.manageUrl,
+            added,
             selected,
             enabled: server.enabled !== false,
             toolCount: tools.toolCount,
@@ -266,12 +284,127 @@ export const updateWorkspaceSelection = async (req: Request, res: Response): Pro
       res.status(404).json({ success: false, message: 'Server not found' });
       return;
     }
+    // Switching a service on also puts it in the list.
     await setServerSelected(user.username, server.name, selected);
     const { notifyUserListsChanged } = await import('../services/mcpService.js');
     notifyUserListsChanged(user.username);
     res.json({ success: true, data: { name: server.name, selected } });
   } catch {
     res.status(500).json({ success: false, message: 'Unable to update server selection' });
+  }
+};
+
+// Adds a visible service to the caller's list (switched on) or removes it (switched off). Their
+// credentials and tool permission choice are kept, so adding it again restores them.
+export const updateWorkspaceMembership = async (req: Request, res: Response): Promise<void> => {
+  const user = requireWorkspaceUser(req, res);
+  if (!user) return;
+  const added = req.body?.added;
+  if (typeof added !== 'boolean') {
+    res.status(400).json({ success: false, message: 'added must be a boolean' });
+    return;
+  }
+  try {
+    const server = await getServerDao().findById(req.params.name);
+    if (!server || !filterVisible([server], user).length) {
+      res.status(404).json({ success: false, message: 'Server not found' });
+      return;
+    }
+    await setServerAdded(user.username, server.name, added);
+    const { notifyUserListsChanged } = await import('../services/mcpService.js');
+    notifyUserListsChanged(user.username);
+    res.json({ success: true, data: { name: server.name, added } });
+  } catch {
+    res.status(500).json({ success: false, message: 'Unable to update your services' });
+  }
+};
+
+// Administrators manage another user's list: the services that user can see, whether each is
+// added and whether it is switched on. The user can still change both afterwards.
+const adminTarget = async (req: Request, res: Response) => {
+  if (!isWorkspaceEnabled()) {
+    res.status(404).json({ success: false, message: 'Not found' });
+    return null;
+  }
+  if (!principal(req)?.isAdmin) {
+    res.status(403).json({ success: false, message: 'Admin privileges required' });
+    return null;
+  }
+  const target = await getUserByUsername(req.params.username);
+  if (!target) {
+    res.status(404).json({ success: false, message: 'User not found' });
+    return null;
+  }
+  return target;
+};
+
+export const listUserServices = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const target = await adminTarget(req, res);
+    if (!target) return;
+    const { names, added } = await getUserSelectionScope(target.username);
+    const servers = filterVisible(
+      await getServerDao().findAll(),
+      target as unknown as RequestPrincipal,
+    );
+    res.json({
+      success: true,
+      data: servers.map((server) => ({
+        name: server.name,
+        description: server.description,
+        icon: serverIconUrl(server.name, server.icon, config.basePath),
+        added: added.has(server.name),
+        selected: names.has(server.name),
+      })),
+    });
+  } catch {
+    res.status(500).json({ success: false, message: 'Unable to list the user’s services' });
+  }
+};
+
+export const updateUserService = async (req: Request, res: Response): Promise<void> => {
+  const { added, selected } = req.body ?? {};
+  if (
+    (added !== undefined && typeof added !== 'boolean') ||
+    (selected !== undefined && typeof selected !== 'boolean') ||
+    (added === undefined && selected === undefined)
+  ) {
+    res.status(400).json({ success: false, message: 'Provide added and/or selected as booleans' });
+    return;
+  }
+  try {
+    const target = await adminTarget(req, res);
+    if (!target) return;
+    const server = await getServerDao().findById(req.params.name);
+    // A service the user cannot see cannot be given to them, and is not revealed either.
+    if (!server || !filterVisible([server], target as unknown as RequestPrincipal).length) {
+      res.status(404).json({ success: false, message: 'Server not found' });
+      return;
+    }
+    // Removing also switches off; adding without saying more switches on, as it does for the user.
+    const change =
+      added === false
+        ? { added: false, selected: false }
+        : added === true && selected === undefined
+          ? { added: true, selected: true }
+          : { ...(added === true ? { added } : {}), selected };
+    // Always explicit, so what the administrator sees is what is stored.
+    const { added: currentlyAdded } = await getUserSelectionScope(target.username);
+    await setServerState(target.username, server.name, {
+      ...change,
+      added: change.added ?? currentlyAdded.has(server.name),
+    });
+    logger.info('Administrator changed a user’s services', {
+      admin: principal(req)?.username,
+      user: target.username,
+      server: server.name,
+      change,
+    });
+    const { notifyUserListsChanged } = await import('../services/mcpService.js');
+    notifyUserListsChanged(target.username);
+    res.json({ success: true, data: { name: server.name, ...change } });
+  } catch {
+    res.status(500).json({ success: false, message: 'Unable to update the user’s services' });
   }
 };
 

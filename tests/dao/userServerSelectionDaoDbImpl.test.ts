@@ -1,5 +1,6 @@
 const mockRepository = {
   findBy: jest.fn(),
+  findOneBy: jest.fn(),
   upsert: jest.fn(),
   delete: jest.fn(),
   update: jest.fn(),
@@ -26,6 +27,7 @@ const selection = {
 describe('UserServerSelectionDaoDbImpl', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRepository.findOneBy.mockResolvedValue(null);
   });
 
   it('is registered as a database entity, indexed by username', () => {
@@ -52,6 +54,40 @@ describe('UserServerSelectionDaoDbImpl', () => {
     await new UserServerSelectionDaoDbImpl().save(selection);
 
     expect(mockRepository.upsert).toHaveBeenCalledWith(selection, ['serverName', 'username']);
+  });
+
+  describe('added flag', () => {
+    it('declares a nullable column, so rows from before the list existed need no backfill', () => {
+      const column = getMetadataArgsStorage().columns.find(
+        (candidate) =>
+          candidate.target === UserServerSelectionRecord && candidate.propertyName === 'added',
+      );
+      expect(column?.options.nullable).toBe(true);
+    });
+
+    it('reads null as absent and a stored value as is', async () => {
+      mockRepository.findBy.mockResolvedValue([
+        { ...selection, added: null },
+        { ...selection, serverName: 'git', added: false },
+      ]);
+      const rows = await new UserServerSelectionDaoDbImpl().listByUsername('alice');
+      expect(rows[0]).not.toHaveProperty('added');
+      expect(rows[1]).toHaveProperty('added', false);
+    });
+
+    it('gives a stored row without the flag the value it meant when it is saved again', async () => {
+      mockRepository.findOneBy.mockResolvedValue({ ...selection, added: null, selected: true });
+      await new UserServerSelectionDaoDbImpl().save({
+        username: 'alice',
+        serverName: 'fetch',
+        selected: false,
+        updatedAt: 'x',
+      });
+      expect(mockRepository.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ selected: false, added: true }),
+        ['serverName', 'username'],
+      );
+    });
   });
 
   it('deletes by the given filter', async () => {

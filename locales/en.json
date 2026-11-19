@@ -1824,14 +1824,16 @@
     },
     "services": {
       "tab": "Services",
-      "title": "Available services",
+      "title": "Your services",
       "description": "The switch decides which services appear in your endpoint. Click a service for details.",
       "empty": "No services are available to you yet.",
       "toggleFor": "Include {{name}} in my workspace",
       "copyEndpointFor": "Copy endpoint for {{name}}",
       "endpointConflict": "No separate endpoint: a group has the same name as this service. Use your main endpoint instead.",
       "toolCount_one": "{{count}} tool",
-      "toolCount_other": "{{count}} tools"
+      "toolCount_other": "{{count}} tools",
+      "noneAdded": "You have not added any service yet.",
+      "pageSubtitle": "The services your AI can use. Add one, switch it on or off, and fix anything that needs your attention."
     },
     "status": {
       "available": "Ready",
@@ -2003,7 +2005,7 @@
       "strong": "Your selection exposes {{count}} tools, too many for most clients: use the smart routing or a per-service endpoint."
     },
     "service": {
-      "back": "Workspace",
+      "back": "Services",
       "notFound": "This service was not found, or you do not have access to it.",
       "more": "more",
       "less": "less",
@@ -2019,6 +2021,42 @@
         "updateCredentials": "Update credentials"
       },
       "tabsLabel": "Sections of {{name}}"
+    },
+    "home": {
+      "nav": "Home",
+      "title": "Home",
+      "subtitle": "Connect your AI and see what needs your attention.",
+      "attention": {
+        "title": "Needs your attention",
+        "description": "These services are on but cannot be used yet."
+      },
+      "openService": "Open {{name}}",
+      "getStarted": {
+        "title": "Get started",
+        "description": "Add the services you want your AI to use, then connect it with the endpoint above.",
+        "action": "Add services"
+      },
+      "counts": "{{on}} of {{added}} services on",
+      "countsMore_one": "{{count}} more available",
+      "countsMore_other": "{{count}} more available",
+      "manage": "Manage services"
+    },
+    "catalog": {
+      "add": "Add service",
+      "addShort": "Add",
+      "addNamed": "Add {{name}}",
+      "addToMine": "Add to my services",
+      "title": "Add a service",
+      "subtitle": "Services you can use but have not added yet.",
+      "searchLabel": "Search services",
+      "searchPlaceholder": "Search by name, description or tag",
+      "noMatch": "No service matches your search.",
+      "allAdded": "You have added every service available to you.",
+      "addFailed": "Could not add {{name}}.",
+      "removeFailed": "Could not remove {{name}}.",
+      "remove": "Remove from my services",
+      "removeTitle": "Remove {{name}}?",
+      "removeMessage": "{{name}} leaves your list and your endpoint. Your credentials and permission choices are kept if you add it again."
     }
   },
   "serviceLink": {
@@ -2084,5 +2122,17 @@
     "insecureContext": "Passkeys need the dashboard to be opened by its domain name over HTTPS (or on localhost).",
     "unsupported": "This browser does not support passkeys.",
     "unavailable": "Passkeys are unavailable because this deployment only allows single sign-on."
+  },
+  "userServices": {
+    "open": "Services",
+    "title": "Services of {{username}}",
+    "description": "The services this user can see. Added puts a service in their list; Enabled switches it on in their endpoint. They can change both themselves.",
+    "added": "Added",
+    "enabled": "Enabled",
+    "addedFor": "{{name}} is in the user's list",
+    "enabledFor": "{{name}} is switched on for the user",
+    "empty": "This user cannot see any service.",
+    "loadFailed": "Could not load the user's services.",
+    "saveFailed": "Could not change {{name}}."
   }
 }
