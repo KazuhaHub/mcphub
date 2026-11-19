@@ -705,6 +705,7 @@ export interface ServerConfig {
   description?: string; // Optional server note/description for management UI
   manageUrl?: string; // Optional https URL of the upstream service's account or token page, shown to users
   tags?: string[];
+  icon?: string; // Optional base64 image data: URL shown beside the server; the API returns its URL instead
   url?: string; // URL for SSE or streamable HTTP servers
   command?: string; // Command to execute for stdio-based servers
   args?: string[]; // Arguments for the command

@@ -1,4 +1,5 @@
 import PersonalOAuthControls from './PersonalOAuthControls';
+import ServerIcon from './ServerIcon';
 import { Link } from 'react-router-dom';
 import { useState, useRef, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -524,6 +525,7 @@ const ServerCard = ({
                 }}
               />
             </button>
+            <ServerIcon name={server.name} icon={server.config?.icon} size={28} />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span

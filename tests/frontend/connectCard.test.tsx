@@ -135,6 +135,17 @@ describe('ConnectDialog', () => {
     expect(html).toContain('connect.serviceConflict');
   });
 
+  it('shows each service icon in the picker, or its letter tile when there is none', () => {
+    const icon = 'data:image/png;base64,iVBORw0KGgo=';
+    const html = dialog({ pickService: true }, [
+      { ...server('notion'), icon } as WorkspaceServer,
+      server('gh'),
+    ]);
+    expect(html.match(/data-icon="image"/g)).toHaveLength(1);
+    expect(html).toContain(`src="${icon}"`);
+    expect(html).toMatch(/data-icon="letter"[^>]*>G</);
+  });
+
   it('lists only the clients that did not fit, plus Other, from the More tile', () => {
     const html = dialog({ service: null, clientChoices: ['gemini-cli', 'windsurf'] });
     expect(html).toContain('Gemini CLI');

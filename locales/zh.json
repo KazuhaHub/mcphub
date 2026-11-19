@@ -130,6 +130,11 @@
     "descriptionPlaceholder": "可选：记录这个服务器的用途说明",
     "manageUrl": "管理页面链接",
     "manageUrlPlaceholder": "https://service.example.com/account/token",
+    "icon": "图标",
+    "iconUpload": "上传图标",
+    "iconReplace": "更换图标",
+    "iconRemove": "移除图标",
+    "iconHint": "显示在工作台、服务器列表和连接对话框中该服务器的旁边。支持 PNG、JPEG、WebP 或 SVG，不超过 256 KB；较大的图片会自动缩小。未设置时显示名称的首字母。",
     "manageUrlHint": "可选：该服务自己的账号或令牌页面链接。用户会在工作台和凭据页面看到这个链接。必须使用 https（仅 localhost 可用 http）。",
     "manageUrlInvalid": {
       "tooLong": "管理页面链接过长（最多 2048 个字符）",

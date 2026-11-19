@@ -240,6 +240,44 @@ describe('mcpService initializeClientsFromSettings OAuth authorization reuse', (
     expect(mockClientConnect).not.toHaveBeenCalled();
   });
 
+  it('applies an icon-only change from another replica without reconnecting', async () => {
+    const base = { name: 'test-server', enabled: true, command: 'node', args: ['server.js'] };
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('pixels'),
+    ]);
+    const icon = `data:image/png;base64,${png.toString('base64')}`;
+    setServerInfosForTest([
+      {
+        name: 'test-server',
+        enabled: true,
+        status: 'connected',
+        error: null,
+        tools: [],
+        prompts: [],
+        resources: [],
+        createTime: 1,
+        config: {
+          ...base,
+          owner: undefined,
+          visibility: undefined,
+          sharedWithUsers: undefined,
+          sharedWithUserGroups: undefined,
+        },
+      } as any,
+    ]);
+
+    await reconcileReplicaServers([{ ...base, icon }]);
+
+    expect(mockClientConnect).not.toHaveBeenCalled();
+    expect(getServerByName('test-server')?.status).toBe('connected');
+    expect(getServerByName('test-server')?.config?.icon).toBe(icon);
+
+    await reconcileReplicaServers([base]);
+    expect(mockClientConnect).not.toHaveBeenCalled();
+    expect(getServerByName('test-server')?.config?.icon).toBeUndefined();
+  });
+
   it('treats null database columns like absent fields when reconciling (#1506)', async () => {
     const base = { name: 'test-server', enabled: true, command: 'node', args: ['server.js'] };
     setServerInfosForTest([

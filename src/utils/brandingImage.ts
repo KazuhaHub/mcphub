@@ -122,6 +122,20 @@ export interface BrandingAsset {
   sha256: string;
 }
 
+/**
+ * Decodes a stored image data URL, or returns null when it is empty or invalid. Not cached:
+ * callers that serve the same value repeatedly keep their own cache.
+ */
+export const decodeImageDataUrl = (source: unknown): BrandingAsset | null => {
+  if (typeof source !== 'string' || source === '' || validateBrandingImage(source) !== null) {
+    return null;
+  }
+  const match = DATA_URL.exec(source);
+  if (!match) return null;
+  const bytes = Buffer.from(match[2], 'base64');
+  return { mime: match[1], bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
+};
+
 // One decoded entry per slot, reused while the stored value is unchanged, so serving the
 // image and building the public config do not decode and hash it on every request.
 const assetCache = new Map<BrandingSlot, { source: string; asset: BrandingAsset | null }>();
@@ -135,14 +149,7 @@ export const getBrandingAsset = (
   if (typeof source !== 'string' || source === '') return null;
   const cached = assetCache.get(slot);
   if (cached && cached.source === source) return cached.asset;
-  let asset: BrandingAsset | null = null;
-  if (validateBrandingImage(source) === null) {
-    const match = DATA_URL.exec(source);
-    if (match) {
-      const bytes = Buffer.from(match[2], 'base64');
-      asset = { mime: match[1], bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
-    }
-  }
+  const asset = decodeImageDataUrl(source);
   assetCache.set(slot, { source, asset });
   return asset;
 };

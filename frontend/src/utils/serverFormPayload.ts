@@ -318,6 +318,8 @@ export const buildServerPayload = ({
     description,
     manageUrl,
     tags: normalizeTags(formData.tags),
+    // Only when the admin picked or removed an image; otherwise the stored icon stays.
+    ...(formData.iconEdit !== undefined ? { icon: formData.iconEdit } : {}),
     options,
     visibility: formData.visibility ?? 'private',
     sharedWithUserGroups:

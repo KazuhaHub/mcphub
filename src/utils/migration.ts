@@ -2,6 +2,7 @@ import {
   normalizeServerConfigForPersistence,
   readStoredServerTags,
 } from './serverConfigPersistence.js';
+import { readStoredServerIcon } from './serverIcon.js';
 import { isReplicaMode } from './replicaMode.js';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -162,6 +163,7 @@ export async function migrateToDatabase(seedServersAndGroups = true): Promise<bo
           // not persist an adapter-less shared declaration or a staged tool.
           const normalized = normalizeServerConfigForPersistence({
             ...config,
+            icon: readStoredServerIcon(config.icon),
             tags: readStoredServerTags(name, config.tags),
             type: config.type ?? (config.url ? 'sse' : 'stdio'),
           });
@@ -171,6 +173,7 @@ export async function migrateToDatabase(seedServersAndGroups = true): Promise<bo
             type: config.type,
             description: config.description,
             manageUrl: config.manageUrl,
+            icon: normalized.icon,
             tags: normalized.tags,
             url: config.url,
             command: config.command,

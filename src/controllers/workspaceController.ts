@@ -44,6 +44,7 @@ import {
   listUserActivity,
   type ActivityHistoryFilters,
 } from '../services/workspaceActivityService.js';
+import { serverIconUrl } from '../utils/serverIcon.js';
 import { getCachedSystemConfig } from '../utils/systemConfigCache.js';
 
 type ServerRecord = ServerConfig & { name: string };
@@ -191,6 +192,7 @@ export const listWorkspaceServers = async (req: Request, res: Response): Promise
           return {
             name: server.name,
             description: server.description,
+            icon: serverIconUrl(server.name, server.icon, config.basePath),
             manageUrl: server.manageUrl,
             selected,
             enabled: server.enabled !== false,

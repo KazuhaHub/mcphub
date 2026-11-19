@@ -26,6 +26,7 @@ import { CLIENT_SNIPPET_PRESETS, type ClientSnippetId } from '@/utils/mcpClientS
 import CredentialDialog from '@/components/credentials/CredentialDialog';
 import { ClientIcon } from './ClientIcon';
 import ConnectTile from './ConnectTile';
+import ServerIcon from '@/components/ServerIcon';
 
 export type ConnectClientChoice = ConnectClientId | 'other';
 
@@ -255,20 +256,23 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({ aggregateUrl, initial, on
                         type="button"
                         disabled={!ready}
                         onClick={() => setService(server.name)}
-                        className="flex w-full min-w-0 flex-col items-start rounded-md px-3 py-2.5 text-left transition-colors enabled:hover:bg-[var(--hub-surface-hover)] disabled:opacity-60"
+                        className="flex w-full min-w-0 items-center gap-2.5 rounded-md px-3 py-2.5 text-left transition-colors enabled:hover:bg-[var(--hub-surface-hover)] disabled:opacity-60"
                         style={{ border: '1px solid var(--hub-line)' }}
                       >
-                        <span className="w-full truncate text-[13px] font-medium">
-                          {server.name}
-                        </span>
-                        {reason && (
-                          <span
-                            className="w-full truncate text-[12px]"
-                            style={{ color: 'var(--hub-ink-3)' }}
-                          >
-                            {reason}
+                        <ServerIcon name={server.name} icon={server.icon} size={28} />
+                        <span className="flex min-w-0 flex-1 flex-col items-start">
+                          <span className="w-full truncate text-[13px] font-medium">
+                            {server.name}
                           </span>
-                        )}
+                          {reason && (
+                            <span
+                              className="w-full truncate text-[12px]"
+                              style={{ color: 'var(--hub-ink-3)' }}
+                            >
+                              {reason}
+                            </span>
+                          )}
+                        </span>
                       </button>
                     </li>
                   );

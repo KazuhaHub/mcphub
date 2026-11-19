@@ -130,6 +130,11 @@
     "descriptionPlaceholder": "Optional note to describe this server",
     "manageUrl": "Management page URL",
     "manageUrlPlaceholder": "https://service.example.com/account/token",
+    "icon": "Icon",
+    "iconUpload": "Upload icon",
+    "iconReplace": "Replace icon",
+    "iconRemove": "Remove icon",
+    "iconHint": "Shown next to the server in the workspace, the server list and the connect dialog. PNG, JPEG, WebP or SVG, up to 256 KB; large images are scaled down. Without one, the first letter of the name is used.",
     "manageUrlHint": "Optional link to the service's own account or token page. Users see it as a link in their workspace and credentials pages. Must be https (http only for localhost).",
     "manageUrlInvalid": {
       "tooLong": "The management page URL is too long (at most 2048 characters)",

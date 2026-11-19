@@ -215,6 +215,7 @@ import {
 } from '../types/index.js';
 import { expandEnvVars, replaceEnvVars, getNameSeparator } from '../config/index.js';
 import config from '../config/index.js';
+import { serverIconUrl } from '../utils/serverIcon.js';
 import { validateMaxBufferSize } from '../utils/stdioOptions.js';
 import { validateServerName } from '../utils/serverNameValidation.js';
 import { getGroup, getSessionUsername } from './sseService.js';
@@ -3185,7 +3186,8 @@ export const reconcileReplicaServers = async (
   }
   const comparable = (config: ServerConfig | undefined) => {
     if (!config) return config;
-    const { tags: _tags, ...rest } = config;
+    // Display-only metadata: changing it must not reconnect the server.
+    const { tags: _tags, icon: _icon, ...rest } = config;
     return stripNullishDeep(rest);
   };
   const changed = serverInfos.filter(
@@ -3352,6 +3354,7 @@ export const getServersInfo = async (
         const serverConfig = allServers.find((server) => server.name === name);
         const enabled = serverConfig ? serverConfig.enabled !== false : true;
         const resolvedType = inferServerType(serverConfig);
+        const iconUrl = serverIconUrl(name, serverConfig?.icon, config.basePath);
         const oauthConnected = Boolean(
           serverConfig?.oauth?.accessToken || serverConfig?.oauth?.refreshToken,
         );
@@ -3451,6 +3454,7 @@ export const getServersInfo = async (
             resolvedType ||
             serverConfig?.description ||
             serverConfig?.tags?.length ||
+            iconUrl ||
             serverConfig?.command
               ? {
                   ...(serverConfig?.id ? { id: serverConfig.id } : {}),
@@ -3463,6 +3467,8 @@ export const getServersInfo = async (
                     : {}),
                   ...(serverConfig?.description ? { description: serverConfig.description } : {}),
                   ...(serverConfig?.tags?.length ? { tags: [...serverConfig.tags] } : {}),
+                  // The versioned icon URL, never the stored image data.
+                  ...(iconUrl ? { icon: iconUrl } : {}),
                   // Expose command so the frontend can determine if reinstall is
                   // supported (npx/uvx only). This is not a secret — it's the
                   // runner binary name (e.g. "npx", "uvx").

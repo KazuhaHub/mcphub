@@ -1,26 +1,9 @@
 import { Request, Response } from 'express';
 import { getSystemConfigDao } from '../dao/DaoFactory.js';
 import { getCachedSystemConfig } from '../utils/systemConfigCache.js';
-import {
-  BRANDING_SLOTS,
-  BrandingAsset,
-  BrandingSlot,
-  getBrandingAsset,
-} from '../utils/brandingImage.js';
+import { BRANDING_SLOTS, BrandingSlot, getBrandingAsset } from '../utils/brandingImage.js';
+import { notFound, sendImageAsset, versionMatches } from '../utils/imageResponse.js';
 import { logger } from '../utils/logger.js';
-
-const notFound = (res: Response, message: string): void => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.status(404).json({ success: false, message });
-};
-
-const matchesEtag = (header: string | undefined, etag: string): boolean =>
-  !!header &&
-  (header.trim() === '*' ||
-    header.split(',').some((candidate) => candidate.trim().replace(/^W\//, '') === etag));
-
-const versionMatches = (asset: BrandingAsset | null, version: string): boolean =>
-  asset !== null && /^[0-9a-f]{12}$/.test(version) && asset.sha256.startsWith(version);
 
 /**
  * Serves one uploaded branding image without authentication. The public config links here
@@ -49,31 +32,7 @@ export const getBrandingImage = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const etag = `"${asset.sha256}"`;
-    res.setHeader('ETag', etag);
-    if (requested === undefined) {
-      res.setHeader('Cache-Control', 'no-cache');
-    } else if (versionMatches(asset, requested)) {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    } else {
-      // A stale or unknown version: still show the current image, but never store it.
-      res.setHeader('Cache-Control', 'no-store');
-    }
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    if (asset.mime === 'image/svg+xml') {
-      // Opening the SVG directly must not run scripts.
-      res.setHeader(
-        'Content-Security-Policy',
-        "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-      );
-    }
-    if (matchesEtag(req.headers['if-none-match'], etag)) {
-      res.status(304).end();
-      return;
-    }
-    res.setHeader('Content-Type', asset.mime);
-    res.setHeader('Content-Length', String(asset.bytes.length));
-    res.status(200).end(asset.bytes);
+    sendImageAsset(req, res, asset, requested, true);
   } catch (error) {
     logger.error('Error serving branding image:', error);
     res.status(500).json({ success: false, message: 'Failed to load branding image' });

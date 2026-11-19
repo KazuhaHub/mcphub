@@ -23,6 +23,7 @@ const SAFE_SERVER_CONFIG_FIELDS = [
   'description',
   'manageUrl',
   'tags',
+  'icon',
   'type',
   'visibility',
   'owner',

@@ -224,6 +224,28 @@ beforeEach(() => {
   mockBindings.mockReset().mockImplementation(() => Promise.resolve(clone(bindings)));
 });
 
+describe('the page header', () => {
+  const icon = 'data:image/png;base64,iVBORw0KGgo=';
+
+  it('shows the service icon beside the title', async () => {
+    mockServers.mockImplementation(() =>
+      Promise.resolve(clone(servers).map((s) => (s.name === 'anteater-shared' ? { ...s, icon } : s))),
+    );
+    await mount('/workspace/services/anteater-shared');
+    const tile = screen.getByTestId('server-icon');
+    expect(tile.getAttribute('data-icon')).toBe('image');
+    expect(tile.querySelector('img')!.getAttribute('src')).toBe(icon);
+    expect(tile.parentElement!.contains(screen.getByTestId('service-title'))).toBe(true);
+  });
+
+  it('shows a letter tile when the service has no icon', async () => {
+    await mount('/workspace/services/canvas-portal');
+    const tile = screen.getByTestId('server-icon');
+    expect(tile.getAttribute('data-icon')).toBe('letter');
+    expect(tile.textContent).toBe('C');
+  });
+});
+
 describe('the action box', () => {
   it('is absent when the user has nothing to do', async () => {
     await mount('/workspace/services/anteater-shared');

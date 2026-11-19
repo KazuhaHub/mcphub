@@ -28,6 +28,9 @@ export class Server {
   tags?: string[];
 
   @Column({ type: 'text', nullable: true })
+  icon?: string;
+
+  @Column({ type: 'text', nullable: true })
   manageUrl?: string;
 
   @Column({ type: 'text', nullable: true })
