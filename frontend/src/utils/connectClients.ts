@@ -107,7 +107,7 @@ export interface ConnectClient {
 /** Tile order is fixed: the six headline clients, then the rest. Every tile is equal. */
 export const CONNECT_CLIENTS: readonly ConnectClient[] = [
   { id: 'claude', name: 'Claude', icon: 'claude', letter: 'C', supportsKey: true, oauth: 'documented' },
-  { id: 'chatgpt', name: 'ChatGPT', letter: 'GPT', supportsKey: false, oauth: 'documented' },
+  { id: 'chatgpt', name: 'ChatGPT', icon: 'openai', letter: 'GPT', supportsKey: false, oauth: 'documented' },
   {
     id: 'claude-code',
     name: 'Claude Code',

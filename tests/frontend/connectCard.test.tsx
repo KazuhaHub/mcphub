@@ -76,6 +76,14 @@ describe('ConnectTiles', () => {
     expect(ids.length).toBeGreaterThan(8);
   });
 
+  it('draws the OpenAI mark for ChatGPT and keeps letter tiles for Codex and Cherry Studio', () => {
+    const html = tiles(1400);
+    const tile = (id: string) => html.match(new RegExp(`data-testid="connect-tile-${id}"[^]*?</button>`))?.[0] ?? '';
+    expect(tile('chatgpt')).toContain('viewBox="0 0 716 716"');
+    expect(tile('codex')).not.toContain('<svg');
+    expect(tile('cherry-studio')).not.toContain('<svg');
+  });
+
   it('draws one equal-width column per tile', () => {
     expect(tiles(343)).toContain('repeat(4, minmax(0, 1fr))');
   });
