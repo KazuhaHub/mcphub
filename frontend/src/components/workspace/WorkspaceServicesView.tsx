@@ -1,35 +1,29 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Info, RefreshCw } from 'lucide-react';
+import { Info, RefreshCw } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import {
-  fetchCredentialBindings,
-  fetchWorkspaceEndpoints,
-  fetchWorkspaceServers,
+  launchPersonalOAuth,
   saveRiskCeiling,
   saveServerSelection,
-  launchPersonalOAuth,
 } from '@/services/workspaceService';
-import type {
-  MyCredentialBinding,
-  ToolRiskLevel,
-  WorkspaceEndpoints,
-  WorkspaceServer,
-} from '@/types';
+import type { ToolRiskLevel } from '@/types';
 import { changeRiskCeiling, countHiddenTools } from '@/utils/toolRisk';
 import { copyText } from '@/utils/clipboard';
 import {
-  WorkspaceApiError,
   countExposedTools,
-  createLatestOnly,
   pruneAuthLinks,
-  shouldRefreshOnFocus,
   toolCountLevel,
   toggleServerSelection,
 } from '@/utils/workspace';
 import ConnectDialog from '@/components/connect/ConnectDialog';
-import { notifyWorkspaceChanged, onWorkspaceChanged } from '@/utils/workspaceEvents';
+import {
+  mutateWorkspace,
+  refreshWorkspace,
+  updateWorkspaceServers,
+  useWorkspaceData,
+} from '@/hooks/useWorkspaceData';
 import ServicePanel from './ServicePanel';
 import WorkspaceServiceRow, { type RowAction } from './WorkspaceServiceRow';
 
@@ -37,13 +31,9 @@ const WorkspaceServicesView: React.FC = () => {
   const { t } = useTranslation();
   const [search, setSearch] = useSearchParams();
   const { showToast } = useToast();
+  // The page's single source of truth: servers, endpoints and the user's credential bindings.
+  const { servers, endpoints, bindings, loaded, error } = useWorkspaceData();
 
-  const [servers, setServers] = useState<WorkspaceServer[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [endpoints, setEndpoints] = useState<WorkspaceEndpoints | null>(null);
-  // Bindings of the services that take personal credentials; null while unknown or failed.
-  const [bindings, setBindings] = useState<MyCredentialBinding[] | null>(null);
-  const [bindingsError, setBindingsError] = useState('');
   // Service whose panel is open. `/workspace?service=` opens it; the older
   // `?credentials=` (an old `/credentials?server=` link lands there) also moves to its
   // credentials section.
@@ -53,72 +43,14 @@ const WorkspaceServicesView: React.FC = () => {
     const service = search.get('service');
     return service ? { name: service, credentials: false } : null;
   });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<{ detail: string; disabled: boolean } | null>(null);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [connectService, setConnectService] = useState<string | null>(null);
   const [authLinks, setAuthLinks] = useState<Record<string, string>>({});
-  // Selection saves in flight, readable from event handlers without a re-render.
-  const pendingRef = useRef(0);
-  // Only the newest refresh may write state; a slow stale one must not undo a newer view.
-  const latest = useRef(createLatestOnly());
-  // Marks this list's own announcements, so it does not reload twice for its own change.
-  const origin = useRef(Symbol('workspace-list'));
 
-  const refreshAll = useCallback(
-    () =>
-      latest.current
-        .run(
-          () => Promise.all([fetchWorkspaceServers(), fetchWorkspaceEndpoints()]),
-          ([serverList, nextEndpoints]) => {
-            setServers(serverList);
-            // A blocked-popup link is moot once the server no longer asks for sign-in.
-            setAuthLinks((links) => pruneAuthLinks(links, serverList));
-            setLoaded(true);
-            setEndpoints(nextEndpoints);
-            setError(null);
-          },
-        )
-        .then(() => undefined),
-    [],
-  );
-
-  const load = useCallback(async () => {
-    try {
-      await refreshAll();
-    } catch (err) {
-      setError({
-        detail: err instanceof Error ? err.message : '',
-        disabled: err instanceof WorkspaceApiError && err.disabled,
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [refreshAll]);
-
-  // Read through a ref so a new translate function never restarts the loads.
-  const tRef = useRef(t);
-  tRef.current = t;
-
-  // Servers with credential slots decide what "Connect" opens; failure falls back safely.
-  const loadBindings = useCallback(
-    () =>
-      fetchCredentialBindings().then(
-        (list) => {
-          setBindings(list);
-          setBindingsError('');
-        },
-        (err: unknown) => {
-          setBindingsError(err instanceof Error ? err.message : tRef.current('credentials.failed'));
-        },
-      ),
-    [],
-  );
-
+  // A blocked-popup link is moot once the server no longer asks for sign-in.
   useEffect(() => {
-    void load();
-    void loadBindings();
-  }, [load, loadBindings]);
+    setAuthLinks((links) => pruneAuthLinks(links, servers));
+  }, [servers]);
 
   // The link parameters have done their job once the panel is open.
   useEffect(() => {
@@ -135,41 +67,17 @@ const WorkspaceServicesView: React.FC = () => {
 
   // A link to a service the user cannot see opens nothing.
   useEffect(() => {
-    if (!loading && panel && !servers.some((server) => server.name === panel.name)) setPanel(null);
-  }, [loading, panel, servers]);
+    if (loaded && panel && !servers.some((server) => server.name === panel.name)) setPanel(null);
+  }, [loaded, panel, servers]);
 
   const closePanel = useCallback(() => setPanel(null), []);
-  // Every credential change, wherever it was made (this panel, the Connect dialog opened here
-  // or from the top card), refreshes the list and the bindings it shows.
-  const refreshAfterChange = useCallback(async () => {
-    await Promise.all([loadBindings(), refreshAll().catch(() => undefined)]);
-  }, [loadBindings, refreshAll]);
-  useEffect(
-    () =>
-      onWorkspaceChanged((from) => {
-        if (from !== origin.current) void refreshAfterChange();
-      }),
-    [refreshAfterChange],
-  );
 
-  // Coming back from an OAuth tab or the provider's site: pick up the new status.
-  useEffect(() => {
-    const onFocus = () => {
-      if (shouldRefreshOnFocus(pendingRef.current)) void refreshAfterChange();
-    };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [refreshAfterChange]);
-
+  // One change at a time per service; the store refreshes everything after it.
   const withPending = async (name: string, run: () => Promise<void>) => {
     setPending((current) => new Set(current).add(name));
-    pendingRef.current++;
-    // A refresh started earlier would carry the pre-change state back over the change.
-    latest.current.invalidate();
     try {
-      await run();
+      await mutateWorkspace(run);
     } finally {
-      pendingRef.current--;
       setPending((current) => {
         const next = new Set(current);
         next.delete(name);
@@ -182,14 +90,9 @@ const WorkspaceServicesView: React.FC = () => {
     withPending(name, async () => {
       const saved = await toggleServerSelection(name, selected, {
         save: saveServerSelection,
-        update: (updater) => setServers(updater),
+        update: updateWorkspaceServers,
       });
-      if (!saved) {
-        showToast(t('workspacePage.toggleFailed', { name }), 'error');
-        return;
-      }
-      await refreshAll().catch(() => undefined);
-      notifyWorkspaceChanged(origin.current);
+      if (!saved) showToast(t('workspacePage.toggleFailed', { name }), 'error');
     });
 
   const onRiskChange = (name: string, riskCeiling: ToolRiskLevel) =>
@@ -198,14 +101,9 @@ const WorkspaceServicesView: React.FC = () => {
       if (!server) return;
       const saved = await changeRiskCeiling(server, riskCeiling, {
         save: saveRiskCeiling,
-        update: (updater) => setServers(updater),
+        update: updateWorkspaceServers,
       });
-      if (!saved) {
-        showToast(t('workspacePage.risk.changeFailed', { name }), 'error');
-        return;
-      }
-      await refreshAll().catch(() => undefined);
-      notifyWorkspaceChanged(origin.current);
+      if (!saved) showToast(t('workspacePage.risk.changeFailed', { name }), 'error');
     });
 
   const connectOAuth = (name: string) =>
@@ -220,8 +118,6 @@ const WorkspaceServicesView: React.FC = () => {
         } else if (result.kind === 'invalid') {
           showToast(t('workspacePage.connectFailed'), 'error');
         }
-        await refreshAll().catch(() => undefined);
-        notifyWorkspaceChanged(origin.current);
       } catch (err) {
         showToast(
           t('workspacePage.connectFailed') +
@@ -241,7 +137,7 @@ const WorkspaceServicesView: React.FC = () => {
     else showToast(t('common.copyFailed'), 'error');
   };
 
-  if (loading) {
+  if (!loaded && !error) {
     return (
       <div className="space-y-4" role="status" aria-busy="true">
         <span className="sr-only">{t('workspacePage.loading')}</span>
@@ -278,7 +174,7 @@ const WorkspaceServicesView: React.FC = () => {
         <button
           type="button"
           className="hub-btn"
-          onClick={() => (error.disabled ? window.location.reload() : void load())}
+          onClick={() => (error.disabled ? window.location.reload() : void refreshWorkspace())}
         >
           <RefreshCw size={13} />{' '}
           {t(error.disabled ? 'workspacePage.reload' : 'workspacePage.retry')}
@@ -329,11 +225,7 @@ const WorkspaceServicesView: React.FC = () => {
               </p>
             )}
           </div>
-          <button
-            type="button"
-            className="hub-btn"
-            onClick={() => void refreshAll().catch(() => undefined)}
-          >
+          <button type="button" className="hub-btn" onClick={() => void refreshWorkspace()}>
             <RefreshCw size={13} /> {t('common.refresh')}
           </button>
         </div>
@@ -366,12 +258,6 @@ const WorkspaceServicesView: React.FC = () => {
         <ServicePanel
           key={panelServer.name}
           server={panelServer}
-          endpoint={endpointByName.get(panelServer.name)}
-          credentialServers={credentialServers}
-          credentialBinding={bindings?.find((entry) => entry.serverName === panelServer.name)}
-          bindings={bindings}
-          bindingsError={bindingsError}
-          reloadCredentials={refreshAfterChange}
           busy={pending.has(panelServer.name)}
           authorizationUrl={authLinks[panelServer.name]}
           focusCredentials={panel?.credentials}
@@ -386,8 +272,6 @@ const WorkspaceServicesView: React.FC = () => {
       {connectService && endpoints && (
         <ConnectDialog
           aggregateUrl={endpoints.aggregate}
-          servers={servers}
-          endpoints={endpoints}
           initial={{ service: connectService }}
           onClose={() => setConnectService(null)}
         />

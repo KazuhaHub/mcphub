@@ -19,9 +19,9 @@ import {
 } from '@/utils/connectClients';
 import { copyText } from '@/utils/clipboard';
 import { useModalLayer } from '@/hooks/useModalLayer';
-import { fetchCredentialBindings, launchPersonalOAuth } from '@/services/workspaceService';
-import { resolveServiceAction } from '@/utils/workspace';
-import { notifyWorkspaceChanged } from '@/utils/workspaceEvents';
+import { launchPersonalOAuth } from '@/services/workspaceService';
+import { resolveServiceChip } from '@/utils/workspace';
+import { refreshWorkspace, useWorkspaceData } from '@/hooks/useWorkspaceData';
 import { CLIENT_SNIPPET_PRESETS, type ClientSnippetId } from '@/utils/mcpClientSnippets';
 import CredentialDialog from '@/components/credentials/CredentialDialog';
 import { ClientIcon } from './ClientIcon';
@@ -41,23 +41,14 @@ export interface ConnectDialogInitial {
 
 interface ConnectDialogProps {
   aggregateUrl: string;
-  servers: readonly WorkspaceServer[];
-  endpoints: WorkspaceEndpoints | null;
   initial: ConnectDialogInitial;
   onClose: () => void;
-  // Called after credentials were saved from the panel opened here, so the caller can refresh.
-  onCredentialsChanged?: () => void;
 }
 
-const ConnectDialog: React.FC<ConnectDialogProps> = ({
-  aggregateUrl,
-  servers,
-  endpoints,
-  initial,
-  onClose,
-  onCredentialsChanged,
-}) => {
+const ConnectDialog: React.FC<ConnectDialogProps> = ({ aggregateUrl, initial, onClose }) => {
   const { t } = useTranslation();
+  // The same data as the services list; a change made here refreshes it for everyone.
+  const { servers, endpoints, bindings } = useWorkspaceData();
   // Service whose credential panel is open on top of this dialog.
   const [credentialService, setCredentialService] = useState<string | null>(null);
   const { showToast } = useToast();
@@ -67,7 +58,6 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
     initial.pickService ? undefined : (initial.service ?? null),
   );
   const [client, setClient] = useState<ConnectClientChoice | undefined>(initial.client);
-  const [slotServers, setSlotServers] = useState<ReadonlySet<string> | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [authLink, setAuthLink] = useState<string | null>(null);
   const [wantKey, setWantKey] = useState(false);
@@ -145,26 +135,24 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
         ? t('connect.pickClient')
         : t('connect.dialogTitle', { client: activeClient?.name ?? t('connect.other') });
 
-  const needsCredentials = selectedServer?.status.code === 'needs_auth';
-  // A user who cannot hold credentials for this service has nothing to do but ask.
-  const contactAdmin = needsCredentials && selectedServer?.status.action === 'contact_admin';
-  // The same decision as the services list: services with credential slots take credentials,
-  // the others sign in. Until the slots are known the credential panel is the safe choice.
-  const needsAction = needsCredentials && selectedServer ? selectedServer.name : null;
-  useEffect(() => {
-    if (!needsAction || contactAdmin) return;
-    let active = true;
-    fetchCredentialBindings()
-      .then((list) => active && setSlotServers(new Set(list.map((entry) => entry.serverName))))
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [needsAction, contactAdmin]);
-  const needsSignIn =
-    needsCredentials && !contactAdmin && selectedServer
-      ? resolveServiceAction(selectedServer, slotServers).kind === 'oauth'
-      : false;
+  // The same state and action as the services list shows for this service.
+  const credentialServers = bindings ? new Set(bindings.map((entry) => entry.serverName)) : null;
+  const chipState = selectedServer
+    ? resolveServiceChip(
+        selectedServer,
+        credentialServers,
+        bindings?.find((entry) => entry.serverName === selectedServer.name),
+      )
+    : null;
+  const showChipWarning =
+    chipState !== null &&
+    [
+      'needs_signin',
+      'needs_credentials',
+      'credentials_outdated',
+      'credentials_rejected',
+      'contact_admin',
+    ].includes(chipState.chip);
   const signIn = async (name: string) => {
     setSigningIn(true);
     try {
@@ -175,8 +163,7 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
       } else if (result.kind === 'invalid') {
         showToast(t('workspacePage.connectFailed'), 'error');
       }
-      onCredentialsChanged?.();
-      notifyWorkspaceChanged();
+      await refreshWorkspace();
     } catch (err) {
       showToast(
         t('workspacePage.connectFailed') +
@@ -310,22 +297,17 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
 
           {stage === 'detail' && target && (
             <>
-              {needsCredentials && service && (
+              {showChipWarning && chipState && service && (
                 <div className="hub-callout warn items-center justify-between" role="alert">
                   <span className="flex items-start gap-2">
                     <AlertTriangle size={16} aria-hidden className="mt-0.5 shrink-0" />
                     <span>
                       {t(
-                        contactAdmin
-                          ? 'connect.contactAdmin'
-                          : needsSignIn
-                            ? 'connect.needsSignIn'
-                            : 'connect.needsCredentials',
-                        { name: service },
+                        `workspacePage.panel.statusText.${chipState.reauth ? 'signin_again' : chipState.chip}`,
                       )}
                     </span>
                   </span>
-                  {contactAdmin ? null : needsSignIn ? (
+                  {chipState.action === 'signin' ? (
                     authLink ? (
                       <a
                         className="hub-btn"
@@ -342,18 +324,26 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
                         disabled={signingIn}
                         onClick={() => void signIn(service)}
                       >
-                        {t('workspacePage.chip.action.signin')}
+                        {t(
+                          chipState.reauth
+                            ? 'workspacePage.chip.action.signinAgain'
+                            : 'workspacePage.chip.action.signin',
+                        )}
                       </button>
                     )
-                  ) : (
+                  ) : chipState.action === 'credentials' ? (
                     <button
                       type="button"
                       className="hub-btn"
                       onClick={() => setCredentialService(service)}
                     >
-                      {t('connect.bindCredentials')}
+                      {t(
+                        chipState.chip === 'needs_credentials'
+                          ? 'workspacePage.chip.action.credentials'
+                          : 'workspacePage.chip.action.update',
+                      )}
                     </button>
-                  )}
+                  ) : null}
                 </div>
               )}
 
@@ -472,7 +462,6 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
       {credentialService && (
         <CredentialDialog
           serverName={credentialService}
-          onChanged={onCredentialsChanged}
           onClose={() => setCredentialService(null)}
         />
       )}

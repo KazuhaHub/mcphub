@@ -1043,6 +1043,8 @@ export interface WorkspaceServer {
   // The administrator's cap for this user; options above it cannot be chosen.
   maxAllowedRisk: ToolRiskLevel;
   requiresPersonalCredential: boolean;
+  // The service takes credentials the user enters (slots), as opposed to a personal sign-in.
+  hasCredentialSlots?: boolean;
   credentialConfigured: boolean;
   status: WorkspaceServerStatus;
 }

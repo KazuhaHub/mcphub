@@ -5,9 +5,12 @@ import { ConnectTiles } from '../../frontend/src/components/connect/ConnectCard'
 import ConnectDialog from '../../frontend/src/components/connect/ConnectDialog';
 import { CONNECT_CLIENTS, computeConnectTileLayout } from '../../frontend/src/utils/connectClients';
 import type { WorkspaceEndpoints, WorkspaceServer } from '../../frontend/src/types';
+import { resetWorkspaceStore, seedWorkspaceStore } from '../../frontend/src/hooks/useWorkspaceData';
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string, vars?: Record<string, string>) => (vars?.name ? `${key}:${vars.name}` : key) }),
+  useTranslation: () => ({
+    t: (key: string, vars?: Record<string, string>) => (vars?.name ? `${key}:${vars.name}` : key),
+  }),
 }));
 jest.mock('@/contexts/SettingsContext', () => ({
   useSettings: () => ({ smartRoutingConfig: { enabled: false } }),
@@ -15,6 +18,8 @@ jest.mock('@/contexts/SettingsContext', () => ({
 jest.mock('@/services/workspaceService', () => ({
   fetchWorkspaceServers: jest.fn(),
   fetchWorkspaceEndpoints: jest.fn(),
+  fetchCredentialBindings: jest.fn(),
+  launchPersonalOAuth: jest.fn(),
 }));
 jest.mock('@/contexts/ToastContext', () => ({ useToast: () => ({ showToast: jest.fn() }) }));
 
@@ -30,7 +35,10 @@ const tiles = (width: number) =>
 const tileIds = (html: string) =>
   [...html.matchAll(/data-testid="connect-tile-([a-z-]+)"/g)].map((match) => match[1]);
 
-const server = (name: string, code: WorkspaceServer['status']['code'] = 'available'): WorkspaceServer =>
+const server = (
+  name: string,
+  code: WorkspaceServer['status']['code'] = 'available',
+): WorkspaceServer =>
   ({
     name,
     selected: true,
@@ -48,20 +56,26 @@ const endpoints: WorkspaceEndpoints = {
   ],
 };
 
-const dialog = (initial: Parameters<typeof ConnectDialog>[0]['initial'], servers = [server('notion'), server('gh')]) =>
-  renderToStaticMarkup(
+// The dialog reads the shared workspace data, so the data is put there first.
+const dialog = (
+  initial: Parameters<typeof ConnectDialog>[0]['initial'],
+  servers = [server('notion'), server('gh')],
+) => {
+  seedWorkspaceStore({ servers, endpoints, bindings: [] });
+  return renderToStaticMarkup(
     createElement(
       MemoryRouter,
       null,
       createElement(ConnectDialog, {
         aggregateUrl: endpoints.aggregate,
-        servers,
-        endpoints,
         initial,
         onClose: noop,
       }),
     ),
   );
+};
+
+afterEach(() => resetWorkspaceStore());
 
 describe('ConnectTiles', () => {
   it('shows three clients and More at phone width, with the headline clients first', () => {
@@ -71,14 +85,22 @@ describe('ConnectTiles', () => {
 
   it('shows more clients on a wide container and always ends with More', () => {
     const ids = tileIds(tiles(1100));
-    expect(ids.slice(0, 6)).toEqual(['claude', 'chatgpt', 'claude-code', 'cursor', 'vscode', 'codex']);
+    expect(ids.slice(0, 6)).toEqual([
+      'claude',
+      'chatgpt',
+      'claude-code',
+      'cursor',
+      'vscode',
+      'codex',
+    ]);
     expect(ids[ids.length - 1]).toBe('more');
     expect(ids.length).toBeGreaterThan(8);
   });
 
   it('draws the OpenAI mark for ChatGPT and keeps letter tiles for Codex and Cherry Studio', () => {
     const html = tiles(1400);
-    const tile = (id: string) => html.match(new RegExp(`data-testid="connect-tile-${id}"[^]*?</button>`))?.[0] ?? '';
+    const tile = (id: string) =>
+      html.match(new RegExp(`data-testid="connect-tile-${id}"[^]*?</button>`))?.[0] ?? '';
     expect(tile('chatgpt')).toContain('viewBox="175 175 366 366"');
     expect(tile('codex')).not.toContain('<svg');
     expect(tile('cherry-studio')).not.toContain('<svg');
@@ -100,7 +122,9 @@ describe('ConnectDialog', () => {
 
   it('uses the per-service endpoint and name for a preselected service', () => {
     const html = dialog({ service: 'notion', client: 'claude-code' });
-    expect(html).toContain('claude mcp add --transport http notion https://hub.example.com/alice/mcp/notion');
+    expect(html).toContain(
+      'claude mcp add --transport http notion https://hub.example.com/alice/mcp/notion',
+    );
   });
 
   it('asks for a service first, listing only services with an endpoint as selectable', () => {
@@ -120,12 +144,10 @@ describe('ConnectDialog', () => {
   });
 
   it('warns when the service needs personal credentials', () => {
-    const html = dialog(
-      { service: 'notion', client: 'claude' },
-      [server('notion', 'needs_auth')],
-    );
-    expect(html).toContain('connect.needsCredentials:notion');
-    expect(html).toContain('connect.bindCredentials');
+    const html = dialog({ service: 'notion', client: 'claude' }, [server('notion', 'needs_auth')]);
+    // The seeded bindings list has no slots for it, so it signs in, as the services list does.
+    expect(html).toContain('workspacePage.panel.statusText.needs_signin');
+    expect(html).toContain('workspacePage.chip.action.signin');
   });
 
   it('offers the generic formats for Other', () => {

@@ -224,6 +224,7 @@ describe('workspace API', () => {
           maxAllowedRisk: 'external',
           annotationsTrusted: true,
           requiresPersonalCredential: false,
+          hasCredentialSlots: false,
           credentialConfigured: true,
           status: { code: 'available', action: null, message: expect.any(String) },
         },
@@ -238,6 +239,7 @@ describe('workspace API', () => {
           maxAllowedRisk: 'external',
           annotationsTrusted: false,
           requiresPersonalCredential: false,
+          hasCredentialSlots: false,
           credentialConfigured: true,
           status: { code: 'not_selected', action: 'select', message: expect.any(String) },
         },
@@ -252,6 +254,7 @@ describe('workspace API', () => {
           maxAllowedRisk: 'external',
           annotationsTrusted: true,
           requiresPersonalCredential: true,
+          hasCredentialSlots: true,
           credentialConfigured: false,
           status: { code: 'not_selected', action: 'select', message: expect.any(String) },
         },
@@ -468,6 +471,30 @@ describe('workspace API', () => {
       expect((await statusOf())['public-tool']).toMatchObject({
         code: 'error',
         action: 'retry_later',
+      });
+    });
+
+    it('reports credential slots only for a credential template, not for a personal sign-in', async () => {
+      servers.push({
+        name: 'oauth-only',
+        owner: 'admin',
+        visibility: 'public',
+        oauth: { identityMode: 'personal' },
+      } as ServerRecord);
+      const response = await request(app)
+        .get('/api/workspace/servers')
+        .set('x-test-user', asUser('alice'))
+        .expect(200);
+      const byName = Object.fromEntries(
+        response.body.data.map((server: { name: string }) => [server.name, server]),
+      );
+      expect(byName['oauth-only']).toMatchObject({
+        requiresPersonalCredential: true,
+        hasCredentialSlots: false,
+      });
+      expect(byName['needs-key']).toMatchObject({
+        requiresPersonalCredential: true,
+        hasCredentialSlots: true,
       });
     });
 

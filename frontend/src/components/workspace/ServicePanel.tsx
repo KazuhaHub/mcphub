@@ -4,12 +4,8 @@ import { Copy, ExternalLink, Plug, X } from 'lucide-react';
 import { StatusDot } from '@/components/ui/StatusDot';
 import { CredentialPanelBody } from '@/components/credentials/CredentialDialog';
 import { useModalLayer } from '@/hooks/useModalLayer';
-import type {
-  MyCredentialBinding,
-  ToolRiskLevel,
-  WorkspaceServer,
-  WorkspaceServerEndpoint,
-} from '@/types';
+import { refreshWorkspace, useWorkspaceSnapshot } from '@/hooks/useWorkspaceData';
+import type { ToolRiskLevel, WorkspaceServer } from '@/types';
 import { getSafeManageHref } from '@/utils/manageUrl';
 import { getServiceLinkHref } from '@/utils/serviceLink';
 import { TOOL_RISK_LEVELS, countHiddenByCeiling, isRiskChoiceAllowed } from '@/utils/toolRisk';
@@ -22,13 +18,8 @@ import {
 import { rowButtonId, type RowAction } from './WorkspaceServiceRow';
 
 interface ServicePanelProps {
+  // The row this panel is about; endpoints, bindings and credentials come from the shared store.
   server: WorkspaceServer;
-  endpoint?: WorkspaceServerEndpoint;
-  credentialServers: ReadonlySet<string> | null;
-  credentialBinding?: MyCredentialBinding;
-  bindings: readonly MyCredentialBinding[] | null;
-  bindingsError: string;
-  reloadCredentials: () => Promise<void>;
   busy: boolean;
   // Set when the authorization popup was blocked.
   authorizationUrl?: string;
@@ -74,12 +65,6 @@ const muted = { color: 'var(--hub-ink-3)' } as const;
  */
 const ServicePanel: React.FC<ServicePanelProps> = ({
   server,
-  endpoint,
-  credentialServers,
-  credentialBinding,
-  bindings,
-  bindingsError,
-  reloadCredentials,
   busy,
   authorizationUrl,
   focusCredentials,
@@ -92,17 +77,18 @@ const ServicePanel: React.FC<ServicePanelProps> = ({
   const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
   const credentialsRef = useRef<HTMLHeadingElement>(null);
+  const { endpoints, bindings, bindingsError } = useWorkspaceSnapshot();
+  const endpoint = endpoints?.servers.find((entry) => entry.name === server.name);
+  const credentialBinding = bindings?.find((entry) => entry.serverName === server.name);
+  const credentialServers = bindings ? new Set(bindings.map((entry) => entry.serverName)) : null;
   const { chip, action, reauth } = resolveServiceChip(server, credentialServers, credentialBinding);
-  // Only a service that takes credentials has a credentials section; a personal sign-in has none.
-  const hasCredentials =
-    Boolean(credentialBinding) ||
-    (credentialServers === null
-      ? server.requiresPersonalCredential && chip !== 'needs_signin'
-      : credentialServers.has(server.name));
+  // Whether the service takes credentials (slots) is known from the server's own record, or from
+  // the bindings once loaded. A personal sign-in has no slots, so it has no credentials section.
+  const slotsKnown = server.hasCredentialSlots !== undefined || bindings !== null;
+  const hasCredentials = slotsKnown && hasCredentialSlots(server, credentialServers);
 
   useModalLayer(panelRef, {
     onClose,
-    skipInitialFocus: Boolean(focusCredentials),
     fallbackFocus: () => document.getElementById(rowButtonId(server.name)),
   });
 
@@ -110,20 +96,14 @@ const ServicePanel: React.FC<ServicePanelProps> = ({
     credentialsRef.current?.scrollIntoView?.({ block: 'start' });
     credentialsRef.current?.focus({ preventScroll: true });
   };
-  // Opened for credentials: go there once the section exists (the bindings may still be loading),
-  // and fall back to the panel itself when the service has none.
+  // Opened for credentials: the panel itself has focus until it is known whether the service has
+  // any; then focus moves to the credentials section, or stays when there is none.
   const wantsFocus = useRef(Boolean(focusCredentials));
   useEffect(() => {
-    if (!wantsFocus.current) return;
-    if (hasCredentials) {
-      wantsFocus.current = false;
-      goToCredentials();
-    }
-  }, [hasCredentials]);
-  useEffect(() => {
-    if (focusCredentials && !hasCredentials) panelRef.current?.focus({ preventScroll: true });
-    // Only on open.
-  }, []);
+    if (!wantsFocus.current || !slotsKnown) return;
+    wantsFocus.current = false;
+    if (hasCredentials) goToCredentials();
+  }, [slotsKnown, hasCredentials]);
 
   const { code } = server.status;
   const toolsPending =
@@ -145,10 +125,7 @@ const ServicePanel: React.FC<ServicePanelProps> = ({
   const statusDetail = t(`workspacePage.panel.statusText.${reauth ? 'signin_again' : chip}`);
   // The server's own words explain a failure; they are the details the list row leaves out.
   const serverMessage =
-    chip === 'unavailable' ||
-    chip === 'credentials_outdated' ||
-    chip === 'credentials_rejected' ||
-    chip === 'contact_admin'
+    chip === 'unavailable' || chip === 'credentials_outdated' || chip === 'credentials_rejected'
       ? localizeStatusMessage(server.status, formatUntil)
       : '';
 
@@ -331,7 +308,7 @@ const ServicePanel: React.FC<ServicePanelProps> = ({
                 baseUrl="/credentials"
                 bindings={bindings}
                 error={bindingsError}
-                reload={reloadCredentials}
+                reload={refreshWorkspace}
               />
             </Section>
           )}

@@ -517,8 +517,6 @@
     "noServices": "暂无可用服务,请先在“服务”标签页中选择。",
     "serviceNotReady": "请先在工作区中选择此服务。",
     "serviceConflict": "它的名称与某个分组重名,因此没有独立端点。",
-    "needsCredentials": "{{name}} 需要你自己的凭据才能使用。",
-    "bindCredentials": "添加凭据",
     "useKey": "改用 API 密钥",
     "useKeyHint": "使用你创建的密钥发送 Authorization 请求头,而不是通过 OAuth 登录。",
     "format": "配置格式",
@@ -573,9 +571,7 @@
       "claudePublic": "Claude 从 Anthropic 的服务器发起连接,因此你的 MCPHub 地址必须能通过公网 HTTPS(443 端口)访问。",
       "copiedOnOpen": "这个应用没有可以自动填入地址的链接，所以按钮会先复制地址，再打开设置页，请在那里粘贴。",
       "fallbackUrl": "如果点按钮没有反应，请在应用里添加一个 Streamable HTTP 扩展，并粘贴上面的服务器地址。"
-    },
-    "needsSignIn": "{{name}} 需要你先登录才能使用。",
-    "contactAdmin": "{{name}} 无法用于你的账号。请联系管理员获取权限。"
+    }
   },
   "pagination": {
     "rowsPerPage": "每页行数",

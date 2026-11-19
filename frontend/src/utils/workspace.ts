@@ -39,14 +39,14 @@ export type ServiceAction =
  * credential panel is the safer destination then.
  */
 export const resolveServiceAction = (
-  server: Pick<WorkspaceServer, 'name' | 'status'>,
+  server: Pick<WorkspaceServer, 'name' | 'status' | 'hasCredentialSlots'>,
   credentialServers: ReadonlySet<string> | null,
 ): ServiceAction => {
   switch (server.status.action) {
     case 'select':
       return { kind: 'select' };
     case 'connect': {
-      const hasSlots = credentialServers ? credentialServers.has(server.name) : true;
+      const hasSlots = hasCredentialSlots(server, credentialServers);
       return hasSlots && server.status.code !== 'revoked'
         ? { kind: 'credentials', server: server.name }
         : { kind: 'oauth', server: server.name };
@@ -79,13 +79,15 @@ export interface ServiceChipState {
 }
 
 /**
- * Whether the service takes personal credentials (it has slots) rather than a personal sign-in.
- * Until the list of services with slots is known the credential panel is the safer guess.
+ * Whether the service takes credentials the user enters (it has slots) rather than a personal
+ * sign-in. The server says so; the list of the user's bindings is the fallback for an older
+ * server, and the credential panel the safer guess while neither is known.
  */
 export const hasCredentialSlots = (
-  serverName: string,
+  server: Pick<WorkspaceServer, 'name' | 'hasCredentialSlots'>,
   credentialServers: ReadonlySet<string> | null,
-): boolean => (credentialServers ? credentialServers.has(serverName) : true);
+): boolean =>
+  server.hasCredentialSlots ?? (credentialServers ? credentialServers.has(server.name) : true);
 
 /**
  * The single state a service row shows. Most important wins: a service the administrator
@@ -96,7 +98,7 @@ export const hasCredentialSlots = (
  * from what the service takes, never from the failure code alone.
  */
 export const resolveServiceChip = (
-  server: Pick<WorkspaceServer, 'name' | 'status'>,
+  server: Pick<WorkspaceServer, 'name' | 'status' | 'hasCredentialSlots'>,
   credentialServers: ReadonlySet<string> | null,
   binding?: Pick<MyCredentialBinding, 'stale'>,
 ): ServiceChipState => {
@@ -108,7 +110,7 @@ export const resolveServiceChip = (
   if (code === 'needs_auth' && statusAction === 'contact_admin') {
     return { chip: 'contact_admin', action: null };
   }
-  const slots = hasCredentialSlots(server.name, credentialServers);
+  const slots = hasCredentialSlots(server, credentialServers);
   if (code === 'credential_invalid') {
     if (!slots) return { chip: 'needs_signin', action: 'signin', reauth: true };
     return {

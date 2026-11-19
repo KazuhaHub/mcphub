@@ -515,8 +515,6 @@
     "noServices": "No services are available yet. Select some in the Services tab.",
     "serviceNotReady": "Select this service in your workspace first.",
     "serviceConflict": "Its name matches a group, so it has no endpoint of its own.",
-    "needsCredentials": "{{name}} needs your own credentials before it will work.",
-    "bindCredentials": "Add credentials",
     "useKey": "Use an API key instead",
     "useKeyHint": "Sends an Authorization header with a key you create, instead of signing in with OAuth.",
     "format": "Configuration format",
@@ -571,9 +569,7 @@
       "claudePublic": "Claude connects from Anthropic's servers, so your MCPHub address must be reachable on public HTTPS (port 443).",
       "copiedOnOpen": "This app has no link that fills in the address for you, so the button copies it and opens the settings page. Paste it there.",
       "fallbackUrl": "If the button does nothing, add a Streamable HTTP extension in the app and paste the server URL above."
-    },
-    "needsSignIn": "{{name}} needs you to sign in before it will work.",
-    "contactAdmin": "{{name}} is not available to your account. Contact your administrator to get access."
+    }
   },
   "pagination": {
     "rowsPerPage": "Số hàng mỗi trang",

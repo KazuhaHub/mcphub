@@ -9,7 +9,7 @@ import type {
 } from '../../frontend/src/types';
 import CredentialDialog from '../../frontend/src/components/credentials/CredentialDialog';
 import ConnectDialog from '../../frontend/src/components/connect/ConnectDialog';
-import { onWorkspaceChanged } from '../../frontend/src/utils/workspaceEvents';
+import { resetWorkspaceStore } from '../../frontend/src/hooks/useWorkspaceData';
 import CredentialsPage from '../../frontend/src/pages/CredentialsPage';
 
 jest.mock('react-i18next', () => ({
@@ -84,6 +84,8 @@ const bindings = [
   }),
 ];
 
+let mockServerList: WorkspaceServer[] = [];
+let mockEndpointsData: WorkspaceEndpoints = { aggregate: '', servers: [] };
 const ok = (data: unknown) => Promise.resolve({ success: true, data });
 
 beforeEach(() => {
@@ -94,8 +96,18 @@ beforeEach(() => {
   mockAdmin = false;
   mockWorkspace = true;
   mockResolved = true;
-  mockApiGet.mockImplementation((url: string) => (url === '/credentials' ? ok(bindings) : ok([])));
+  mockServerList = [];
+  mockEndpointsData = { aggregate: 'https://hub.example.com/alice/mcp', servers: [] };
+  resetWorkspaceStore();
+  mockApiGet.mockImplementation((url: string) => {
+    if (url === '/credentials') return ok(bindings);
+    if (url === '/workspace/servers') return ok(mockServerList);
+    if (url === '/workspace/endpoints') return ok(mockEndpointsData);
+    return ok([]);
+  });
 });
+
+afterEach(() => resetWorkspaceStore());
 
 describe('the credential panel', () => {
   it('shows only the selected service, with its fields, guidance link and env name', async () => {
@@ -134,20 +146,24 @@ describe('the credential panel', () => {
     expect(dialog.textContent).toContain('credentials.replace');
   });
 
-  it('saves through the credentials API for that one service and reports the change', async () => {
+  it('saves through the credentials API for that one service and refreshes the shared data', async () => {
     mockApiPut.mockImplementation(() => ok({}));
-    const onChanged = jest.fn();
-    render(
-      <CredentialDialog serverName="anteater-personal" onChanged={onChanged} onClose={jest.fn()} />,
-    );
+    render(<CredentialDialog serverName="anteater-personal" onClose={jest.fn()} />);
     await screen.findByLabelText('anteater-personal');
+    const refetchesBefore = mockApiGet.mock.calls.filter(
+      (c) => c[0] === '/workspace/servers',
+    ).length;
     fireEvent.change(document.querySelector('input[type="password"]') as HTMLInputElement, {
       target: { value: 'secret-value' },
     });
     await act(async () => {
       fireEvent.click(screen.getByText('credentials.save'));
     });
-    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        mockApiGet.mock.calls.filter((c) => c[0] === '/workspace/servers').length,
+      ).toBeGreaterThan(refetchesBefore),
+    );
     expect(mockApiPut).toHaveBeenCalledWith('/credentials/anteater-personal', {
       values: { 'env.API_KEY': 'secret-value' },
     });
@@ -162,37 +178,151 @@ describe('the credential panel', () => {
   });
 });
 
-describe('the Connect to AI prompt for missing credentials', () => {
-  const endpoints: WorkspaceEndpoints = {
-    aggregate: 'https://hub.example.com/alice/mcp',
-    servers: [
-      { name: 'anteater-personal', url: 'https://hub.example.com/alice/mcp/anteater-personal' },
-    ],
-  };
-  const needsAuth = {
-    name: 'anteater-personal',
+const needsAuth = (name: string, extra: Partial<WorkspaceServer> = {}) =>
+  ({
+    name,
     selected: true,
     enabled: true,
     toolCount: null,
-    status: { code: 'needs_auth', message: '', action: 'connect' },
-  } as WorkspaceServer;
+    status: { code: 'needs_auth', message: 'backend words', action: 'connect' },
+    ...extra,
+  }) as WorkspaceServer;
 
+const endpointsFor = (...names: string[]): WorkspaceEndpoints => ({
+  aggregate: 'https://hub.example.com/alice/mcp',
+  servers: names.map((name) => ({ name, url: `https://hub.example.com/alice/mcp/${name}` })),
+});
+
+const renderConnect = async (
+  servers: WorkspaceServer[],
+  initial: React.ComponentProps<typeof ConnectDialog>['initial'],
+  onClose = jest.fn(),
+) => {
+  mockServerList = servers;
+  mockEndpointsData = endpointsFor(...servers.map((server) => server.name));
+  render(
+    <ConnectDialog
+      aggregateUrl={mockEndpointsData.aggregate}
+      initial={initial}
+      onClose={onClose}
+    />,
+  );
+  await screen.findByRole('alert');
+  return onClose;
+};
+
+describe('the Connect to AI prompt for missing credentials', () => {
   it('opens the credential panel for that service instead of navigating', async () => {
-    render(
-      <ConnectDialog
-        aggregateUrl={endpoints.aggregate}
-        servers={[needsAuth]}
-        endpoints={endpoints}
-        initial={{ service: 'anteater-personal', client: 'claude' }}
-        onClose={jest.fn()}
-      />,
-    );
+    await renderConnect([needsAuth('anteater-personal')], {
+      service: 'anteater-personal',
+      client: 'claude',
+    });
     expect(screen.queryByTestId('credential-dialog')).toBeNull();
-    fireEvent.click(screen.getByText('connect.bindCredentials'));
+    expect(screen.getByRole('alert').textContent).toContain(
+      'workspacePage.panel.statusText.needs_credentials',
+    );
+    fireEvent.click(screen.getByText('workspacePage.chip.action.credentials'));
     const panel = await screen.findByTestId('credential-dialog');
     expect(panel.textContent).toContain('credentials.panelTitle:anteater-personal');
     await screen.findByLabelText('anteater-personal');
     expect(panel.textContent).not.toContain('ubc-personal');
+  });
+
+  it('shows the same state and action as the list for outdated and rejected credentials', async () => {
+    await renderConnect([needsAuth('ubc-personal')], { service: 'ubc-personal', client: 'claude' });
+    // The binding is outdated (stale): the same chip, text and Update button as on the list.
+    expect(screen.getByRole('alert').textContent).toContain(
+      'workspacePage.panel.statusText.credentials_outdated',
+    );
+    expect(screen.getByText('workspacePage.chip.action.update')).toBeTruthy();
+  });
+});
+
+describe('the Connect to AI prompt for a service without credential slots', () => {
+  it('offers to sign in, not to add credentials', async () => {
+    await renderConnect([needsAuth('canvas-portal', { hasCredentialSlots: false })], {
+      service: 'canvas-portal',
+      client: 'claude',
+    });
+    expect(screen.getByRole('alert').textContent).toContain(
+      'workspacePage.panel.statusText.needs_signin',
+    );
+    expect(screen.getByText('workspacePage.chip.action.signin')).toBeTruthy();
+    expect(screen.queryByText('workspacePage.chip.action.credentials')).toBeNull();
+  });
+
+  it('offers sign in again for a rejected sign-in', async () => {
+    await renderConnect(
+      [
+        needsAuth('canvas-portal', {
+          hasCredentialSlots: false,
+          status: { code: 'credential_invalid', message: 'x', action: 'connect' },
+        }),
+      ],
+      { service: 'canvas-portal', client: 'claude' },
+    );
+    expect(screen.getByRole('alert').textContent).toContain(
+      'workspacePage.panel.statusText.signin_again',
+    );
+    expect(screen.getByText('workspacePage.chip.action.signinAgain')).toBeTruthy();
+  });
+
+  it('only explains, with no button, when the user may not use the service', async () => {
+    await renderConnect(
+      [
+        needsAuth('locked', {
+          status: { code: 'needs_auth', message: 'backend words', action: 'contact_admin' },
+        }),
+      ],
+      { service: 'locked', client: 'claude' },
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBe('workspacePage.panel.statusText.contact_admin');
+    expect(alert.querySelector('button, a')).toBeNull();
+  });
+});
+
+describe('stacked layers', () => {
+  const open = () =>
+    renderConnect([needsAuth('anteater-personal')], {
+      service: 'anteater-personal',
+      client: 'claude',
+    });
+
+  it('closes only the top layer on Escape, traps Tab, and locks and restores page scroll', async () => {
+    document.body.style.overflow = '';
+    const onClose = await open();
+    expect(document.body.style.overflow).toBe('hidden');
+    fireEvent.click(screen.getByText('workspacePage.chip.action.credentials'));
+    await screen.findByTestId('credential-dialog');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    // The credential dialog is on top; the connect dialog behind it ignores that Escape.
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('credential-dialog')).toBeNull());
+    expect(document.body.style.overflow).toBe('hidden');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // Tab wraps inside the dialog.
+    const dialog = screen.getByTestId('connect-dialog');
+    const focusable = dialog.querySelectorAll<HTMLElement>('a[href], button:not([disabled])');
+    const last = focusable[focusable.length - 1];
+    last.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(focusable[0]);
+  });
+
+  it('puts focus back on the dialog underneath when the opener is gone after a save', async () => {
+    mockApiPut.mockImplementation(() => ok({}));
+    await open();
+    const opener = screen.getByText('workspacePage.chip.action.credentials');
+    fireEvent.click(opener);
+    await screen.findByTestId('credential-dialog');
+    // The opener disappears (as it does once the service no longer needs credentials).
+    opener.remove();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('credential-dialog')).toBeNull());
+    expect(screen.getByTestId('connect-dialog').contains(document.activeElement)).toBe(true);
   });
 });
 
@@ -291,129 +421,5 @@ describe('the administrator credentials page', () => {
     expect(screen.getByTestId('credentials-subject').textContent).toBe(
       'credentials.showingFor:alice',
     );
-  });
-});
-
-describe('the Connect to AI prompt for a service without credential slots', () => {
-  const endpoints: WorkspaceEndpoints = {
-    aggregate: 'https://hub.example.com/alice/mcp',
-    servers: [{ name: 'canvas-portal', url: 'https://hub.example.com/alice/mcp/canvas-portal' }],
-  };
-  const needsSignIn = {
-    name: 'canvas-portal',
-    selected: true,
-    enabled: true,
-    toolCount: null,
-    status: { code: 'needs_auth', message: '', action: 'connect' },
-  } as WorkspaceServer;
-
-  it('offers to sign in, not to add credentials', async () => {
-    render(
-      <ConnectDialog
-        aggregateUrl={endpoints.aggregate}
-        servers={[needsSignIn]}
-        endpoints={endpoints}
-        initial={{ service: 'canvas-portal', client: 'claude' }}
-        onClose={jest.fn()}
-      />,
-    );
-    await screen.findByText('workspacePage.chip.action.signin');
-    expect(screen.getByRole('alert').textContent).toContain('connect.needsSignIn:canvas-portal');
-    expect(screen.queryByText('connect.bindCredentials')).toBeNull();
-  });
-});
-
-describe('stacked layers', () => {
-  const endpoints: WorkspaceEndpoints = {
-    aggregate: 'https://hub.example.com/alice/mcp',
-    servers: [{ name: 'anteater-personal', url: 'https://hub.example.com/alice/mcp/a' }],
-  };
-
-  it('closes only the top layer on Escape, traps Tab, and locks and restores page scroll', async () => {
-    const onClose = jest.fn();
-    document.body.style.overflow = '';
-    render(
-      <ConnectDialog
-        aggregateUrl={endpoints.aggregate}
-        servers={[
-          {
-            name: 'anteater-personal',
-            selected: true,
-            enabled: true,
-            toolCount: null,
-            status: { code: 'needs_auth', message: '', action: 'connect' },
-          } as WorkspaceServer,
-        ]}
-        endpoints={endpoints}
-        initial={{ service: 'anteater-personal', client: 'claude' }}
-        onClose={onClose}
-      />,
-    );
-    expect(document.body.style.overflow).toBe('hidden');
-    fireEvent.click(screen.getByText('connect.bindCredentials'));
-    await screen.findByTestId('credential-dialog');
-    fireEvent.keyDown(document, { key: 'Escape' });
-    // The credential dialog is on top; the connect dialog behind it ignores that Escape.
-    expect(onClose).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.queryByTestId('credential-dialog')).toBeNull());
-    expect(document.body.style.overflow).toBe('hidden');
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledTimes(1);
-
-    // Tab wraps inside the dialog.
-    const dialog = screen.getByTestId('connect-dialog');
-    const focusable = dialog.querySelectorAll<HTMLElement>('a[href], button:not([disabled])');
-    const last = focusable[focusable.length - 1];
-    last.focus();
-    fireEvent.keyDown(document, { key: 'Tab' });
-    expect(document.activeElement).toBe(focusable[0]);
-  });
-
-  it('puts focus back on the dialog underneath when the opener is gone after a save', async () => {
-    mockApiPut.mockImplementation(() => ok({}));
-    render(
-      <ConnectDialog
-        aggregateUrl={endpoints.aggregate}
-        servers={[
-          {
-            name: 'anteater-personal',
-            selected: true,
-            enabled: true,
-            toolCount: null,
-            status: { code: 'needs_auth', message: '', action: 'connect' },
-          } as WorkspaceServer,
-        ]}
-        endpoints={endpoints}
-        initial={{ service: 'anteater-personal', client: 'claude' }}
-        onClose={jest.fn()}
-      />,
-    );
-    const opener = screen.getByText('connect.bindCredentials');
-    fireEvent.click(opener);
-    await screen.findByTestId('credential-dialog');
-    // The opener disappears (as it does once the service no longer needs credentials).
-    opener.remove();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByTestId('credential-dialog')).toBeNull());
-    expect(screen.getByTestId('connect-dialog').contains(document.activeElement)).toBe(true);
-  });
-});
-
-describe('credential changes made in the dialog', () => {
-  it('are announced to the workspace list', async () => {
-    mockApiPut.mockImplementation(() => ok({}));
-    const heard = jest.fn();
-    const off = onWorkspaceChanged(heard);
-    render(<CredentialDialog serverName="anteater-personal" onClose={jest.fn()} />);
-    await screen.findByLabelText('anteater-personal');
-    expect(heard).not.toHaveBeenCalled();
-    fireEvent.change(document.querySelector('input[type="password"]') as HTMLInputElement, {
-      target: { value: 'secret-value' },
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByText('credentials.save'));
-    });
-    await waitFor(() => expect(heard).toHaveBeenCalled());
-    off();
   });
 });

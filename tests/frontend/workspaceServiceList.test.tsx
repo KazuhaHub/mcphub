@@ -8,10 +8,7 @@ import type {
   WorkspaceServer,
 } from '../../frontend/src/types';
 import WorkspaceServicesView from '../../frontend/src/components/workspace/WorkspaceServicesView';
-import {
-  notifyWorkspaceChanged,
-  onWorkspaceChanged,
-} from '../../frontend/src/utils/workspaceEvents';
+import { refreshWorkspace, resetWorkspaceStore } from '../../frontend/src/hooks/useWorkspaceData';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -170,6 +167,7 @@ const mount = async () => {
 };
 
 beforeEach(() => {
+  resetWorkspaceStore();
   mockSearch = new URLSearchParams();
   mockSetSearch.mockReset();
   mockToast.mockReset();
@@ -413,25 +411,25 @@ describe('deep links', () => {
   });
 });
 
-describe('one source of truth after credential changes', () => {
-  it('refetches the servers and the bindings when any entry point reports a change', async () => {
+describe('one source of truth', () => {
+  it('refetches servers and bindings together when the window regains focus', async () => {
     await mount();
     const serversBefore = mockServers.mock.calls.length;
     const bindingsBefore = mockBindings.mock.calls.length;
     await act(async () => {
-      notifyWorkspaceChanged();
+      window.dispatchEvent(new Event('focus'));
     });
     await waitFor(() => expect(mockServers.mock.calls.length).toBeGreaterThan(serversBefore));
     expect(mockBindings.mock.calls.length).toBeGreaterThan(bindingsBefore);
   });
 
-  it('refetches the bindings too when the window regains focus', async () => {
+  it('refetches when the tab becomes visible again', async () => {
     await mount();
-    const before = mockBindings.mock.calls.length;
+    const before = mockServers.mock.calls.length;
     await act(async () => {
-      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
     });
-    await waitFor(() => expect(mockBindings.mock.calls.length).toBeGreaterThan(before));
+    await waitFor(() => expect(mockServers.mock.calls.length).toBeGreaterThan(before));
   });
 
   it('shows the new status after a save made in the panel', async () => {
@@ -449,14 +447,27 @@ describe('one source of truth after credential changes', () => {
         ),
       ),
     );
+    fireEvent.change(panel.querySelector('input[type="password"]') as HTMLInputElement, {
+      target: { value: 'secret-value' },
+    });
     await act(async () => {
-      notifyWorkspaceChanged();
+      fireEvent.click(within(panel).getByText('credentials.save'));
     });
     await waitFor(() =>
       expect(row('needs-keys').querySelector('[data-chip]')!.getAttribute('data-chip')).toBe(
         'ready',
       ),
     );
+  });
+
+  it('refreshes after a toggle, once', async () => {
+    await mount();
+    const before = mockServers.mock.calls.length;
+    fireEvent.click(within(row('anteater-personal')).getByRole('switch'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalled());
+    await act(async () => {});
+    expect(mockServers.mock.calls.length - before).toBe(1);
+    await refreshWorkspace();
   });
 });
 
@@ -528,6 +539,8 @@ describe('a service the user may not use', () => {
     const panel = screen.getByTestId('service-panel');
     expect(within(panel).getByText('workspacePage.panel.statusText.contact_admin')).toBeTruthy();
     expect(within(panel).queryByTestId('service-panel-action')).toBeNull();
+    // Only the contact-admin explanation: the backend's own needs-auth text is not repeated.
+    expect(panel.textContent).not.toContain('Not available');
   });
 });
 
@@ -568,20 +581,5 @@ describe('the hint under the subtitle for many tools', () => {
     many(40);
     await mount();
     expect(screen.queryByTestId('tools-hint')).toBeNull();
-  });
-});
-
-describe('changes made on the list reach the rest of the page', () => {
-  it('announces a toggle to other listeners, but does not reload twice for its own', async () => {
-    await mount();
-    const heard = jest.fn();
-    const off = onWorkspaceChanged(heard);
-    const before = mockServers.mock.calls.length;
-    fireEvent.click(within(row('anteater-personal')).getByRole('switch'));
-    await waitFor(() => expect(heard).toHaveBeenCalled());
-    await act(async () => {});
-    // One refetch after the save; the list ignores its own announcement.
-    expect(mockServers.mock.calls.length - before).toBe(1);
-    off();
   });
 });

@@ -1,15 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import type { MyCredentialBinding } from '@/types';
-import { apiGet, type ApiResponse } from '@/utils/fetchInterceptor';
 import { findCredentialBinding } from '@/utils/workspace';
-import { notifyWorkspaceChanged } from '@/utils/workspaceEvents';
+import { refreshWorkspace, useWorkspaceData } from '@/hooks/useWorkspaceData';
 import { useModalLayer } from '@/hooks/useModalLayer';
 import { CredentialForm } from './CredentialForm';
-
-const messageOf = (error: unknown, fallback: string) =>
-  error instanceof Error && error.message ? error.message : fallback;
 
 interface CredentialPanelBodyProps {
   serverName: string;
@@ -61,45 +57,18 @@ export const CredentialPanelBody: React.FC<CredentialPanelBodyProps> = ({
 
 interface CredentialDialogProps {
   serverName: string;
-  // Called after a binding was saved, copied or deleted so the caller can refresh its view.
-  onChanged?: () => void;
   onClose: () => void;
 }
 
 /**
  * Dialog on desktop and full-screen sheet on phones (like the Connect-to-AI dialog) for the
- * personal credentials of one service. It reuses the credential form and the credentials API.
+ * personal credentials of one service. It shows the shared workspace data and refreshes it after
+ * every save, copy or delete, so the list and the Connect card see the change.
  */
-const CredentialDialog: React.FC<CredentialDialogProps> = ({ serverName, onChanged, onClose }) => {
+const CredentialDialog: React.FC<CredentialDialogProps> = ({ serverName, onClose }) => {
   const { t } = useTranslation();
-  const baseUrl = '/credentials';
   const panelRef = useRef<HTMLDivElement>(null);
-  const [bindings, setBindings] = useState<MyCredentialBinding[] | null>(null);
-  const [error, setError] = useState('');
-  const loaded = useRef(false);
-
-  const reload = useCallback(async () => {
-    try {
-      const result = await apiGet<ApiResponse<MyCredentialBinding[]>>(baseUrl);
-      if (!result.success) throw new Error(result.message || t('credentials.failed'));
-      setBindings(result.data || []);
-      setError('');
-    } catch (err) {
-      setError(messageOf(err, t('credentials.failed')));
-    }
-    // The first load is not a change; later ones follow a save, copy or delete.
-    if (loaded.current) {
-      onChanged?.();
-      notifyWorkspaceChanged();
-    }
-    loaded.current = true;
-  }, [onChanged, t]);
-
-  // Only on open: a changed `reload` identity must not start another first load.
-  const reloadRef = useRef(reload);
-  useEffect(() => {
-    void reloadRef.current();
-  }, []);
+  const { bindings, bindingsError } = useWorkspaceData();
 
   useModalLayer(panelRef, { onClose });
 
@@ -143,10 +112,10 @@ const CredentialDialog: React.FC<CredentialDialogProps> = ({ serverName, onChang
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
           <CredentialPanelBody
             serverName={serverName}
-            baseUrl={baseUrl}
+            baseUrl="/credentials"
             bindings={bindings}
-            error={error}
-            reload={reload}
+            error={bindingsError}
+            reload={refreshWorkspace}
           />
         </div>
       </div>
