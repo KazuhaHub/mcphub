@@ -574,7 +574,8 @@
       "copiedOnOpen": "这个应用没有可以自动填入地址的链接，所以按钮会先复制地址，再打开设置页，请在那里粘贴。",
       "fallbackUrl": "如果点按钮没有反应，请在应用里添加一个 Streamable HTTP 扩展，并粘贴上面的服务器地址。"
     },
-    "needsSignIn": "{{name}} 需要你先登录才能使用。"
+    "needsSignIn": "{{name}} 需要你先登录才能使用。",
+    "contactAdmin": "{{name}} 无法用于你的账号。请联系管理员获取权限。"
   },
   "pagination": {
     "rowsPerPage": "每页行数",
@@ -1965,8 +1966,12 @@
         "signin": "登录",
         "signinTo": "登录 {{name}}",
         "credentials": "添加凭据",
-        "update": "更新"
-      }
+        "update": "更新",
+        "signinAgain": "重新登录",
+        "signinAgainTo": "重新登录 {{name}}"
+      },
+      "credentials_rejected": "凭据被拒绝",
+      "contact_admin": "你无权使用"
     },
     "panel": {
       "status": "状态",
@@ -1982,9 +1987,16 @@
         "not_enabled": "不在你的接入地址中。用列表中的开关开启。",
         "needs_signin": "请先登录此服务才能使用。",
         "needs_credentials": "此服务需要你自己的凭据才能使用。",
-        "credentials_outdated": "保存凭据后服务发生了变化，请重新填写。",
-        "unavailable": "此服务目前无法使用。"
+        "credentials_outdated": "保存凭据后服务设置发生了变化，请重新填写。",
+        "unavailable": "此服务目前无法使用。",
+        "credentials_rejected": "服务拒绝了你的凭据。请检查后重新保存。",
+        "contact_admin": "你的账号无法使用此服务。请联系管理员获取权限。",
+        "signin_again": "服务不再接受你的登录。请重新登录以继续使用。"
       }
+    },
+    "toolsHint": {
+      "warn": "你的选择共有 {{count}} 个工具，可能挤占客户端的上下文。",
+      "strong": "你的选择共有 {{count}} 个工具，对多数客户端来说太多：请使用智能路由或单服务地址。"
     }
   },
   "serviceLink": {

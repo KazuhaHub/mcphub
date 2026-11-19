@@ -7,6 +7,16 @@ import type {
   WorkspaceStatusCode,
 } from '../types';
 
+/** More tools than this starts to crowd a model's context. */
+export const TOOL_COUNT_WARN = 40;
+/** Beyond this, suggest smart routing or per-service endpoints. */
+export const TOOL_COUNT_STRONG = 80;
+
+export type ToolCountLevel = 'ok' | 'warn' | 'strong';
+
+export const toolCountLevel = (total: number): ToolCountLevel =>
+  total > TOOL_COUNT_STRONG ? 'strong' : total > TOOL_COUNT_WARN ? 'warn' : 'ok';
+
 /** Tools a client would see on the personal endpoint: selected services that are available. */
 export const countExposedTools = (servers: readonly WorkspaceServer[]): number =>
   servers
@@ -56,31 +66,57 @@ export type ServiceChip =
   | 'needs_signin'
   | 'needs_credentials'
   | 'credentials_outdated'
+  | 'credentials_rejected'
+  | 'contact_admin'
   | 'unavailable';
 
 export interface ServiceChipState {
   chip: ServiceChip;
   /** The one thing the user can do about it, shown as a button on the row. */
   action: 'signin' | 'credentials' | null;
+  /** Signing in again: the service rejected a sign-in that had worked. */
+  reauth?: boolean;
 }
+
+/**
+ * Whether the service takes personal credentials (it has slots) rather than a personal sign-in.
+ * Until the list of services with slots is known the credential panel is the safer guess.
+ */
+export const hasCredentialSlots = (
+  serverName: string,
+  credentialServers: ReadonlySet<string> | null,
+): boolean => (credentialServers ? credentialServers.has(serverName) : true);
 
 /**
  * The single state a service row shows. Most important wins: a service the administrator
  * paused, in maintenance or failing is unavailable whatever else is true; one the user has not
- * turned on is simply not enabled; then outdated credentials, then missing credentials or
- * sign-in, and otherwise ready.
+ * turned on is simply not enabled; one the user may not hold credentials for needs an
+ * administrator; then outdated or rejected credentials, then missing credentials or sign-in,
+ * and otherwise ready. Whether the user is sent to the credentials or to a sign-in follows
+ * from what the service takes, never from the failure code alone.
  */
 export const resolveServiceChip = (
   server: Pick<WorkspaceServer, 'name' | 'status'>,
   credentialServers: ReadonlySet<string> | null,
   binding?: Pick<MyCredentialBinding, 'stale'>,
 ): ServiceChipState => {
-  const { code } = server.status;
+  const { code, action: statusAction } = server.status;
   if (code === 'paused' || code === 'maintenance' || code === 'error') {
     return { chip: 'unavailable', action: null };
   }
   if (code === 'not_selected') return { chip: 'not_enabled', action: null };
-  if (code === 'credential_invalid' || (binding?.stale && code !== 'revoked')) {
+  if (code === 'needs_auth' && statusAction === 'contact_admin') {
+    return { chip: 'contact_admin', action: null };
+  }
+  const slots = hasCredentialSlots(server.name, credentialServers);
+  if (code === 'credential_invalid') {
+    if (!slots) return { chip: 'needs_signin', action: 'signin', reauth: true };
+    return {
+      chip: binding?.stale ? 'credentials_outdated' : 'credentials_rejected',
+      action: 'credentials',
+    };
+  }
+  if (binding?.stale && code !== 'revoked') {
     return { chip: 'credentials_outdated', action: 'credentials' };
   }
   if (code === 'needs_auth' || code === 'revoked') {
@@ -98,8 +134,10 @@ export const serviceChipTone = (chip: ServiceChip): StatusTone => {
       return 'ok';
     case 'needs_signin':
     case 'needs_credentials':
+    case 'contact_admin':
       return 'warn';
     case 'credentials_outdated':
+    case 'credentials_rejected':
     case 'unavailable':
       return 'err';
     default:

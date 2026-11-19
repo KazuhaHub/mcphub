@@ -573,7 +573,8 @@
       "copiedOnOpen": "This app has no link that fills in the address for you, so the button copies it and opens the settings page. Paste it there.",
       "fallbackUrl": "If the button does nothing, add a Streamable HTTP extension in the app and paste the server URL above."
     },
-    "needsSignIn": "{{name}} needs you to sign in before it will work."
+    "needsSignIn": "{{name}} needs you to sign in before it will work.",
+    "contactAdmin": "{{name}} is not available to your account. Contact your administrator to get access."
   },
   "pagination": {
     "rowsPerPage": "Lignes par page",
@@ -1965,8 +1966,12 @@
         "signin": "Sign in",
         "signinTo": "Sign in to {{name}}",
         "credentials": "Add credentials",
-        "update": "Update"
-      }
+        "update": "Update",
+        "signinAgain": "Sign in again",
+        "signinAgainTo": "Sign in again to {{name}}"
+      },
+      "credentials_rejected": "Credentials rejected",
+      "contact_admin": "Not available to you"
     },
     "panel": {
       "status": "Status",
@@ -1982,9 +1987,16 @@
         "not_enabled": "Not in your endpoint. Turn it on with the switch in the list.",
         "needs_signin": "Sign in to this service to use it.",
         "needs_credentials": "This service needs your own credentials before it will work.",
-        "credentials_outdated": "The service changed after you saved your credentials. Enter them again.",
-        "unavailable": "This service cannot be used right now."
+        "credentials_outdated": "The service settings changed after you saved your credentials. Enter them again.",
+        "unavailable": "This service cannot be used right now.",
+        "credentials_rejected": "The service rejected your credentials. Check them and save again.",
+        "contact_admin": "This service is not available to your account. Contact your administrator to get access.",
+        "signin_again": "The service no longer accepts your sign-in. Sign in again to keep using it."
       }
+    },
+    "toolsHint": {
+      "warn": "Your selection exposes {{count}} tools, which can crowd your client's context.",
+      "strong": "Your selection exposes {{count}} tools, too many for most clients: use the smart routing or a per-service endpoint."
     }
   },
   "serviceLink": {

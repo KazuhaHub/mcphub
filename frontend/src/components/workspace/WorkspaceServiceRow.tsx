@@ -36,7 +36,7 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
 }) => {
   const { t } = useTranslation();
   const openRef = useRef<HTMLButtonElement>(null);
-  const { chip, action } = resolveServiceChip(server, credentialServers, credentialBinding);
+  const { chip, action, reauth } = resolveServiceChip(server, credentialServers, credentialBinding);
 
   const open = (focus?: 'credentials') => {
     // Browsers do not always focus a clicked button; focus returns here when the panel closes.
@@ -46,8 +46,8 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
 
   const actionLabel =
     action === 'signin'
-      ? t('workspacePage.chip.action.signin')
-      : chip === 'credentials_outdated'
+      ? t(reauth ? 'workspacePage.chip.action.signinAgain' : 'workspacePage.chip.action.signin')
+      : chip === 'credentials_outdated' || chip === 'credentials_rejected'
         ? t('workspacePage.chip.action.update')
         : t('workspacePage.chip.action.credentials');
 

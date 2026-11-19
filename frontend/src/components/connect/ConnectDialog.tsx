@@ -146,11 +146,13 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
         : t('connect.dialogTitle', { client: activeClient?.name ?? t('connect.other') });
 
   const needsCredentials = selectedServer?.status.code === 'needs_auth';
+  // A user who cannot hold credentials for this service has nothing to do but ask.
+  const contactAdmin = needsCredentials && selectedServer?.status.action === 'contact_admin';
   // The same decision as the services list: services with credential slots take credentials,
   // the others sign in. Until the slots are known the credential panel is the safe choice.
   const needsAction = needsCredentials && selectedServer ? selectedServer.name : null;
   useEffect(() => {
-    if (!needsAction) return;
+    if (!needsAction || contactAdmin) return;
     let active = true;
     fetchCredentialBindings()
       .then((list) => active && setSlotServers(new Set(list.map((entry) => entry.serverName))))
@@ -158,9 +160,9 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
     return () => {
       active = false;
     };
-  }, [needsAction]);
+  }, [needsAction, contactAdmin]);
   const needsSignIn =
-    needsCredentials && selectedServer
+    needsCredentials && !contactAdmin && selectedServer
       ? resolveServiceAction(selectedServer, slotServers).kind === 'oauth'
       : false;
   const signIn = async (name: string) => {
@@ -313,12 +315,17 @@ const ConnectDialog: React.FC<ConnectDialogProps> = ({
                   <span className="flex items-start gap-2">
                     <AlertTriangle size={16} aria-hidden className="mt-0.5 shrink-0" />
                     <span>
-                      {t(needsSignIn ? 'connect.needsSignIn' : 'connect.needsCredentials', {
-                        name: service,
-                      })}
+                      {t(
+                        contactAdmin
+                          ? 'connect.contactAdmin'
+                          : needsSignIn
+                            ? 'connect.needsSignIn'
+                            : 'connect.needsCredentials',
+                        { name: service },
+                      )}
                     </span>
                   </span>
-                  {needsSignIn ? (
+                  {contactAdmin ? null : needsSignIn ? (
                     authLink ? (
                       <a
                         className="hub-btn"

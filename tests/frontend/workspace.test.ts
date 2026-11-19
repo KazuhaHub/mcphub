@@ -16,6 +16,7 @@ import {
   shouldRefreshOnFocus,
   countExposedTools,
   resolveServiceChip,
+  toolCountLevel,
   workspaceServicePath,
   findCredentialBinding,
   workspaceCredentialsPath,
@@ -390,10 +391,14 @@ describe('resolveServiceChip', () => {
       chip: 'needs_signin',
       action: 'signin',
     });
+    // Rejected is a wrong value; outdated is a service whose settings changed.
     expect(resolveServiceChip(status('credential_invalid', 'connect'), slots)).toEqual({
-      chip: 'credentials_outdated',
+      chip: 'credentials_rejected',
       action: 'credentials',
     });
+    expect(
+      resolveServiceChip(status('credential_invalid', 'connect'), slots, { stale: true }),
+    ).toEqual({ chip: 'credentials_outdated', action: 'credentials' });
     for (const code of ['paused', 'maintenance', 'error']) {
       expect(resolveServiceChip(status(code), slots)).toEqual({
         chip: 'unavailable',
@@ -412,5 +417,35 @@ describe('resolveServiceChip', () => {
     expect(resolveServiceChip(status('not_selected', 'select'), slots, { stale: true }).chip).toBe(
       'not_enabled',
     );
+  });
+});
+
+describe('resolveServiceChip for services that sign in instead of taking credentials', () => {
+  const status = (code: string, action: string | null = null) =>
+    ({ name: 'canvas', status: { code, message: '', action } }) as never;
+  const noSlots = new Set<string>();
+
+  it('sends a rejected personal sign-in to a sign-in again, not to credentials', () => {
+    expect(resolveServiceChip(status('credential_invalid', 'connect'), noSlots)).toEqual({
+      chip: 'needs_signin',
+      action: 'signin',
+      reauth: true,
+    });
+  });
+
+  it('shows a service the user may not use as contact-admin, with no action', () => {
+    expect(resolveServiceChip(status('needs_auth', 'contact_admin'), noSlots)).toEqual({
+      chip: 'contact_admin',
+      action: null,
+    });
+    expect(
+      resolveServiceChip(status('needs_auth', 'contact_admin'), new Set(['canvas'])).action,
+    ).toBeNull();
+  });
+
+  it('knows the thresholds for the tool-count hint', () => {
+    expect(toolCountLevel(40)).toBe('ok');
+    expect(toolCountLevel(41)).toBe('warn');
+    expect(toolCountLevel(81)).toBe('strong');
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
 interface Layer {
   id: symbol;
@@ -22,6 +22,31 @@ const lockScroll = () => {
 const unlockScroll = () => {
   if (--scrollLocks === 0) document.body.style.overflow = savedOverflow;
 };
+
+// Tab must skip what a person cannot reach: disabled, hidden or inert controls, and controls
+// inside a closed <details> (only its summary can be focused).
+const reachable = (el: HTMLElement, container: HTMLElement): boolean => {
+  for (let node: HTMLElement | null = el; node && node !== container; node = node.parentElement) {
+    if (node.hasAttribute('hidden') || node.hasAttribute('inert')) return false;
+    if (node.getAttribute('aria-hidden') === 'true') return false;
+    const style = window.getComputedStyle(node);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    const parent: HTMLElement | null = node.parentElement;
+    if (
+      parent instanceof HTMLDetailsElement &&
+      !parent.open &&
+      !(node.tagName === 'SUMMARY' && parent.querySelector(':scope > summary') === node)
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+export const focusableWithin = (container: HTMLElement): HTMLElement[] =>
+  Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) =>
+    reachable(el, container),
+  );
 
 /** Number of layers currently open; exposed for tests. */
 export const openModalLayers = (): number => layers.length;
@@ -67,7 +92,7 @@ export const useModalLayer = (
       if (event.key !== 'Tab') return;
       const container = containerRef.current;
       if (!container) return;
-      const items = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const items = focusableWithin(container);
       if (items.length === 0) {
         event.preventDefault();
         container.focus();

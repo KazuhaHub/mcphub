@@ -21,13 +21,15 @@ import { changeRiskCeiling, countHiddenTools } from '@/utils/toolRisk';
 import { copyText } from '@/utils/clipboard';
 import {
   WorkspaceApiError,
+  countExposedTools,
   createLatestOnly,
   pruneAuthLinks,
   shouldRefreshOnFocus,
+  toolCountLevel,
   toggleServerSelection,
 } from '@/utils/workspace';
 import ConnectDialog from '@/components/connect/ConnectDialog';
-import { onWorkspaceChanged } from '@/utils/workspaceEvents';
+import { notifyWorkspaceChanged, onWorkspaceChanged } from '@/utils/workspaceEvents';
 import ServicePanel from './ServicePanel';
 import WorkspaceServiceRow, { type RowAction } from './WorkspaceServiceRow';
 
@@ -60,6 +62,8 @@ const WorkspaceServicesView: React.FC = () => {
   const pendingRef = useRef(0);
   // Only the newest refresh may write state; a slow stale one must not undo a newer view.
   const latest = useRef(createLatestOnly());
+  // Marks this list's own announcements, so it does not reload twice for its own change.
+  const origin = useRef(Symbol('workspace-list'));
 
   const refreshAll = useCallback(
     () =>
@@ -140,7 +144,13 @@ const WorkspaceServicesView: React.FC = () => {
   const refreshAfterChange = useCallback(async () => {
     await Promise.all([loadBindings(), refreshAll().catch(() => undefined)]);
   }, [loadBindings, refreshAll]);
-  useEffect(() => onWorkspaceChanged(() => void refreshAfterChange()), [refreshAfterChange]);
+  useEffect(
+    () =>
+      onWorkspaceChanged((from) => {
+        if (from !== origin.current) void refreshAfterChange();
+      }),
+    [refreshAfterChange],
+  );
 
   // Coming back from an OAuth tab or the provider's site: pick up the new status.
   useEffect(() => {
@@ -179,6 +189,7 @@ const WorkspaceServicesView: React.FC = () => {
         return;
       }
       await refreshAll().catch(() => undefined);
+      notifyWorkspaceChanged(origin.current);
     });
 
   const onRiskChange = (name: string, riskCeiling: ToolRiskLevel) =>
@@ -194,6 +205,7 @@ const WorkspaceServicesView: React.FC = () => {
         return;
       }
       await refreshAll().catch(() => undefined);
+      notifyWorkspaceChanged(origin.current);
     });
 
   const connectOAuth = (name: string) =>
@@ -202,11 +214,14 @@ const WorkspaceServicesView: React.FC = () => {
         const result = await launchPersonalOAuth(name);
         if (result.kind === 'link') {
           setAuthLinks((links) => ({ ...links, [name]: result.url }));
+          // The link is shown in the panel; open it if the click came from the row.
+          setPanel((current) => current ?? { name, credentials: false });
           showToast(t('workspacePage.popupBlocked'), 'error');
         } else if (result.kind === 'invalid') {
           showToast(t('workspacePage.connectFailed'), 'error');
         }
         await refreshAll().catch(() => undefined);
+        notifyWorkspaceChanged(origin.current);
       } catch (err) {
         showToast(
           t('workspacePage.connectFailed') +
@@ -274,6 +289,8 @@ const WorkspaceServicesView: React.FC = () => {
 
   const credentialServers = bindings ? new Set(bindings.map((entry) => entry.serverName)) : null;
   const hiddenTools = countHiddenTools(servers);
+  const exposedTools = countExposedTools(servers);
+  const toolLevel = toolCountLevel(exposedTools);
   const endpointByName = new Map((endpoints?.servers ?? []).map((entry) => [entry.name, entry]));
   const panelServer = panel ? servers.find((server) => server.name === panel.name) : undefined;
 
@@ -286,14 +303,29 @@ const WorkspaceServicesView: React.FC = () => {
               {t('workspacePage.services.title')}
             </h2>
             <p className="hub-sub">{t('workspacePage.services.description')}</p>
-            {hiddenTools > 0 && (
+            {(hiddenTools > 0 || toolLevel !== 'ok') && (
               <p
                 className="mt-1 text-[12px]"
                 style={{ color: 'var(--hub-ink-3)' }}
                 role="status"
-                data-testid="hidden-tools-note"
+                data-testid="workspace-notes"
               >
-                {t('workspacePage.risk.hiddenSummary', { count: hiddenTools })}
+                {hiddenTools > 0 && (
+                  <span data-testid="hidden-tools-note">
+                    {t('workspacePage.risk.hiddenSummary', { count: hiddenTools })}
+                  </span>
+                )}
+                {hiddenTools > 0 && toolLevel !== 'ok' && ' '}
+                {toolLevel !== 'ok' && (
+                  <span data-testid="tools-hint" data-level={toolLevel}>
+                    {t(
+                      toolLevel === 'strong'
+                        ? 'workspacePage.toolsHint.strong'
+                        : 'workspacePage.toolsHint.warn',
+                      { count: exposedTools },
+                    )}
+                  </span>
+                )}
               </p>
             )}
           </div>

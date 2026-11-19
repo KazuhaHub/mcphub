@@ -8,7 +8,10 @@ import type {
   WorkspaceServer,
 } from '../../frontend/src/types';
 import WorkspaceServicesView from '../../frontend/src/components/workspace/WorkspaceServicesView';
-import { notifyWorkspaceChanged } from '../../frontend/src/utils/workspaceEvents';
+import {
+  notifyWorkspaceChanged,
+  onWorkspaceChanged,
+} from '../../frontend/src/utils/workspaceEvents';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -117,6 +120,22 @@ const servers = [
     toolCount: null,
     riskCounts: null,
     status: { code: 'needs_auth', message: '', action: 'connect' },
+  },
+  {
+    ...base,
+    name: 'oauth-rejected',
+    description: 'Personal Canvas sign-in.',
+    toolCount: null,
+    riskCounts: null,
+    requiresPersonalCredential: true,
+    status: { code: 'credential_invalid', message: 'Token rejected', action: 'connect' },
+  },
+  {
+    ...base,
+    name: 'no-access',
+    toolCount: null,
+    riskCounts: null,
+    status: { code: 'needs_auth', message: 'Not available', action: 'contact_admin' },
   },
   {
     ...base,
@@ -458,5 +477,111 @@ describe('the top of the services list', () => {
     );
     await mount();
     expect(screen.queryByTestId('hidden-tools-note')).toBeNull();
+  });
+});
+
+describe('services that sign in rather than take credentials', () => {
+  it('shows a rejected sign-in as sign in again, with no credentials section', async () => {
+    await mount();
+    const li = row('oauth-rejected');
+    expect(li.querySelector('[data-chip]')!.getAttribute('data-chip')).toBe('needs_signin');
+    expect(screen.getByTestId('workspace-action-oauth-rejected').textContent).toBe(
+      'workspacePage.chip.action.signinAgain',
+    );
+    fireEvent.click(li);
+    const panel = screen.getByTestId('service-panel');
+    expect(panel.querySelector('[data-testid="service-panel-credentials"]')).toBeNull();
+    expect(within(panel).getByText('workspacePage.panel.statusText.signin_again')).toBeTruthy();
+    const { launchPersonalOAuth } = jest.requireMock('@/services/workspaceService');
+    fireEvent.click(within(panel).getByTestId('service-panel-action'));
+    await waitFor(() => expect(launchPersonalOAuth).toHaveBeenCalledWith('oauth-rejected'));
+  });
+
+  it('shows no credentials section for a service without credential slots', async () => {
+    await mount();
+    fireEvent.click(row('anteater-shared'));
+    expect(
+      screen
+        .getByTestId('service-panel')
+        .querySelector('[data-testid="service-panel-credentials"]'),
+    ).toBeNull();
+  });
+
+  it('shows a rejected credential as rejected, not outdated', async () => {
+    mockBindings.mockImplementation(() =>
+      Promise.resolve([...clone(bindings), binding('oauth-rejected')]),
+    );
+    await mount();
+    expect(row('oauth-rejected').querySelector('[data-chip]')!.getAttribute('data-chip')).toBe(
+      'credentials_rejected',
+    );
+  });
+});
+
+describe('a service the user may not use', () => {
+  it('says so and offers no action; the panel tells them to contact the administrator', async () => {
+    await mount();
+    const li = row('no-access');
+    expect(li.querySelector('[data-chip]')!.getAttribute('data-chip')).toBe('contact_admin');
+    expect(li.querySelector('[data-testid^="workspace-action-"]')).toBeNull();
+    fireEvent.click(li);
+    const panel = screen.getByTestId('service-panel');
+    expect(within(panel).getByText('workspacePage.panel.statusText.contact_admin')).toBeTruthy();
+    expect(within(panel).queryByTestId('service-panel-action')).toBeNull();
+  });
+});
+
+describe('a blocked sign-in popup', () => {
+  it('opens the panel from the row so the link is visible', async () => {
+    const { launchPersonalOAuth } = jest.requireMock('@/services/workspaceService');
+    launchPersonalOAuth.mockResolvedValueOnce({ kind: 'link', url: 'https://idp.example/auth' });
+    await mount();
+    fireEvent.click(screen.getByTestId('workspace-action-canvas-portal'));
+    const panel = await screen.findByTestId('service-panel');
+    const link = within(panel).getByText('workspacePage.actions.openAuthorization');
+    expect(link.getAttribute('href')).toBe('https://idp.example/auth');
+  });
+});
+
+describe('the hint under the subtitle for many tools', () => {
+  const many = (count: number) =>
+    mockServers.mockImplementation(() =>
+      Promise.resolve(
+        clone(servers).map((s) => (s.name === 'anteater-shared' ? { ...s, toolCount: count } : s)),
+      ),
+    );
+
+  it('appears above 40 tools and again, stronger, above 80', async () => {
+    many(41);
+    await mount();
+    expect(screen.getByTestId('tools-hint').getAttribute('data-level')).toBe('warn');
+    expect(screen.getByTestId('tools-hint').textContent).toBe('workspacePage.toolsHint.warn:41');
+  });
+
+  it('is the strong sentence above 80', async () => {
+    many(81);
+    await mount();
+    expect(screen.getByTestId('tools-hint').getAttribute('data-level')).toBe('strong');
+  });
+
+  it('is absent at or below 40 tools', async () => {
+    many(40);
+    await mount();
+    expect(screen.queryByTestId('tools-hint')).toBeNull();
+  });
+});
+
+describe('changes made on the list reach the rest of the page', () => {
+  it('announces a toggle to other listeners, but does not reload twice for its own', async () => {
+    await mount();
+    const heard = jest.fn();
+    const off = onWorkspaceChanged(heard);
+    const before = mockServers.mock.calls.length;
+    fireEvent.click(within(row('anteater-personal')).getByRole('switch'));
+    await waitFor(() => expect(heard).toHaveBeenCalled());
+    await act(async () => {});
+    // One refetch after the save; the list ignores its own announcement.
+    expect(mockServers.mock.calls.length - before).toBe(1);
+    off();
   });
 });

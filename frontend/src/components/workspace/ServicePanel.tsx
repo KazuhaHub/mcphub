@@ -13,7 +13,12 @@ import type {
 import { getSafeManageHref } from '@/utils/manageUrl';
 import { getServiceLinkHref } from '@/utils/serviceLink';
 import { TOOL_RISK_LEVELS, countHiddenByCeiling, isRiskChoiceAllowed } from '@/utils/toolRisk';
-import { localizeStatusMessage, resolveServiceChip, serviceChipTone } from '@/utils/workspace';
+import {
+  hasCredentialSlots,
+  localizeStatusMessage,
+  resolveServiceChip,
+  serviceChipTone,
+} from '@/utils/workspace';
 import { rowButtonId, type RowAction } from './WorkspaceServiceRow';
 
 interface ServicePanelProps {
@@ -87,12 +92,17 @@ const ServicePanel: React.FC<ServicePanelProps> = ({
   const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
   const credentialsRef = useRef<HTMLHeadingElement>(null);
-  const { chip, action } = resolveServiceChip(server, credentialServers, credentialBinding);
-  const hasCredentials = Boolean(credentialBinding) || server.requiresPersonalCredential;
+  const { chip, action, reauth } = resolveServiceChip(server, credentialServers, credentialBinding);
+  // Only a service that takes credentials has a credentials section; a personal sign-in has none.
+  const hasCredentials =
+    Boolean(credentialBinding) ||
+    (credentialServers === null
+      ? server.requiresPersonalCredential && chip !== 'needs_signin'
+      : credentialServers.has(server.name));
 
   useModalLayer(panelRef, {
     onClose,
-    skipInitialFocus: Boolean(focusCredentials && hasCredentials),
+    skipInitialFocus: Boolean(focusCredentials),
     fallbackFocus: () => document.getElementById(rowButtonId(server.name)),
   });
 
@@ -100,9 +110,19 @@ const ServicePanel: React.FC<ServicePanelProps> = ({
     credentialsRef.current?.scrollIntoView?.({ block: 'start' });
     credentialsRef.current?.focus({ preventScroll: true });
   };
+  // Opened for credentials: go there once the section exists (the bindings may still be loading),
+  // and fall back to the panel itself when the service has none.
+  const wantsFocus = useRef(Boolean(focusCredentials));
   useEffect(() => {
-    if (focusCredentials && hasCredentials) goToCredentials();
-    // Only when opened for credentials; later renders must not steal focus back.
+    if (!wantsFocus.current) return;
+    if (hasCredentials) {
+      wantsFocus.current = false;
+      goToCredentials();
+    }
+  }, [hasCredentials]);
+  useEffect(() => {
+    if (focusCredentials && !hasCredentials) panelRef.current?.focus({ preventScroll: true });
+    // Only on open.
   }, []);
 
   const { code } = server.status;
@@ -119,13 +139,16 @@ const ServicePanel: React.FC<ServicePanelProps> = ({
   const actionLabel =
     action === 'signin'
       ? t('workspacePage.chip.action.signin')
-      : chip === 'credentials_outdated'
+      : chip === 'credentials_outdated' || chip === 'credentials_rejected'
         ? t('workspacePage.chip.action.update')
         : t('workspacePage.chip.action.credentials');
-  const statusDetail = t(`workspacePage.panel.statusText.${chip}`);
+  const statusDetail = t(`workspacePage.panel.statusText.${reauth ? 'signin_again' : chip}`);
   // The server's own words explain a failure; they are the details the list row leaves out.
   const serverMessage =
-    chip === 'unavailable' || chip === 'credentials_outdated'
+    chip === 'unavailable' ||
+    chip === 'credentials_outdated' ||
+    chip === 'credentials_rejected' ||
+    chip === 'contact_admin'
       ? localizeStatusMessage(server.status, formatUntil)
       : '';
 
@@ -189,7 +212,12 @@ const ServicePanel: React.FC<ServicePanelProps> = ({
                   }}
                 >
                   {action === 'signin'
-                    ? t('workspacePage.chip.action.signinTo', { name: server.name })
+                    ? t(
+                        reauth
+                          ? 'workspacePage.chip.action.signinAgainTo'
+                          : 'workspacePage.chip.action.signinTo',
+                        { name: server.name },
+                      )
                     : actionLabel}
                 </button>
               )}

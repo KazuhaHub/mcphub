@@ -14,6 +14,7 @@ import {
 } from '@/utils/connectClients';
 import { getSmartRoutingPath } from '@/utils/runtime';
 import { buildSmartEndpoint } from '@/utils/workspace';
+import { onWorkspaceChanged } from '@/utils/workspaceEvents';
 import ConnectDialog, { type ConnectDialogInitial } from './ConnectDialog';
 import ConnectTile from './ConnectTile';
 
@@ -94,6 +95,9 @@ const ConnectCard: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Any save, sign-in or toggle made elsewhere on the page shows here at once.
+  useEffect(() => onWorkspaceChanged(() => void load()), [load]);
 
   // Measure the container itself rather than assuming breakpoints: the sidebar, the page
   // padding and the viewport all change how much room the row has.
@@ -183,7 +187,6 @@ const ConnectCard: React.FC = () => {
           endpoints={endpoints}
           initial={dialog.initial}
           onClose={() => setDialog(null)}
-          onCredentialsChanged={() => void load()}
         />
       )}
     </section>
