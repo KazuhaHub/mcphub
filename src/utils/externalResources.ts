@@ -111,7 +111,10 @@ export const getExternalResources = (
   systemConfig?: Pick<SystemConfig, 'oauthServer'> | null,
 ): ExternalResource[] => {
   const list = systemConfig?.oauthServer?.externalResources;
-  return Array.isArray(list) ? list : [];
+  // Skip malformed entries (e.g. a hand-edited `null`) so callers never throw on them.
+  return Array.isArray(list)
+    ? list.filter((entry): entry is ExternalResource => !!entry && typeof entry === 'object')
+    : [];
 };
 
 /** Every scope any configured external resource declares. */
