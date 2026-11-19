@@ -589,7 +589,12 @@
     "logs": "Registros",
     "activity": "Actividad",
     "workspace": "Espacio de trabajo",
-    "system": "Sistema"
+    "system": "Sistema",
+    "keys": "API keys",
+    "password": "Password",
+    "account": "Account",
+    "manage": "Manage",
+    "myActivity": "My activity"
   },
   "pages": {
     "dashboard": {

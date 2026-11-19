@@ -512,6 +512,11 @@ describe('old links', () => {
     expect(selected()).toEqual(['credentials']);
   });
 
+  it.each(['clients', 'activity'])('sends /workspace?tab=%s to its own page', async (tab) => {
+    await mount(`/workspace?tab=${tab}`, undefined, false);
+    expect(screen.getByTestId('where').textContent).toBe(`/workspace/${tab}`);
+  });
+
   it('keeps the plain workspace page when there is no service', async () => {
     await mount('/workspace', undefined, false);
     expect(screen.getByTestId('where').textContent).toBe('/workspace');

@@ -47,14 +47,18 @@ const useCrumbs = (): string[] => {
       }
       return [root, t('workspacePage.nav'), name];
     }
-    if (path.startsWith('/workspace')) {
-      const clientsTab = new URLSearchParams(location.search).get('tab') === 'clients';
-      return clientsTab
-        ? [root, t('workspacePage.nav'), t('workspacePage.clients.tab')]
-        : [root, t('workspacePage.nav')];
+    if (path === '/workspace/clients') {
+      return [root, t('workspacePage.nav'), t('workspacePage.clients.tab')];
     }
-    if (path.startsWith('/oauth-applications')) return [root, t('oauthApprovals.title')];
-    if (path.startsWith('/passkeys')) return [root, t('passkeys.title')];
+    if (path === '/workspace/activity') {
+      return [root, t('workspacePage.nav'), t('nav.myActivity')];
+    }
+    if (path.startsWith('/workspace')) return [root, t('workspacePage.nav')];
+    if (path.startsWith('/keys')) return [root, t('nav.account'), t('nav.keys')];
+    if (path.startsWith('/password')) return [root, t('nav.account'), t('nav.password')];
+    if (path.startsWith('/oauth-applications'))
+      return [root, t('nav.account'), t('oauthApprovals.title')];
+    if (path.startsWith('/passkeys')) return [root, t('nav.account'), t('passkeys.title')];
     if (path.startsWith('/credentials'))
       return [root, t(adminCredentials ? 'credentials.adminTitle' : 'credentials.title')];
     if (path.startsWith('/servers')) return [root, t('nav.servers')];
@@ -72,7 +76,7 @@ const useCrumbs = (): string[] => {
     if (path.startsWith('/activity')) return [root, t('nav.activity')];
     if (path.startsWith('/settings')) return [root, t('nav.settings')];
     return [root];
-  }, [location.pathname, location.search, params, t, dashboardTitle, adminCredentials]);
+  }, [location.pathname, params, t, dashboardTitle, adminCredentials]);
 };
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar, menuExpanded }) => {

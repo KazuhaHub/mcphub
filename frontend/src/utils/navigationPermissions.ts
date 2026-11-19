@@ -48,14 +48,21 @@ export const fallbackPath = (ctx: NavContext): string =>
 
 export type NavKey =
   | 'workspace'
+  | 'clients'
+  | 'activity'
   | 'dashboard'
   | 'servers'
   | 'groups'
   | 'prompts'
   | 'resources'
-  | 'market';
+  | 'market'
+  | 'credentials'
+  | 'keys'
+  | 'passkeys'
+  | 'oauthApps'
+  | 'password';
 
-const WORKSPACE_GROUP_ITEMS: readonly NavKey[] = [
+const MANAGE_GROUP_ITEMS: readonly NavKey[] = [
   'dashboard',
   'servers',
   'groups',
@@ -64,13 +71,46 @@ const WORKSPACE_GROUP_ITEMS: readonly NavKey[] = [
   'market',
 ];
 
-/** Entries of the sidebar's first section, in order. Credentials/Settings/admin pages are separate. */
+/**
+ * Entries of the sidebar's WORKSPACE section: what a person does with their own endpoint. It
+ * exists only while Workspace Mode is on, and is the same for everyone.
+ */
 export const getWorkspaceNavKeys = (ctx: NavContext): NavKey[] => {
-  // Until the setting is known an ordinary user gets no entries, so admin pages never flash.
   if (ctx.resolved === false && !ctx.isAdmin) return [];
-  if (!ctx.workspaceEnabled) return [...WORKSPACE_GROUP_ITEMS];
-  return ctx.isAdmin ? ['workspace', ...WORKSPACE_GROUP_ITEMS] : ['workspace'];
+  return ctx.workspaceEnabled ? ['workspace', 'clients', 'activity'] : [];
 };
+
+/**
+ * Entries of the section for managing the hub itself: administrators always, everyone while
+ * Workspace Mode is off. An ordinary user gets none until the setting is known, so admin pages
+ * never flash.
+ */
+export const getManageNavKeys = (ctx: NavContext): NavKey[] => {
+  if (ctx.resolved === false && !ctx.isAdmin) return [];
+  return ctx.isAdmin || !ctx.workspaceEnabled ? [...MANAGE_GROUP_ITEMS] : [];
+};
+
+/**
+ * Entries of the ACCOUNT section: what belongs to the signed-in person, the same for everyone.
+ * With Workspace Mode off the old per-person Credentials page sits here too.
+ */
+export const getAccountNavKeys = (ctx: NavContext): NavKey[] => [
+  ...(getCredentialsNav(ctx) === 'own' ? (['credentials'] as const) : []),
+  'keys',
+  'passkeys',
+  'oauthApps',
+  'password',
+];
+
+/**
+ * Whether the system Settings page has anything for this person: administrators, and people
+ * given at least one settings permission. Personal items (keys, password) are separate pages.
+ */
+export const canViewSettings = (
+  user: { isAdmin?: boolean; permissions?: string[] } | null | undefined,
+): boolean =>
+  Boolean(user?.isAdmin) ||
+  Boolean(user?.permissions?.some((entry) => entry === '*' || entry.startsWith('settings:')));
 
 /** Title key of the sidebar entry for credentials, or null when there is none. */
 export type CredentialsNav = 'own' | 'admin' | null;

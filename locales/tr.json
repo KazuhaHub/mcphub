@@ -590,7 +590,12 @@
     "logs": "Günlükler",
     "activity": "Etkinlik",
     "workspace": "Çalışma Alanı",
-    "system": "Sistem"
+    "system": "Sistem",
+    "keys": "API keys",
+    "password": "Password",
+    "account": "Account",
+    "manage": "Manage",
+    "myActivity": "My activity"
   },
   "pages": {
     "dashboard": {
