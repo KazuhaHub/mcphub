@@ -51,6 +51,7 @@ import {
 import { parseResourceTarget, type ResourceTarget } from '../utils/oauthConsentResource.js';
 import { includesCredentialWriteScope, splitScopes } from '../utils/credentialWriteScope.js';
 import { evaluateCredentialWriteScopes } from '../services/credentialWriteScopeService.js';
+import { isConsentSkippedForSelfClient } from '../services/selfOAuthResource.js';
 
 const { Request: OAuth2Request, Response: OAuth2Response } = OAuth2Server;
 
@@ -647,6 +648,9 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
 
     // Check if user is authenticated (including via JWT token)
     let user = (req as any).user;
+    // A token in the URL ends up in history and logs: it can sign a user in, never skip consent.
+    const queryTokenOnly =
+      !user && !req.header('x-auth-token') && typeof req.query.token === 'string';
     if (!user) {
       const tokenUser = await resolveUserFromRequest(req);
       if (tokenUser) {
@@ -656,6 +660,46 @@ export const getAuthorize = async (req: Request, res: Response): Promise<void> =
     }
     if (!user) {
       user = await resolveBetterAuthUserForAuthorize(req);
+    }
+
+    // The administrator listed this resource and opted in, and the asker is MCPHub's own personal
+    // connection client with exactly its redirect URI and no scope beyond the entry's: the
+    // configuration is the consent, and the user turning the service on is the trigger. The code
+    // can only be delivered to MCPHub's own callback, which accepts only a state it issued. Any
+    // other client, a CIMD/DCR client, a credential-write request, an extra scope, a session
+    // that is only a token in the URL, or a request without `state` still gets the consent page.
+    const selfIssuer = await resolveIssuer(req);
+    if (
+      user &&
+      externalResource &&
+      !credentialWriteServer &&
+      !queryTokenOnly &&
+      state &&
+      isConsentSkippedForSelfClient({
+        clientId: client_id,
+        redirectUri: redirect_uri,
+        issuer: selfIssuer,
+        entry: externalResource,
+        scopes: requestedScopes,
+      })
+    ) {
+      const issuer = selfIssuer;
+      const spaFollowUp =
+        String(req.headers?.accept ?? '').includes('application/json') &&
+        Boolean(req.headers?.['x-auth-token']);
+      const redirect = (target: string): void => {
+        if (spaFollowUp) res.json({ redirect: target });
+        else res.redirect(target);
+      };
+      logger.info(
+        `OAuth consent skipped for the administrator-trusted resource: client ${client_id}, user ${user.username}, resource ${externalResource.resource}, scope '${requestedScopes.join(' ')}'`,
+      );
+      await authorizeAndRedirect(req, res, user, redirect_uri, state, {
+        issuer,
+        resource: externalResource.resource,
+        redirect,
+      });
+      return;
     }
 
     // A browser navigation cannot carry a header, so a request with no credential at all is

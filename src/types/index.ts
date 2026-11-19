@@ -512,6 +512,9 @@ export interface ExternalResource {
   name: string; // Display name, shown on the consent screen and in connected clients
   allowedClients?: string[]; // OAuth client ids allowed to request it; empty or absent = any registered client (a URL-shaped CIMD client id is never implied: list it by URL)
   scopes?: string[]; // Scopes the service needs; only these are granted for it (absent = none), copied into the JWT `scope` claim
+  // Default false. When true, MCPHub's own personal-connection client (`mcphub-personal-oauth`, ADR 0015) is issued a
+  // code for this resource without the consent page, for the scopes listed above only. Every other client still sees it.
+  skipConsentForPersonalConnection?: boolean;
 }
 
 // OAuth Server Configuration

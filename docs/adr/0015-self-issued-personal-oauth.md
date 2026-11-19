@@ -48,6 +48,17 @@ no explicit `authorizationServerMetadata`, `authorizationEndpoint` or `tokenEndp
   entry's `scopes` (admin-configured, copied into the JWT `scope` claim); any other requested scope is
   dropped, not refused, and an entry without a list grants none. MCPHub's own `read`/`write` are never
   granted for an external resource.
+- **Consent.** By default the user sees MCPHub's consent page. An entry may set
+  `skipConsentForPersonalConnection: true` (default off, administrator-only like the rest of
+  `externalResources`): the administrator's configuration is then the consent, and the user turning the
+  service on is the trigger. The skip applies only when the client id is exactly `mcphub-personal-oauth`,
+  the `redirect_uri` is exactly its one callback, the resource is the entry, every requested scope is in
+  the entry's `scopes`, the request has a `state`, there is no `credentials:write` scope, and the user is
+  signed in by a header session (a token in the URL never skips). Any other client (registered, dynamic or
+  URL-shaped) and any other request keeps the page. The code can only go to MCPHub's own callback, which
+  accepts only a state it issued, so a page that navigates a signed-in browser here gains nothing. Each
+  skip is logged (`OAuth consent skipped for the administrator-trusted resource`) with user, client,
+  resource and scopes. The consent SPA follows the `{ redirect }` the silent request answers with.
 - **Self loop.** Requests for MCPHub's own `/.well-known/oauth-authorization-server` and
   `/oauth/token` are served by a dedicated minimal app on `127.0.0.1` (ephemeral port) that mounts only
   those two handlers, with its own rate limits shared with no public traffic: one per user and server (keyed by a hash

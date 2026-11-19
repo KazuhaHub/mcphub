@@ -52,7 +52,13 @@ const OAuthConsentPage: React.FC = () => {
         if (response.status === 401) return goToLogin();
         const body = (await response.json().catch(() => null)) as {
           resource?: ResourceTarget;
+          redirect?: string;
         } | null;
+        // A resource the administrator trusts for MCPHub's own connection needs no consent.
+        if (body?.redirect) {
+          window.location.assign(body.redirect);
+          return;
+        }
         if (body?.resource) setResolvedResource(body.resource);
       })
       .catch(() => undefined);

@@ -102,6 +102,34 @@ export const selfRedirectUri = (issuer: string): string => {
 export const isProtectedSelfClient = (clientId: string): boolean =>
   clientId === SELF_OAUTH_CLIENT_ID;
 
+/**
+ * Whether MCPHub's own personal-connection client may be issued a code for this external resource
+ * without the consent page (ADR 0015). The administrator's entry is the consent, so it must opt in
+ * (`skipConsentForPersonalConnection`), and everything must be exactly what the self-resource flow
+ * sends: the reserved client id, its one redirect URI, and no scope the entry does not list. Anything
+ * else keeps the consent page.
+ */
+export const isConsentSkippedForSelfClient = (input: {
+  clientId: string;
+  redirectUri: string;
+  issuer: string | undefined;
+  entry: ExternalResource;
+  scopes: string[];
+}): boolean => {
+  const { clientId, redirectUri, issuer, entry, scopes } = input;
+  if (entry.skipConsentForPersonalConnection !== true || !issuer) return false;
+  if (!isProtectedSelfClient(clientId)) return false;
+  let expected: string;
+  try {
+    expected = selfRedirectUri(issuer);
+  } catch {
+    return false;
+  }
+  if (redirectUri !== expected) return false;
+  const granted = new Set(entry.scopes ?? []);
+  return scopes.every((scope) => granted.has(scope));
+};
+
 const sameList = (a: string[] | undefined, b: string[]): boolean =>
   Array.isArray(a) && a.length === b.length && a.every((value, i) => value === b[i]);
 
