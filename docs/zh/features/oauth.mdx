@@ -204,6 +204,12 @@ MCP 受保护资源发现和 SDK 的 resource indicator 校验仍针对 MCP URL 
 该服务器级配置独立于 MCPHub 下游的 `systemConfig.oauthServer` 和旧的全局 `systemConfig.oauth` 代理，此流程不需要启用这两项全局配置。
 
 
+## 连接以 MCPHub 为授权服务器的服务
+
+外部服务可以用 MCPHub 签发的令牌保护自己的 MCP 端点（见[配置参考](/zh/api-reference/config)中的 `oauthServer.externalResources`）。若一个启用个人 OAuth 的服务器，其 `url` 与某个已配置的外部资源完全一致，MCPHub 会用自己的公共客户端 `mcphub-personal-oauth` 为每个用户获取令牌，无需再次登录。
+
+该服务的受保护资源元数据必须在 `authorization_servers` 中列出本 MCPHub，位置不限：服务可以把自己或其他签发者排在前面，MCPHub 会在整个列表中查找自己的签发者，只使用它，并且在此模式下绝不会跟随其他签发者。若列表中没有 MCPHub，或元数据中的 `resource` 与配置的 `url` 不一致，连接会被拒绝。详见 ADR 0015。
+
 ## MCPHub 提供的发现端点
 
 MCPHub 作为授权服务器时，客户端先通过 RFC 9728 受保护资源元数据发现它，再获取 RFC 8414 元数据。
