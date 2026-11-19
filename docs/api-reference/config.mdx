@@ -143,7 +143,7 @@ Retrieves the essential runtime configuration required for the frontend applicat
 
 ### Get Version
 
-Returns the running MCPHub version. The version is never published to callers who are not signed in: `/config`, `/public-config`, the health endpoints, the MCP `initialize` answer and the dashboard's static files do not contain it, and responses carry no `X-Powered-By` header. This endpoint requires authentication.
+Returns the running MCPHub version. The version is never published to callers who are not signed in: `/config`, `/public-config`, the health endpoints, the MCP `initialize` answer and the dashboard's static files do not contain it, and responses carry no `X-Powered-By` header. This endpoint requires an administrator; other signed-in users receive `403`. The update check (`/api/changelog/update-info`) is administrator-only in the same way.
 
 - **Endpoint**: `/api/version`
 - **Method**: `GET`

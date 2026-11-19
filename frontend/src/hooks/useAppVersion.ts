@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { apiGet } from '@/utils/fetchInterceptor';
 
-// The version is served only to signed-in users (GET /api/version) and is never compiled into
+// The version is served only to administrators (GET /api/version) and is never compiled into
 // the bundle. Fetched once per page load and shared by every consumer.
 let cached: string | null = null;
 let inflight: Promise<string> | null = null;
@@ -29,11 +30,17 @@ export const resetAppVersionCache = (): void => {
   inflight = null;
 };
 
-/** The running MCPHub version, or '' until it has loaded (or if it could not be loaded). */
+/**
+ * The running MCPHub version, or '' until it has loaded (or if it could not be loaded).
+ * Always '' for anyone but an administrator, and /api/version is not even requested for them.
+ */
 export const useAppVersion = (): string => {
+  const { auth } = useAuth();
+  const isAdmin = Boolean(auth.isAuthenticated && auth.user?.isAdmin);
   const [version, setVersion] = useState<string>(cached ?? '');
 
   useEffect(() => {
+    if (!isAdmin) return;
     let active = true;
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -55,7 +62,7 @@ export const useAppVersion = (): string => {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [isAdmin]);
 
-  return version;
+  return isAdmin ? version : '';
 };
