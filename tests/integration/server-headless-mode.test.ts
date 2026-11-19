@@ -87,7 +87,9 @@ describe('AppServer headless web mode', () => {
     delete process.env.DISABLE_WEB;
     frontendDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcphub-frontend-'));
     fs.writeFileSync(path.join(frontendDir, 'index.html'), '<html><body>test ui</body></html>');
-    jest.spyOn(AppServer.prototype as never, 'findFrontendDistPath' as never).mockReturnValue(frontendDir);
+    jest
+      .spyOn(AppServer.prototype as never, 'findFrontendDistPath' as never)
+      .mockReturnValue(frontendDir);
   });
 
   afterEach(() => {
@@ -124,6 +126,18 @@ describe('AppServer headless web mode', () => {
 
     expect(page.headers['x-powered-by']).toBeUndefined();
     expect(mcp.headers['x-powered-by']).toBeUndefined();
+  });
+
+  it('serves static files without build-time headers and caches hashed assets', async () => {
+    fs.mkdirSync(path.join(frontendDir, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(frontendDir, 'assets', 'index-abc123.js'), 'console.log(1);');
+    const app = await createApp();
+
+    const asset = await request(app).get('/assets/index-abc123.js').expect(200);
+
+    expect(asset.headers['last-modified']).toBeUndefined();
+    expect(asset.headers['etag']).toBeUndefined();
+    expect(asset.headers['cache-control']).toBe('public, max-age=31536000, immutable');
   });
 
   it('disables the web UI while keeping MCP routes available when DISABLE_WEB=true', async () => {

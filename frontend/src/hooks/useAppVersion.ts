@@ -11,8 +11,10 @@ const loadVersion = (): Promise<string> => {
   if (!inflight) {
     inflight = apiGet<{ success: boolean; data?: { version?: string } }>('/version')
       .then((res) => {
-        cached = res.success && res.data?.version ? res.data.version : '';
-        return cached;
+        const version = res.success && res.data?.version ? res.data.version : '';
+        // Only a real answer is kept; a failed call (network, 429, restart) is tried again later.
+        if (version) cached = version;
+        return version;
       })
       .finally(() => {
         inflight = null;
@@ -33,11 +35,25 @@ export const useAppVersion = (): string => {
 
   useEffect(() => {
     let active = true;
-    loadVersion()
-      .then((v) => active && setVersion(v))
-      .catch(() => active && setVersion(''));
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      loadVersion()
+        .catch(() => '')
+        .then((v) => {
+          if (!active) return;
+          setVersion(v);
+          // Retry a failed load a few times, waiting longer each time (5 s, 10 s, 20 s, 40 s).
+          if (!v && attempt < 4) {
+            timer = setTimeout(load, 5000 * 2 ** attempt);
+            attempt += 1;
+          }
+        });
+    };
+    load();
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
     };
   }, []);
 
