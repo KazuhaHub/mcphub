@@ -137,6 +137,12 @@
       "scheme": "La URL de la página de gestión debe empezar por https:// (http:// solo se permite para localhost)",
       "credentials": "La URL de la página de gestión no debe contener usuario ni contraseña"
     },
+    "tags": "Etiquetas",
+    "tagsPlaceholder": "Añade una etiqueta y pulsa Intro",
+    "removeTag": "Quitar etiqueta {{tag}}",
+    "tagFilter": "Filtrar por etiqueta",
+    "allTags": "Todas las etiquetas",
+    "searchPlaceholder": "Buscar por nombre, nota, etiqueta o herramienta",
     "url": "URL del servidor",
     "apiKey": "Clave de API",
     "save": "Guardar",

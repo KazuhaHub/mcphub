@@ -137,6 +137,12 @@
       "scheme": "管理页面链接必须以 https:// 开头（仅 localhost 可使用 http://）",
       "credentials": "管理页面链接不能包含用户名或密码"
     },
+    "tags": "标签",
+    "tagsPlaceholder": "输入标签后按回车",
+    "removeTag": "移除标签 {{tag}}",
+    "tagFilter": "按标签筛选",
+    "allTags": "全部标签",
+    "searchPlaceholder": "按名称、备注、标签或工具搜索",
     "url": "服务器 URL",
     "apiKey": "API 密钥",
     "save": "保存",

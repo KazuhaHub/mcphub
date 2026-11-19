@@ -4,6 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import ServerAvailabilityFields from './ServerAvailabilityFields';
+import { useServerContext } from '../contexts/ServerContext';
+import TagInput from './ui/TagInput';
+import { getServerTagOptions, normalizeTags } from '../utils/serverTags';
 import { getServerConfigPermissionError } from '../utils/serverPermissions.js';
 import { MANAGE_URL_MAX_LENGTH, getManageUrlSubmitProblem } from '../utils/manageUrl';
 import { X } from 'lucide-react';
@@ -74,6 +77,8 @@ const ServerForm = ({
   const { t } = useTranslation();
   const { auth } = useAuth();
   const { workspaceEnabled } = useSettings();
+  const { allServers } = useServerContext();
+  const tagSuggestions = getServerTagOptions(allServers).map((option) => option.tag);
 
   // Native `pattern`/`maxLength` on the name field are enforced on create and
   // on edit of an already-valid name. Editing a legacy (invalid) name without
@@ -146,6 +151,7 @@ const ServerForm = ({
     name: (initialData && initialData.name) || '',
     description: (initialData && initialData.config && initialData.config.description) || '',
     manageUrl: (initialData && initialData.config && initialData.config.manageUrl) || '',
+    tags: normalizeTags(initialData?.config?.tags),
     url: (initialData && initialData.config && initialData.config.url) || '',
     command: (initialData && initialData.config && initialData.config.command) || '',
     arguments: '',
@@ -768,6 +774,21 @@ const ServerForm = ({
                 <p className="mt-1 text-xs text-[var(--hub-ink-3)]">{t('server.manageUrlHint')}</p>
               </div>
             )}
+            <div className="md:col-span-2">
+              <label
+                className="block text-sm font-medium mb-1.5 text-[var(--hub-ink-2)]"
+                htmlFor="server-tags"
+              >
+                {t('server.tags')}
+              </label>
+              <TagInput
+                id="server-tags"
+                value={formData.tags ?? []}
+                onChange={(tags) => setFormData((prev) => ({ ...prev, tags }))}
+                suggestions={tagSuggestions}
+                placeholder={t('server.tagsPlaceholder')}
+              />
+            </div>
           </div>
         </div>
 

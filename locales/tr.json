@@ -137,6 +137,12 @@
       "scheme": "Yönetim sayfası URL'si https:// ile başlamalıdır (http:// yalnızca localhost için izinlidir)",
       "credentials": "Yönetim sayfası URL'si kullanıcı adı veya parola içermemelidir"
     },
+    "tags": "Etiketler",
+    "tagsPlaceholder": "Bir etiket yazıp Enter'a basın",
+    "removeTag": "{{tag}} etiketini kaldır",
+    "tagFilter": "Etikete göre filtrele",
+    "allTags": "Tüm etiketler",
+    "searchPlaceholder": "Ad, not, etiket veya araca göre ara",
     "url": "Sunucu URL'si",
     "apiKey": "API Anahtarı",
     "save": "Kaydet",
