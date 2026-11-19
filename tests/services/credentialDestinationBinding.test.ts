@@ -779,4 +779,73 @@ describe('readiness in the credential destination', () => {
       }),
     ).toBe(canonicalCredentialDestination(remote));
   });
+
+  it('also covers an OpenAPI server with an inline schema, which has no origin', () => {
+    const inline = {
+      type: 'openapi' as const,
+      openapi: { schema: { openapi: '3.1.0' } },
+      credentialTemplate: [{ target: 'headers' as const, name: 'X-Key' }],
+    };
+    const a = canonicalCredentialDestination({
+      ...inline,
+      readiness: { url: 'https://a.example.com/r', auth: { credential: 'X-Key' } },
+    });
+    expect(a).not.toBe(canonicalCredentialDestination(inline));
+  });
+
+  it('is not added for an OpenAPI server with a document url', () => {
+    const remote = {
+      type: 'openapi' as const,
+      openapi: { url: 'https://api.example.com/openapi.json' },
+    };
+    expect(
+      canonicalCredentialDestination({
+        ...remote,
+        readiness: { url: 'https://api.example.com/r', auth: 'oauth' },
+      }),
+    ).toBe(canonicalCredentialDestination(remote));
+  });
+});
+
+describe('readiness in the personal OAuth declaration', () => {
+  const { personalOAuthFingerprint } = jest.requireActual(
+    '../../src/services/personalOAuthService.js',
+  ) as typeof import('../../src/services/personalOAuthService.js');
+  const inline = {
+    type: 'openapi' as const,
+    openapi: { schema: { openapi: '3.1.0' } },
+    oauth: { identityMode: 'personal' as const, clientId: 'c' },
+  };
+
+  it('is unchanged without readiness', () => {
+    expect(personalOAuthFingerprint(inline)).toBe(
+      personalOAuthFingerprint({ ...inline, readiness: undefined }),
+    );
+  });
+
+  it('changes when a server with no origin gains or changes its readiness', () => {
+    const a = personalOAuthFingerprint({
+      ...inline,
+      readiness: { url: 'https://a.example.com/r', auth: 'oauth' },
+    });
+    const b = personalOAuthFingerprint({
+      ...inline,
+      readiness: { url: 'https://b.example.com/r', auth: 'oauth' },
+    });
+    expect(new Set([personalOAuthFingerprint(inline), a, b]).size).toBe(3);
+  });
+
+  it('is not part of it when the server has an origin (same origin is enforced instead)', () => {
+    const remote = {
+      type: 'streamable-http' as const,
+      url: 'https://svc.example.com/mcp',
+      oauth: { identityMode: 'personal' as const },
+    };
+    expect(
+      personalOAuthFingerprint({
+        ...remote,
+        readiness: { url: 'https://svc.example.com/r', auth: 'oauth' },
+      }),
+    ).toBe(personalOAuthFingerprint(remote));
+  });
 });

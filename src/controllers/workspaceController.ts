@@ -24,6 +24,7 @@ import {
   countUserServerStatuses,
   getPersonalAuthState,
   getUserServerStatus,
+  isAdminBlockedForUser,
   resolveEndpointState,
   type PersonalAuthState,
 } from '../services/userServerStatusService.js';
@@ -155,14 +156,26 @@ const unknownReadiness = (): ServiceReadiness => ({
   checkedAt: new Date().toISOString(),
 });
 
-// The probe is only worth sending once the user's credential is bound; before that the
-// dashboard already says what is missing.
+// The probe is only worth sending once the user's credential is bound (before that the
+// dashboard already says what is missing) and while the service can be used at all: a disabled
+// service, one in maintenance, or one paused for this user shows the hub's own status instead,
+// which the row and page already put first.
+const shouldProbeReadiness = (
+  user: RequestPrincipal,
+  server: ServerRecord,
+  personalAuth: PersonalAuthState,
+): boolean =>
+  Boolean(server.readiness) &&
+  personalAuth === 'configured' &&
+  server.enabled !== false &&
+  !isAdminBlockedForUser(server, user);
+
 const probeReadiness = (
   user: RequestPrincipal,
   server: ServerRecord,
   personalAuth: PersonalAuthState,
 ): Promise<ServiceReadiness | null> =>
-  server.readiness && personalAuth === 'configured'
+  shouldProbeReadiness(user, server, personalAuth)
     ? getServiceReadinessBounded(user, server.name, server).catch(unknownReadiness)
     : Promise.resolve(null);
 
@@ -288,12 +301,11 @@ export const checkWorkspaceReadiness = async (req: Request, res: Response): Prom
       return;
     }
     const personalAuth = await getPersonalAuthState(user, server.name, server);
-    const readiness =
-      server.readiness && personalAuth === 'configured'
-        ? await getServiceReadiness(user, server.name, server, { refresh: true }).catch(
-            unknownReadiness,
-          )
-        : null;
+    const readiness = shouldProbeReadiness(user, server, personalAuth)
+      ? await getServiceReadiness(user, server.name, server, { refresh: true }).catch(
+          unknownReadiness,
+        )
+      : null;
     res.json({ success: true, data: { name: server.name, readiness } });
   } catch {
     res.status(500).json({ success: false, message: 'Unable to check the service' });

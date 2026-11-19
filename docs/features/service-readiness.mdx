@@ -31,17 +31,27 @@ An administrator sets `readiness` on a server in the server form (**Readiness ch
 
 ## Trust model
 
-The probe sends a user's credential only to the readiness URL, never follows a redirect, and never reaches private or loopback addresses, even ones the system allowlist (`network.allowedCidrs`) permits for MCP servers.
+The probe sends a user's credential only to the readiness URL and never follows a redirect. It connects directly, so it does not use the proxy settings that MCP connections use, and it does not use the `network.allowedCidrs` allowlist of internal ranges: a readiness URL that resolves to a private or loopback address, or that is only reachable through a proxy, ends as `unknown` rather than sending the credential anywhere unexpected.
 
-- **Servers with a `url`:** `readiness.url` must have the **same origin** (`https`, host and port; the path is free) as the server's `url`. A different host, a subdomain, another port or `http` is rejected when the server is saved (API, dashboard, CLI, settings sync and template import), and the probe re-checks it every time, so a later change of the server `url` makes the check report `unknown` instead of sending the credential elsewhere. The credential therefore only ever goes to the origin the user already connected to, and no credential binding is invalidated.
-- **Servers without a `url` (stdio, OpenAPI) using `{ "credential": ... }`:** there is no origin to compare. The readiness check becomes part of the binding's destination, so adding or changing it marks existing bindings as outdated and users must enter their values again (same as changing the server's command).
+`readiness.url` must have the **same origin** (`https`, host and port; the path is free) as the place MCPHub already sends that credential:
+
+| Server | Origin the readiness URL must match |
+| --- | --- |
+| Remote MCP (SSE, Streamable HTTP) | the server's `url` |
+| OpenAPI with personal OAuth (`"oauth"`) | `oauth.resource` if set, otherwise the OpenAPI document `openapi.url` |
+| OpenAPI with a credential slot | the OpenAPI document `openapi.url` |
+
+A different host, a subdomain, another port or `http` is rejected when the server is saved (API, dashboard, CLI, template import; settings sync drops an invalid declaration with a warning), and the probe checks it again every time, so a later change of the server's URL makes the check report `unknown` instead of sending the credential elsewhere. Because the credential only ever goes to an origin the user already connected to, no credential binding is invalidated.
+
+- **Servers with no origin** (stdio, or OpenAPI with an inline schema and no `oauth.resource`): there is nothing to compare, so the readiness check becomes part of the credential binding's destination, for credential slots and for personal OAuth. Adding or changing it marks existing bindings as outdated and users must enter their values or sign in again (as changing the server's command would).
+- **`${VAR}` placeholders:** at probe time the server URL is expanded the same way connections expand it, and the expanded value is compared. When the server is saved the stored text is compared as written, so a URL whose scheme, host or port is a `${VAR}` placeholder cannot be validated and is rejected; write it literally, or keep the placeholder out of the origin.
 - **`"oauth"`** requires a server with personal OAuth and is rejected otherwise.
 
 ## Contract, version 1
 
 ### Who calls whom
 
-MCPHub (server side, never the browser) calls `GET <readiness.url>` for one user and one service, only when the service has `readiness` configured and that user's personal credential for the service is configured (OAuth signed in, or the credential slot filled). Without a bound credential the workspace shows no readiness, because the credential itself is what is missing.
+MCPHub (server side, never the browser) calls `GET <readiness.url>` for one user and one service, only when the service has `readiness` configured and that user's personal credential for the service is configured (OAuth signed in, or the credential slot filled). Without a bound credential the workspace shows no readiness, because the credential itself is what is missing. A disabled service, one in maintenance, and one paused for the user show the hub's own status and are not probed.
 
 ### Request
 
@@ -87,7 +97,7 @@ These are MCPHub's own answers, not service-defined:
 
 ### Freshness
 
-- The answer is cached per user and service for 5 minutes. A failed check (`unknown` or `revoked`) is remembered for 30 seconds only. Saving or deleting the user's credential clears the cache for it.
+- The answer is cached per user and service for 5 minutes. A failed check (`unknown` or `revoked`) is remembered for 30 seconds only. When an answer expires, the last one (up to an hour old) is returned at once and refreshed in the background, so only the first check for a user and service waits. At most 16 probes run at once; the rest queue. Saving or deleting the user's credential clears the cache for it.
 - The dashboard bypasses the cache on an explicit re-check: when the user returns to the tab after clicking an action or manage link, and with the **Re-check** button (`POST /api/workspace/servers/:name/readiness/check`). Re-checks of one service closer than 3 seconds apart answer from the cache.
 - The workspace list asks in parallel with the rest of its work and waits at most 2 seconds for a probe; a slow or failing call shows as `unknown`, never breaks the list, and delays it by at most 2 seconds. The probe still finishes in the background and fills the cache.
 

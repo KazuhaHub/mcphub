@@ -112,10 +112,7 @@ import {
   normalizeServerConfigForPersistence,
   normalizeToolConfig,
 } from '../utils/serverConfigPersistence.js';
-import {
-  hasConnectionRelevantChange,
-  type ServerRecord,
-} from '../utils/connectionRelevantConfig.js';
+import { hasConnectionRelevantChange, type ServerRecord } from '../utils/connectionRelevantConfig.js';
 import {
   isPrivilegedServerConfig,
   ServerConfigValidationError,
@@ -152,6 +149,7 @@ type DescribableConfig = Record<
   string,
   { enabled: boolean; description?: string; hiddenParams?: string[] }
 >;
+
 
 type RequestUser = {
   username: string;
@@ -443,6 +441,8 @@ const clearDescriptionOverride = (
 
   return nextItems;
 };
+
+
 
 export const getAllServers = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1406,8 +1406,8 @@ export const updateServer = async (req: Request, res: Response): Promise<void> =
     }
 
     // A stored readiness declaration must still fit the server this edit produces (credential
-    // slot, same origin as the url, personal OAuth) when the edit does not name it. (A readiness sent in the body was
-    // already checked against the body's own template while normalizing.)
+    // slot, same origin as the credential's destination, personal OAuth) when the edit does not
+    // name it. A readiness sent in the body was already checked while normalizing.
     const readinessProblem = hasOwnKey(normalizedConfig, 'readiness')
       ? null
       : readinessServerProblem(existingServer.readiness, normalizedConfig);
@@ -2137,10 +2137,7 @@ export const toggleTool = async (req: Request, res: Response): Promise<void> => 
  * connect to settle, then report only a failure this restart produced. An
  * on-demand server spawns on the next call, so there is nothing to wait for.
  */
-const restartFailureOf = async (
-  serverName: string,
-  errorBefore: string | null,
-): Promise<boolean> => {
+const restartFailureOf = async (serverName: string, errorBefore: string | null): Promise<boolean> => {
   const runtime = getServerByName(serverName);
   if (!runtime || runtime.config?.startOnDemand === true) return false;
   if (runtime.enabled === false) return false;
@@ -2164,7 +2161,12 @@ const restartFailureOf = async (
 export const updateToolFileStaging = async (req: Request, res: Response): Promise<void> => {
   try {
     const serverName = decodeURIComponent(req.params.name);
-    const { tool, enabled, inputParams, outputParams } = (req.body ?? {}) as {
+    const {
+      tool,
+      enabled,
+      inputParams,
+      outputParams,
+    } = (req.body ?? {}) as {
       tool?: unknown;
       enabled?: unknown;
       inputParams?: unknown;
@@ -2727,10 +2729,12 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       dashboardName !== undefined &&
       (typeof dashboardName !== 'string' || dashboardName.trim().length > 100)
     ) {
-      res.status(400).json({
-        success: false,
-        message: 'dashboardName must be a string of at most 100 characters',
-      });
+      res
+        .status(400)
+        .json({
+          success: false,
+          message: 'dashboardName must be a string of at most 100 characters',
+        });
       return;
     }
     const loginPresentationError = validateLoginPresentationUpdate(auth?.betterAuth);
@@ -3688,10 +3692,7 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
     }
 
     if (dashboardBranding !== undefined) {
-      systemConfig.dashboardBranding = mergeBranding(
-        systemConfig.dashboardBranding,
-        dashboardBranding,
-      );
+      systemConfig.dashboardBranding = mergeBranding(systemConfig.dashboardBranding, dashboardBranding);
     }
 
     if (typeof normalizeToolNames === 'boolean') {

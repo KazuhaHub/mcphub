@@ -128,6 +128,53 @@ describe('readinessServerProblem: the bearer only goes where the user already tr
   });
 });
 
+describe('readinessServerProblem for OpenAPI servers (no top-level url)', () => {
+  const openapi = {
+    type: 'openapi',
+    openapi: { url: 'https://api.example.com/v1/openapi.json' },
+    oauth: { identityMode: 'personal' },
+  } as never;
+  const at = (url: string, server = openapi) =>
+    readinessServerProblem({ url, auth: 'oauth' }, server);
+
+  it('uses the origin the personal token is sent to: the document url', () => {
+    expect(at('https://api.example.com/readiness')).toBeNull();
+    expect(at('https://evil.example.org/readiness')).toMatch(/same origin/);
+    expect(at('https://api.example.com:8443/readiness')).toMatch(/same origin/);
+    expect(at('https://other.api.example.com/readiness')).toMatch(/same origin/);
+  });
+
+  it('uses oauth.resource when the server names one, as the token is bound to it', () => {
+    const withResource = {
+      ...(openapi as object),
+      oauth: { identityMode: 'personal', resource: 'https://resource.example.net/api' },
+    } as never;
+    expect(at('https://resource.example.net/readiness', withResource)).toBeNull();
+    expect(at('https://api.example.com/readiness', withResource)).toMatch(/same origin/);
+  });
+
+  it('uses the document url for a credential slot too', () => {
+    const slotServer = {
+      type: 'openapi',
+      openapi: { url: 'https://api.example.com/openapi.json' },
+      credentialTemplate: [{ target: 'headers', name: 'X-Key' }],
+    } as never;
+    const problem = (url: string) =>
+      readinessServerProblem({ url, auth: { credential: 'X-Key' } }, slotServer);
+    expect(problem('https://api.example.com/r')).toBeNull();
+    expect(problem('https://evil.example.org/r')).toMatch(/same origin/);
+  });
+
+  it('has no origin to compare for an inline schema, so the fingerprints cover it', () => {
+    const inline = {
+      type: 'openapi',
+      openapi: { schema: { openapi: '3.1.0' } },
+      oauth: { identityMode: 'personal' },
+    } as never;
+    expect(at('https://anywhere.example.org/r', inline)).toBeNull();
+  });
+});
+
 describe('server config persistence', () => {
   const base = { type: 'streamable-http' as const, url: 'https://example.com/mcp' };
 
@@ -177,6 +224,31 @@ describe('server config persistence', () => {
         readiness: { url: 'https://example.com/ready', auth: 'oauth' },
       }),
     ).toThrow(/personal OAuth/);
+  });
+
+  it('rejects a cross-origin readiness url on an OpenAPI personal OAuth server on save', () => {
+    const openapi = {
+      type: 'openapi' as const,
+      openapi: { url: 'https://api.example.com/openapi.json' },
+      oauth: {
+        identityMode: 'personal' as const,
+        clientId: 'client',
+        authorizationEndpoint: 'https://auth.example.com/authorize',
+        tokenEndpoint: 'https://auth.example.com/token',
+      },
+    };
+    expect(() =>
+      normalizeServerConfigForPersistence({
+        ...openapi,
+        readiness: { url: 'https://evil.example.org/r', auth: 'oauth' },
+      }),
+    ).toThrow(/same origin/);
+    expect(
+      normalizeServerConfigForPersistence({
+        ...openapi,
+        readiness: { url: 'https://api.example.com/readiness', auth: 'oauth' },
+      }).readiness?.url,
+    ).toBe('https://api.example.com/readiness');
   });
 
   it('accepts a declared slot', () => {

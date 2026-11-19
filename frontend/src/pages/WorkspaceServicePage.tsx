@@ -487,14 +487,18 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
                 <Copy size={13} /> {t('workspacePage.panel.copyUrl')}
               </button>
               {manageHref && (
-                <button
-                  type="button"
+                <a
+                  href={getServiceLinkHref(server.name)}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="hub-btn"
                   aria-label={t('workspacePage.actions.manageAccountFor', { name: server.name })}
-                  onClick={() => openOutside(getServiceLinkHref(server.name))}
+                  onClick={() => {
+                    leftForService.current = true;
+                  }}
                 >
                   {t('workspacePage.actions.manageAccount')} <ExternalLink size={12} aria-hidden />
-                </button>
+                </a>
               )}
               {readiness && (
                 <button

@@ -1,4 +1,4 @@
-import { resolveSyncedServerId } from '../../src/utils/settingsSync.js';
+import { normalizeDeclaredServer, resolveSyncedServerId } from '../../src/utils/settingsSync.js';
 import { isLegacyServerId, legacyServerId } from '../../src/utils/serverIdentity.js';
 
 /**
@@ -31,5 +31,43 @@ describe('resolveSyncedServerId', () => {
     expect(resolveSyncedServerId(undefined, '22222222-2222-4222-8222-222222222222', 'remote')).toBe(
       '22222222-2222-4222-8222-222222222222',
     );
+  });
+});
+
+describe('normalizeDeclaredServer', () => {
+  const remote = { type: 'streamable-http' as const, url: 'https://svc.example.com/mcp' };
+
+  it('keeps a valid readiness declaration', () => {
+    const config = normalizeDeclaredServer('svc', {
+      ...remote,
+      oauth: { identityMode: 'personal' },
+      readiness: { url: 'https://svc.example.com/ready', auth: 'oauth' },
+    });
+    expect(config.readiness).toEqual({ url: 'https://svc.example.com/ready', auth: 'oauth' });
+  });
+
+  it.each([
+    { url: 'http://svc.example.com/ready', auth: 'oauth' },
+    { url: 'https://evil.example.org/ready', auth: 'oauth' },
+    'not an object',
+    { url: 5 },
+  ])('drops an invalid readiness %j instead of failing the whole sync', (readiness) => {
+    const config = normalizeDeclaredServer('svc', {
+      ...remote,
+      oauth: { identityMode: 'personal' },
+      readiness: readiness as never,
+    });
+    expect(config.readiness).toBeUndefined();
+    expect(config.url).toBe(remote.url);
+  });
+
+  it('still fails for an error that is not about readiness', () => {
+    expect(() =>
+      normalizeDeclaredServer('svc', {
+        ...remote,
+        tags: 'nope' as never,
+        readiness: { url: 'http://x', auth: 'oauth' },
+      }),
+    ).toThrow();
   });
 });

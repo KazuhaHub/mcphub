@@ -77,7 +77,7 @@ export const readinessSlotProblem = (
     : `readiness.auth.credential must name one of the server's credential slots ("${name}" is not one)`;
 };
 
-const originOf = (value: string): string | null => {
+export const originOf = (value: string): string | null => {
   try {
     const parsed = new URL(value);
     return parsed.protocol === 'https:' ? parsed.origin : null;
@@ -86,21 +86,47 @@ const originOf = (value: string): string | null => {
   }
 };
 
+type ReadinessServer = {
+  type?: string;
+  url?: string;
+  openapi?: { url?: string };
+  oauth?: { identityMode?: string; resource?: string };
+  credentialTemplate?: readonly Pick<CredentialSlot, 'name'>[];
+};
+
 /**
- * Whether the readiness URL may receive this server's users' credentials. A server with a `url`
- * only ever sends credentials to that origin, so the readiness URL must share its origin (https,
- * host and port; the path is free). A server without a `url` (stdio, OpenAPI) has no such origin;
- * its credential bindings are instead tied to the readiness URL (credentialDestination.ts).
+ * The URL whose origin receives this server's credential today, or undefined when the server
+ * declares none. Remote MCP sends everything to `url`. An OpenAPI server sends slot values to
+ * the origin of its document URL (assertDeclaredOrigin in clients/openapi.ts) and a personal
+ * OAuth token to `oauth.resource`, else the document URL (the personal-token check in the same
+ * client). A stdio server, or an OpenAPI server with an inline schema, has no origin.
+ */
+export const readinessCredentialUrl = (
+  server: ReadinessServer,
+  auth: ReadinessConfig['auth'],
+): string | undefined => {
+  if (server.type === 'openapi') {
+    return (auth === 'oauth' ? server.oauth?.resource : undefined) ?? server.openapi?.url;
+  }
+  return server.url;
+};
+
+// Whether the server has no origin to compare, so the readiness URL joins the fingerprints.
+export const readinessNeedsFingerprint = (
+  server: ReadinessServer & { readiness?: ReadinessConfig },
+): boolean => Boolean(server.readiness) && !readinessCredentialUrl(server, server.readiness!.auth);
+
+/**
+ * Whether the readiness URL may receive this server's users' credentials. The readiness URL must
+ * share the origin (https, host and port; the path is free) the credential already goes to
+ * (`readinessCredentialUrl`). A server with no such origin has its credential bindings tied to
+ * the readiness URL instead (credentialDestination.ts, personalOAuthService.ts).
  * `auth: 'oauth'` needs personal OAuth, otherwise there is no token to send. Fails closed when
  * the server URL cannot be read.
  */
 export const readinessServerProblem = (
   readiness: ReadinessConfig | undefined,
-  server: {
-    url?: string;
-    oauth?: { identityMode?: string };
-    credentialTemplate?: readonly Pick<CredentialSlot, 'name'>[];
-  },
+  server: ReadinessServer,
 ): string | null => {
   if (!readiness) return null;
   if (readiness.auth === 'oauth' && server.oauth?.identityMode !== 'personal') {
@@ -108,8 +134,9 @@ export const readinessServerProblem = (
   }
   const slotProblem = readinessSlotProblem(readiness, server.credentialTemplate);
   if (slotProblem) return slotProblem;
-  if (server.url) {
-    const serverOrigin = originOf(server.url);
+  const base = readinessCredentialUrl(server, readiness.auth);
+  if (base) {
+    const serverOrigin = originOf(base);
     if (!serverOrigin || serverOrigin !== originOf(readiness.url)) {
       return "readiness.url must have the same origin (https, host and port) as the server's url";
     }
@@ -117,6 +144,13 @@ export const readinessServerProblem = (
   return null;
 };
 
-// The probe-time form of the same rule, for a server definition as stored.
-export const readinessOriginAllowed = (readiness: ReadinessConfig, serverUrl?: string): boolean =>
-  !serverUrl || (originOf(serverUrl) !== null && originOf(serverUrl) === originOf(readiness.url));
+// The probe-time form of the same rule, for a server definition as connections see it.
+export const readinessOriginAllowed = (
+  readiness: ReadinessConfig,
+  server: ReadinessServer,
+): boolean => {
+  const base = readinessCredentialUrl(server, readiness.auth);
+  if (!base) return true;
+  const origin = originOf(base);
+  return origin !== null && origin === originOf(readiness.url);
+};

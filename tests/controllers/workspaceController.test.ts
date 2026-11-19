@@ -492,6 +492,36 @@ describe('workspace API', () => {
       expect(body.readiness).toMatchObject({ state: 'unknown', summary: null, action: null });
     });
 
+    it.each([
+      ['disabled', { enabled: false }],
+      ['paused for this user', { pausedUsers: ['alice'] }],
+      ['in maintenance', { maintenance: { message: 'Upgrading' } }],
+    ])(
+      'does not probe a service that is %s: the hub status takes precedence',
+      async (_label, extra) => {
+        withReadiness(extra);
+        mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
+        expect((await item()).readiness).toBeNull();
+        expect(mockReadinessBounded).not.toHaveBeenCalled();
+        const response = await request(app)
+          .post('/api/workspace/servers/canvas/readiness/check')
+          .set(alice)
+          .expect(200);
+        expect(response.body.data.readiness).toBeNull();
+        expect(mockReadinessCheck).not.toHaveBeenCalled();
+      },
+    );
+
+    it('still probes for an administrator in maintenance, as they bypass it', async () => {
+      withReadiness({ maintenance: { message: 'Upgrading' } });
+      mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
+      const response = await request(app)
+        .get('/api/workspace/servers')
+        .set('x-test-user', asUser('root', true))
+        .expect(200);
+      expect(response.body.data[0].readiness).toEqual(ready);
+    });
+
     describe('POST /workspace/servers/:name/readiness/check', () => {
       const post = (name = 'canvas', headers: Record<string, string> = alice) =>
         request(app).post(`/api/workspace/servers/${name}/readiness/check`).set(headers);

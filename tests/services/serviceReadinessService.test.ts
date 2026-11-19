@@ -31,6 +31,7 @@ import { credentialBindingEvents } from '../../src/services/credentialBindingSer
 import {
   READINESS_CACHE_TTL_MS,
   READINESS_MAX_BODY_BYTES,
+  READINESS_MAX_CONCURRENT_PROBES,
   clearReadinessCache,
   getServiceReadiness,
   getServiceReadinessBounded,
@@ -58,6 +59,7 @@ let fetchMock: jest.Mock;
 let now: number;
 const deps = (extra: Partial<ReadinessDeps> = {}): ReadinessDeps => ({
   resolveBearer: async () => BEARER,
+  expandServer: async (server) => server,
   fetch: fetchMock as unknown as ReadinessDeps['fetch'],
   now: () => now,
   timeoutMs: 200,
@@ -65,6 +67,7 @@ const deps = (extra: Partial<ReadinessDeps> = {}): ReadinessDeps => ({
   lookup: async () => ['93.184.216.34'],
   ...extra,
 });
+const settle = () => new Promise((resolve) => setTimeout(resolve, 15));
 const check = (
   def: ServerConfig = definition(),
   options: { refresh?: boolean } = {},
@@ -294,6 +297,179 @@ describe('same-origin rule at probe time', () => {
   });
 });
 
+describe('the server origin the credential goes to', () => {
+  const openapiOAuth = (url: string, extra: Partial<ServerConfig> = {}): ServerConfig =>
+    ({
+      type: 'openapi',
+      openapi: { url: 'https://svc.example.com/openapi.json' },
+      oauth: { identityMode: 'personal' },
+      readiness: { url, auth: 'oauth' },
+      ...extra,
+    }) as ServerConfig;
+
+  it('probes an OpenAPI server whose document origin matches', async () => {
+    await check(openapiOAuth('https://svc.example.com/readiness'));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('is blocked when the OpenAPI document url moved after the declaration was saved', async () => {
+    const moved = openapiOAuth('https://svc.example.com/readiness', {
+      openapi: { url: 'https://moved.example.net/openapi.json' },
+    });
+    expect((await check(moved))?.state).toBe('unknown');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('compares against the url as connections expand it (${VAR} placeholders)', async () => {
+    const templated = definition({ url: 'https://${READINESS_HOST}/mcp' });
+    const expand = async (server: ServerConfig) => ({
+      ...server,
+      url: server.url?.replace('${READINESS_HOST}', 'svc.example.com'),
+    });
+    expect((await check(templated, {}, { expandServer: expand }))?.state).toBe('ready');
+    clearReadinessCache();
+    const wrongHost = async (server: ServerConfig) => ({
+      ...server,
+      url: server.url?.replace('${READINESS_HOST}', 'other.example.net'),
+    });
+    expect((await check(templated, {}, { expandServer: wrongHost }))?.state).toBe('unknown');
+  });
+
+  it('fails closed when the url cannot be expanded', async () => {
+    const result = await check(
+      definition(),
+      {},
+      {
+        expandServer: async () => {
+          throw new Error('no env');
+        },
+      },
+    );
+    expect(result?.state).toBe('unknown');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('invalidation scope', () => {
+  it('only drops and discards answers of the user and server that changed', async () => {
+    const bob = { username: 'bob' };
+    fetchMock.mockImplementation(async () => {
+      credentialBindingEvents.emit('invalidate', { serverName: 'canvas', username: 'alice' });
+      return jsonResponse({ version: 1, state: 'ready' });
+    });
+    // Bob's probe overlaps with Alice's credential change and must still be cached.
+    await getServiceReadiness(bob, 'canvas', definition(), { deps: deps() });
+    fetchMock.mockClear();
+    await getServiceReadiness(bob, 'canvas', definition(), { deps: deps() });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("is not triggered by the probe's own token refresh", async () => {
+    const result = await check(
+      definition(),
+      {},
+      {
+        resolveBearer: async () => {
+          // A refresh while resolving the bearer reports a change for this very pair.
+          credentialBindingEvents.emit('invalidate', { serverName: 'canvas', username: 'alice' });
+          return BEARER;
+        },
+      },
+    );
+    expect(result?.state).toBe('ready');
+    fetchMock.mockClear();
+    await check();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('stale while revalidate', () => {
+  it('answers an expired entry at once and refreshes behind it', async () => {
+    await check();
+    now += READINESS_CACHE_TTL_MS + 1;
+    let release!: () => void;
+    fetchMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(jsonResponse({ version: 1, state: 'needs_setup' }));
+        }),
+    );
+    const started = Date.now();
+    expect((await check())?.state).toBe('ready');
+    expect(Date.now() - started).toBeLessThan(100);
+    await settle();
+    release();
+    await settle();
+    expect((await check())?.state).toBe('needs_setup');
+  });
+
+  it('waits only for the very first probe', async () => {
+    fetchMock.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return jsonResponse({ version: 1, state: 'ready' });
+    });
+    expect((await check())?.state).toBe('ready');
+  });
+
+  it('does not serve an entry older than an hour as current', async () => {
+    await check();
+    now += 2 * 3600_000;
+    fetchMock.mockResolvedValue(jsonResponse({ version: 1, state: 'degraded' }));
+    expect((await check())?.state).toBe('degraded');
+  });
+
+  it('an explicit re-check never answers from a stale entry', async () => {
+    await check();
+    now += READINESS_CACHE_TTL_MS + 1;
+    fetchMock.mockResolvedValue(jsonResponse({ version: 1, state: 'expired' }));
+    expect((await check(definition(), { refresh: true }))?.state).toBe('expired');
+  });
+});
+
+describe('probe concurrency', () => {
+  it('never has more than the cap in flight, and drains the queue', async () => {
+    const releases: Array<() => void> = [];
+    fetchMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve(jsonResponse({ version: 1, state: 'ready' })));
+        }),
+    );
+    const total = READINESS_MAX_CONCURRENT_PROBES + 6;
+    const pending = Array.from({ length: total }, (_unused, index) =>
+      getServiceReadiness(user, `svc-${index}`, definition(), {
+        deps: deps({ timeoutMs: 5000 }),
+      }),
+    );
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(READINESS_MAX_CONCURRENT_PROBES);
+    while (releases.length) releases.shift()!();
+    await settle();
+    while (releases.length) releases.shift()!();
+    await settle();
+    while (releases.length) releases.shift()!();
+    const results = await Promise.all(pending);
+    expect(fetchMock).toHaveBeenCalledTimes(total);
+    expect(results.every((result) => result?.state === 'ready')).toBe(true);
+  });
+});
+
+describe('summary text', () => {
+  it('strips control and bidi override or isolate characters', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        version: 1,
+        state: 'needs_setup',
+        summary: 'Safe\u202Etxt.exe\u2066hidden\u2069 end',
+        action: { label: 'Go\u202Dnow', url: 'https://canvas.example.com/s' },
+      }),
+    );
+    const result = await check();
+    expect(result?.summary).not.toMatch(/[\u202A-\u202E\u2066-\u2069]/);
+    expect(result?.action?.label).not.toMatch(/[\u202A-\u202E\u2066-\u2069]/);
+  });
+});
+
 describe('credential failures', () => {
   it('maps "OAuth access token expired; reconnect" to revoked', async () => {
     const result = await check(
@@ -366,6 +542,7 @@ describe('caching', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     now += 2;
     await check();
+    await settle();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -401,6 +578,9 @@ describe('caching', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
     expect((await check())?.state).toBe('unknown');
     now += 31_000;
+    // The expired failure is answered at once while a new probe runs behind it.
+    expect((await check())?.state).toBe('unknown');
+    await settle();
     expect((await check())?.state).toBe('ready');
   });
 

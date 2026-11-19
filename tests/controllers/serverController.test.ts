@@ -779,14 +779,9 @@ describe('serverController - getAllSettings', () => {
       else process.env.BETTER_AUTH_LOGIN_MODE = originalEnv;
     });
     const adminSettings = async () => {
-      mockSystemConfigDao.get.mockResolvedValue({
-        auth: { betterAuth: { loginMode: 'sso_first' } },
-      });
+      mockSystemConfigDao.get.mockResolvedValue({ auth: { betterAuth: { loginMode: 'sso_first' } } });
       const res = { json: jest.fn(), status: jest.fn().mockReturnThis() } as unknown as Response;
-      await getAllSettings(
-        { user: { username: 'admin', isAdmin: true } } as unknown as Request,
-        res,
-      );
+      await getAllSettings({ user: { username: 'admin', isAdmin: true } } as unknown as Request, res);
       return (res.json as jest.Mock).mock.calls[0][0].data.systemConfig.auth.betterAuth;
     };
 
@@ -871,9 +866,7 @@ describe('serverController - getAllSettings', () => {
       delete process.env.BETTER_AUTH_LOGIN_MODE;
       await adminSettings();
       expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
-      expect(JSON.stringify(mockSystemConfigDao.get.mock.results[0].value)).not.toContain(
-        'loginModeStatus',
-      );
+      expect(JSON.stringify(mockSystemConfigDao.get.mock.results[0].value)).not.toContain('loginModeStatus');
     });
   });
 
@@ -1237,54 +1230,36 @@ describe('serverController - updateSystemConfig', () => {
   });
 
   it('updates remembered OAuth consent settings without unrelated config fields', async () => {
-    mockRequest.body = {
-      oauthServer: { alwaysShowApprovalScreen: false, approvalLifetime: 86400 },
-    };
+    mockRequest.body = { oauthServer: { alwaysShowApprovalScreen: false, approvalLifetime: 86400 } };
     await updateSystemConfig(mockRequest as Request, mockResponse as Response);
-    expect(mockSystemConfigDao.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        oauthServer: expect.objectContaining({
-          alwaysShowApprovalScreen: false,
-          approvalLifetime: 86400,
-        }),
-      }),
-    );
+    expect(mockSystemConfigDao.update).toHaveBeenCalledWith(expect.objectContaining({
+      oauthServer: expect.objectContaining({ alwaysShowApprovalScreen: false, approvalLifetime: 86400 }),
+    }));
   });
 
-  it.each([0, -1, 1.5, Infinity, 31536001, '86400', null])(
-    'rejects invalid OAuth approval lifetimes (%s)',
-    async (approvalLifetime) => {
-      mockRequest.body = { oauthServer: { alwaysShowApprovalScreen: false, approvalLifetime } };
+  it.each([0, -1, 1.5, Infinity, 31536001, '86400', null])('rejects invalid OAuth approval lifetimes (%s)', async (approvalLifetime) => {
+    mockRequest.body = { oauthServer: { alwaysShowApprovalScreen: false, approvalLifetime } };
+    await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+    expect(mockStatus).toHaveBeenCalledWith(400);
+    expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+  });
+
+  it.each([['  Team MCP  ', 'Team MCP'], ['   ', ''], ['x'.repeat(100), 'x'.repeat(100)]])(
+    'saves a trimmed dashboard name and allows resetting it', async (dashboardName, expected) => {
+      mockRequest.body = { dashboardName };
       await updateSystemConfig(mockRequest as Request, mockResponse as Response);
-      expect(mockStatus).toHaveBeenCalledWith(400);
-      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+      expect(mockSystemConfigDao.update).toHaveBeenCalledWith(expect.objectContaining({
+        dashboardName: expected, routing: expect.any(Object),
+      }));
     },
   );
 
-  it.each([
-    ['  Team MCP  ', 'Team MCP'],
-    ['   ', ''],
-    ['x'.repeat(100), 'x'.repeat(100)],
-  ])('saves a trimmed dashboard name and allows resetting it', async (dashboardName, expected) => {
-    mockRequest.body = { dashboardName };
+  it.each([null, 42, {}, 'x'.repeat(101)])('rejects invalid dashboard names (%s)', async (dashboardName) => {
+    mockRequest.body = { dashboardName, nameSeparator: '_' };
     await updateSystemConfig(mockRequest as Request, mockResponse as Response);
-    expect(mockSystemConfigDao.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dashboardName: expected,
-        routing: expect.any(Object),
-      }),
-    );
+    expect(mockStatus).toHaveBeenCalledWith(400);
+    expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
   });
-
-  it.each([null, 42, {}, 'x'.repeat(101)])(
-    'rejects invalid dashboard names (%s)',
-    async (dashboardName) => {
-      mockRequest.body = { dashboardName, nameSeparator: '_' };
-      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
-      expect(mockStatus).toHaveBeenCalledWith(400);
-      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
-    },
-  );
 
   describe('dashboard branding images', () => {
     const png = `data:image/png;base64,${Buffer.concat([
@@ -1332,20 +1307,14 @@ describe('serverController - updateSystemConfig', () => {
       ['a remote URL', 'https://example.com/logo.png'],
       ['a non-data URL', '/logo.png'],
       ['bad base64', 'data:image/png;base64,@@@@'],
-      [
-        'an oversized image',
-        `data:image/png;base64,${Buffer.alloc(256 * 1024 + 1, 1).toString('base64')}`,
-      ],
+      ['an oversized image', `data:image/png;base64,${Buffer.alloc(256 * 1024 + 1, 1).toString('base64')}`],
       ['a number', 42],
     ])('rejects %s with 400 and does not save', async (_label, value) => {
       mockRequest.body = { dashboardBranding: { icon: value } };
       await updateSystemConfig(mockRequest as Request, mockResponse as Response);
       expect(mockStatus).toHaveBeenCalledWith(400);
       expect(mockJson).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: false,
-          message: expect.stringContaining('dashboardBranding.icon'),
-        }),
+        expect.objectContaining({ success: false, message: expect.stringContaining('dashboardBranding.icon') }),
       );
       expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
     });
@@ -1383,34 +1352,26 @@ describe('serverController - updateSystemConfig', () => {
   it.each([true, false])('saves tool-name compatibility=%s', async (normalizeToolNames) => {
     mockRequest.body = { normalizeToolNames };
     await updateSystemConfig(mockRequest as Request, mockResponse as Response);
-    expect(mockSystemConfigDao.update).toHaveBeenCalledWith(
-      expect.objectContaining({ normalizeToolNames }),
-    );
+    expect(mockSystemConfigDao.update).toHaveBeenCalledWith(expect.objectContaining({ normalizeToolNames }));
   });
 
-  it.each([null, 'true', 1, {}])(
-    'rejects invalid tool-name compatibility=%s',
-    async (normalizeToolNames) => {
-      mockRequest.body = { normalizeToolNames, nameSeparator: '-' };
-      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
-      expect(mockStatus).toHaveBeenCalledWith(400);
-      expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
-    },
-  );
+  it.each([null, 'true', 1, {}])('rejects invalid tool-name compatibility=%s', async (normalizeToolNames) => {
+    mockRequest.body = { normalizeToolNames, nameSeparator: '-' };
+    await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+    expect(mockStatus).toHaveBeenCalledWith(400);
+    expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
+  });
 
   it.each([
     ['without an install section', { routing: {} }],
     ['without any stored system config', null],
-  ])(
-    'stores an unset base URL when it creates the install section (%s)',
-    async (_label, stored) => {
-      mockSystemConfigDao.get.mockResolvedValue(stored);
-      await updateSystemConfig(mockRequest as Request, mockResponse as Response);
-      expect(mockSystemConfigDao.update).toHaveBeenCalledWith(
-        expect.objectContaining({ install: expect.objectContaining({ baseUrl: '' }) }),
-      );
-    },
-  );
+  ])('stores an unset base URL when it creates the install section (%s)', async (_label, stored) => {
+    mockSystemConfigDao.get.mockResolvedValue(stored);
+    await updateSystemConfig(mockRequest as Request, mockResponse as Response);
+    expect(mockSystemConfigDao.update).toHaveBeenCalledWith(
+      expect.objectContaining({ install: expect.objectContaining({ baseUrl: '' }) }),
+    );
+  });
 
   it('does not let non-admin users rename the dashboard', async () => {
     mockRequest.user = { username: 'user', isAdmin: false } as never;
@@ -1421,22 +1382,15 @@ describe('serverController - updateSystemConfig', () => {
   });
 
   it('saves and clears operator policies without losing unrelated configuration', async () => {
-    for (const toolPolicies of [
-      [{ id: 'read', effect: 'allow', keyId: 'key', tool: 'read' }],
-      [],
-    ]) {
+    for (const toolPolicies of [[{ id: 'read', effect: 'allow', keyId: 'key', tool: 'read' }], []]) {
       mockRequest.body = { toolPolicies };
       await updateSystemConfig(mockRequest as Request, mockResponse as Response);
-      expect(mockSystemConfigDao.update).toHaveBeenLastCalledWith(
-        expect.objectContaining({ toolPolicies, routing: expect.any(Object) }),
-      );
+      expect(mockSystemConfigDao.update).toHaveBeenLastCalledWith(expect.objectContaining({ toolPolicies, routing: expect.any(Object) }));
     }
   });
 
   it('rejects invalid policies before persisting any configuration', async () => {
-    mockRequest.body = {
-      toolPolicies: [{ id: 'typo', effect: 'allow', server: 'wrong-selector' }],
-    };
+    mockRequest.body = { toolPolicies: [{ id: 'typo', effect: 'allow', server: 'wrong-selector' }] };
     await updateSystemConfig(mockRequest as Request, mockResponse as Response);
     expect(mockStatus).toHaveBeenCalledWith(400);
     expect(mockSystemConfigDao.update).not.toHaveBeenCalled();
@@ -2196,39 +2150,28 @@ describe('serverController - updateSystemConfig', () => {
   });
 
   describe('login presentation', () => {
-    const update = async (
-      betterAuth: Record<string, unknown>,
-      stored: Record<string, unknown> = {},
-    ) => {
+    const update = async (betterAuth: Record<string, unknown>, stored: Record<string, unknown> = {}) => {
       mockRequest.body = { auth: { betterAuth } };
-      mockSystemConfigDao.get.mockResolvedValue({
-        auth: { betterAuth: { enabled: true, ...stored } },
-      });
+      mockSystemConfigDao.get.mockResolvedValue({ auth: { betterAuth: { enabled: true, ...stored } } });
       await updateSystemConfig(mockRequest as Request, mockResponse as Response);
     };
     const storedBetterAuth = () => mockSystemConfigDao.update.mock.calls[0][0].auth.betterAuth;
 
-    it.each(['dual', 'sso_first', 'sso_redirect'])(
-      'persists loginMode %s on its own',
-      async (loginMode) => {
-        await update({ loginMode }, { disablePasswordLogin: true });
-        expect(mockStatus).not.toHaveBeenCalledWith(400);
-        expect(storedBetterAuth()).toEqual(
-          expect.objectContaining({ enabled: true, disablePasswordLogin: true, loginMode }),
-        );
-      },
-    );
+    it.each(['dual', 'sso_first', 'sso_redirect'])('persists loginMode %s on its own', async (loginMode) => {
+      await update({ loginMode }, { disablePasswordLogin: true });
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth()).toEqual(
+        expect.objectContaining({ enabled: true, disablePasswordLogin: true, loginMode }),
+      );
+    });
 
-    it.each([true, false])(
-      'persists adminPasswordLogin %s on its own',
-      async (adminPasswordLogin) => {
-        await update({ adminPasswordLogin }, { disablePasswordLogin: true });
-        expect(mockStatus).not.toHaveBeenCalledWith(400);
-        expect(storedBetterAuth()).toEqual(
-          expect.objectContaining({ disablePasswordLogin: true, adminPasswordLogin }),
-        );
-      },
-    );
+    it.each([true, false])('persists adminPasswordLogin %s on its own', async (adminPasswordLogin) => {
+      await update({ adminPasswordLogin }, { disablePasswordLogin: true });
+      expect(mockStatus).not.toHaveBeenCalledWith(400);
+      expect(storedBetterAuth()).toEqual(
+        expect.objectContaining({ disablePasswordLogin: true, adminPasswordLogin }),
+      );
+    });
 
     it.each(['true', 1, null])('rejects adminPasswordLogin %p', async (adminPasswordLogin) => {
       await update({ adminPasswordLogin });
@@ -2460,12 +2403,7 @@ describe('serverController - updateServer', () => {
       keepAliveInterval: 60000,
       openapi: undefined,
     });
-    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith(
-      'test-server',
-      'public',
-      undefined,
-      undefined,
-    );
+    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith('test-server', 'public', undefined, undefined);
     expect(mockBroadcastToolListChanged).toHaveBeenCalled();
     expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
     expect(mockNotifyToolChanged).not.toHaveBeenCalled();
@@ -2497,12 +2435,7 @@ describe('serverController - updateServer', () => {
         sharedWithUsers: ['bob'],
       }),
     );
-    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith(
-      'test-server',
-      'group',
-      ['bob'],
-      undefined,
-    );
+    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith('test-server', 'group', ['bob'], undefined);
     expect(mockBroadcastToolListChanged).toHaveBeenCalled();
     expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
   });
@@ -2534,12 +2467,7 @@ describe('serverController - updateServer', () => {
     await updateServer(mockRequest as Request, mockResponse as Response);
 
     expect(mockServerDao.update).toHaveBeenCalled();
-    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith(
-      'test-server',
-      'public',
-      undefined,
-      undefined,
-    );
+    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith('test-server', 'public', undefined, undefined);
     expect(mockBroadcastToolListChanged).toHaveBeenCalled();
     expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
     expect(mockNotifyToolChanged).not.toHaveBeenCalled();
@@ -2577,12 +2505,10 @@ describe('serverController - updateServer', () => {
     await updateServer(mockRequest as Request, mockResponse as Response);
 
     expect(mockServerDao.update).toHaveBeenCalled();
-    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith(
-      'test-server',
-      'group',
-      ['alice', 'bob'],
-      undefined,
-    );
+    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith('test-server', 'group', [
+      'alice',
+      'bob',
+    ], undefined);
     expect(mockBroadcastToolListChanged).toHaveBeenCalled();
     expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
     expect(mockNotifyToolChanged).not.toHaveBeenCalled();
@@ -2632,12 +2558,10 @@ describe('serverController - updateServer', () => {
     await updateServer(mockRequest as Request, mockResponse as Response);
 
     expect(mockServerDao.update).toHaveBeenCalled();
-    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith(
-      'test-server',
-      'group',
-      ['admin2', 'test2'],
-      undefined,
-    );
+    expect(mockUpdateServerInfoVisibility).toHaveBeenCalledWith('test-server', 'group', [
+      'admin2',
+      'test2',
+    ], undefined);
     expect(mockBroadcastToolListChanged).toHaveBeenCalled();
     expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
     expect(mockNotifyToolChanged).not.toHaveBeenCalled();
@@ -3392,7 +3316,9 @@ describe('serverController - authorization hardening', () => {
     await updateServer(req, res);
 
     expect(status).toHaveBeenCalledWith(403);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: false }),
+    );
   });
 
   it('rejects reading another user server by direct name lookup', async () => {
@@ -4884,14 +4810,8 @@ describe('serverController - maintenance and per-user pause', () => {
     it.each([
       ['a remote URL', 'https://example.com/icon.png'],
       ['a type that is not allowed', 'data:image/gif;base64,R0lGODlhAQABAAAAACw='],
-      [
-        'bytes that are not the declared type',
-        `data:image/png;base64,${Buffer.from('nope').toString('base64')}`,
-      ],
-      [
-        'more than 256 KB',
-        `data:image/png;base64,${Buffer.concat([png, Buffer.alloc(260 * 1024)]).toString('base64')}`,
-      ],
+      ['bytes that are not the declared type', `data:image/png;base64,${Buffer.from('nope').toString('base64')}`],
+      ['more than 256 KB', `data:image/png;base64,${Buffer.concat([png, Buffer.alloc(260 * 1024)]).toString('base64')}`],
     ])('rejects %s without saving it', async (_label, icon) => {
       await update(admin, { icon });
       expect(status).toHaveBeenCalledWith(400);
@@ -4914,10 +4834,7 @@ describe('serverController - maintenance and per-user pause', () => {
       expect(mockServerDao.update).not.toHaveBeenCalled();
 
       await createServer(
-        {
-          body: { name: 'fresh', config: { ...base, icon: dataUrl } },
-          user: alice,
-        } as unknown as Request,
+        { body: { name: 'fresh', config: { ...base, icon: dataUrl } }, user: alice } as unknown as Request,
         res,
       );
       expect(json).toHaveBeenLastCalledWith(refusal);
@@ -4930,9 +4847,7 @@ describe('serverController - maintenance and per-user pause', () => {
         } as unknown as Request,
         res,
       );
-      expect(JSON.stringify(json.mock.calls)).toContain(
-        'Only admins can set or remove a server icon',
-      );
+      expect(JSON.stringify(json.mock.calls)).toContain('Only admins can set or remove a server icon');
       expect(mockAddServer).not.toHaveBeenCalled();
     });
 
@@ -4948,19 +4863,19 @@ describe('serverController - maintenance and per-user pause', () => {
       expect(updatesOf()).not.toHaveProperty('icon');
     });
 
-    it.each([
-      ['blank', ''],
-      ['null', null],
-    ])('refuses a non-admin who sends a %s icon to clear a stored one', async (_label, icon) => {
-      withStored();
-      await update(alice, { icon });
-      expect(status).toHaveBeenCalledWith(403);
-      expect(json).toHaveBeenLastCalledWith({
-        success: false,
-        message: 'Only admins can set or remove a server icon',
-      });
-      expect(mockServerDao.update).not.toHaveBeenCalled();
-    });
+    it.each([['blank', ''], ['null', null]])(
+      'refuses a non-admin who sends a %s icon to clear a stored one',
+      async (_label, icon) => {
+        withStored();
+        await update(alice, { icon });
+        expect(status).toHaveBeenCalledWith(403);
+        expect(json).toHaveBeenLastCalledWith({
+          success: false,
+          message: 'Only admins can set or remove a server icon',
+        });
+        expect(mockServerDao.update).not.toHaveBeenCalled();
+      },
+    );
 
     it('lets a non-admin send a blank icon when none is stored', async () => {
       await update(alice, { icon: '' });
@@ -5647,55 +5562,32 @@ describe('serverController - tool risk levels', () => {
 
 describe('admin-controlled authorization relay', () => {
   const config = {
-    type: 'streamable-http',
-    url: 'http://broker.internal/mcp',
+    type: 'streamable-http', url: 'http://broker.internal/mcp',
     oauth: {
       identityMode: 'personal',
       authorizationServerMetadata: {
-        issuer: 'http://broker.internal',
-        authorization_endpoint: 'http://broker.internal/authorize',
-        token_endpoint: 'http://broker.internal/token',
-        response_types_supported: ['code'],
+        issuer: 'http://broker.internal', authorization_endpoint: 'http://broker.internal/authorize',
+        token_endpoint: 'http://broker.internal/token', response_types_supported: ['code'],
       },
       authorizationRelay: { allowedRedirectOrigins: ['https://login.example.com'] },
     },
   };
-  it.each([createServer, updateServer, batchCreateServers])(
-    'rejects non-admin relay writes through %p',
-    async (handler) => {
-      jest.clearAllMocks();
-      mockServerDao.findById.mockResolvedValue({ name: 'broker', owner: 'alice', ...config });
-      const status = jest.fn().mockReturnThis();
-      const json = jest.fn();
-      await handler(
-        {
-          params: { name: 'broker' },
-          body: { name: 'broker', config, servers: [{ name: 'broker', config }] },
-          user: { username: 'alice', isAdmin: false },
-        } as unknown as Request,
-        { status, json } as unknown as Response,
-      );
-      expect(mockAddServer).not.toHaveBeenCalled();
-      expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
-      if (handler === batchCreateServers)
-        expect(json).toHaveBeenCalledWith(
-          expect.objectContaining({ data: expect.objectContaining({ failureCount: 1 }) }),
-        );
-      else expect(status).toHaveBeenCalledWith(403);
-    },
-  );
+  it.each([createServer, updateServer, batchCreateServers])('rejects non-admin relay writes through %p', async (handler) => {
+    jest.clearAllMocks();
+    mockServerDao.findById.mockResolvedValue({ name: 'broker', owner: 'alice', ...config });
+    const status = jest.fn().mockReturnThis();
+    const json = jest.fn();
+    await handler({ params: { name: 'broker' }, body: { name: 'broker', config, servers: [{ name: 'broker', config }] }, user: { username: 'alice', isAdmin: false } } as unknown as Request, { status, json } as unknown as Response);
+    expect(mockAddServer).not.toHaveBeenCalled();
+    expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
+    if (handler === batchCreateServers) expect(json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ failureCount: 1 }) }));
+    else expect(status).toHaveBeenCalledWith(403);
+  });
   it('prevents a non-admin owner from removing relay and changing its target', async () => {
     jest.clearAllMocks();
     mockServerDao.findById.mockResolvedValue({ name: 'broker', owner: 'alice', ...config });
     const status = jest.fn().mockReturnThis();
-    await updateServer(
-      {
-        params: { name: 'broker' },
-        body: { config: { type: 'streamable-http', url: 'https://another.example/mcp' } },
-        user: { username: 'alice', isAdmin: false },
-      } as unknown as Request,
-      { status, json: jest.fn() } as unknown as Response,
-    );
+    await updateServer({ params: { name: 'broker' }, body: { config: { type: 'streamable-http', url: 'https://another.example/mcp' } }, user: { username: 'alice', isAdmin: false } } as unknown as Request, { status, json: jest.fn() } as unknown as Response);
     expect(status).toHaveBeenCalledWith(403);
     expect(mockAddOrUpdateServer).not.toHaveBeenCalled();
   });

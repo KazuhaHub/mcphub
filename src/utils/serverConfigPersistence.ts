@@ -523,7 +523,9 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
   // An edit replaces the credential template, url and OAuth settings (omitted means none), so
   // the declaration is checked against the values this very config carries.
   const readinessProblem = readinessServerProblem(readiness, {
+    type: normalizedType,
     url,
+    openapi: config.openapi,
     oauth,
     credentialTemplate: config.credentialTemplate,
   });

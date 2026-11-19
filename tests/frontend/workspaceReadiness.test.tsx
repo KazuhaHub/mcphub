@@ -198,19 +198,22 @@ describe('the readiness block in a service page', () => {
 });
 
 describe('Manage account', () => {
-  it('is a real button next to Copy URL that opens the stable service link', async () => {
+  const manage = () =>
+    screen.getByRole('link', { name: 'workspacePage.actions.manageAccountFor:canvas' });
+
+  it('looks like a button but is a real link, so middle-click and copy-link work', async () => {
     await mountPage(canvas({ readiness: null }));
-    const manage = screen.getByRole('button', {
-      name: 'workspacePage.actions.manageAccountFor:canvas',
-    });
-    expect(manage.tagName).toBe('BUTTON');
-    expect(manage.className).toContain('hub-btn');
-    expect(manage.querySelector('svg')).not.toBeNull();
-    expect(document.querySelector('a[href="/services/canvas"]')).toBeNull();
+    const link = manage();
+    expect(link.tagName).toBe('A');
+    expect(link.className).toContain('hub-btn');
+    expect(link.getAttribute('href')).toBe('/services/canvas');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.querySelector('svg')).not.toBeNull();
     const copy = screen.getByLabelText('workspacePage.services.copyEndpointFor:canvas');
-    expect(manage.previousElementSibling).toBe(copy);
-    fireEvent.click(manage);
-    expect(open).toHaveBeenCalledWith('/services/canvas', '_blank', 'noopener,noreferrer');
+    expect(link.previousElementSibling).toBe(copy);
+    // The administrator's URL never reaches the markup.
+    expect(document.body.innerHTML).not.toContain('canvas.example.com/account');
   });
 
   it('is absent when the link is unset or unsafe', async () => {
@@ -248,7 +251,7 @@ describe('Re-check', () => {
   it('re-checks after the manage link was clicked too', async () => {
     await mountPage(canvas());
     fireEvent.click(
-      screen.getByRole('button', { name: 'workspacePage.actions.manageAccountFor:canvas' }),
+      screen.getByRole('link', { name: 'workspacePage.actions.manageAccountFor:canvas' }),
     );
     window.dispatchEvent(new Event('focus'));
     await waitFor(() => expect(mockCheck).toHaveBeenCalledTimes(1));

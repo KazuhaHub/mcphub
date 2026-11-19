@@ -26,6 +26,10 @@ export const READINESS_FAILURE_TTL_MS = 30_000;
 export const READINESS_REFRESH_MIN_INTERVAL_MS = 3_000;
 // How long a workspace list waits for a probe before showing `unknown`.
 export const READINESS_LIST_WAIT_MS = 2_000;
+// An expired answer is served while a new probe runs, but not once it is this old.
+export const READINESS_MAX_STALE_MS = 60 * 60_000;
+// Probes in flight at once, across all users and services; the rest queue.
+export const READINESS_MAX_CONCURRENT_PROBES = 16;
 const MAX_CACHE_ENTRIES = 2_000;
 const MAX_SUMMARY_LENGTH = 200;
 const MAX_ACTION_LABEL_LENGTH = 80;
@@ -46,6 +50,8 @@ export interface ReadinessDeps {
     serverName: string,
     definition: ServerConfig,
   ) => Promise<string>;
+  // The server as connections see it (`${VAR}` placeholders expanded), for the origin rule.
+  expandServer: (definition: ServerConfig) => Promise<ServerConfig>;
   // The transport underneath the SSRF guard.
   fetch: FetchLike;
   lookup?: SsrfLookup;
@@ -87,8 +93,23 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<ServiceReadiness>>();
-// Bumped whenever a credential changes, so a probe that began earlier cannot cache its answer.
-let generation = 0;
+
+// Invalidation counters at the scope an event names, so a probe that began before its own
+// user's or service's credential changed cannot cache its answer, and nobody else's is affected.
+const generations = {
+  global: 0,
+  byServer: new Map<string, number>(),
+  byUser: new Map<string, number>(),
+  byPair: new Map<string, number>(),
+};
+const generationOf = (username: string, serverName: string): number =>
+  generations.global +
+  (generations.byServer.get(serverName) ?? 0) +
+  (generations.byUser.get(username) ?? 0) +
+  (generations.byPair.get(cacheKey(username, serverName)) ?? 0);
+const bump = (map: Map<string, number>, key: string): void => {
+  map.set(key, (map.get(key) ?? 0) + 1);
+};
 
 const cacheKey = (username: string, serverName: string): string =>
   JSON.stringify([username, serverName]);
@@ -107,7 +128,11 @@ const ensureSubscribed = (): void => {
   credentialBindingEvents.on(
     'invalidate',
     (filter: { serverName?: string; username?: string } | undefined) => {
-      generation++;
+      if (filter?.serverName && filter.username) {
+        bump(generations.byPair, cacheKey(filter.username, filter.serverName));
+      } else if (filter?.serverName) bump(generations.byServer, filter.serverName);
+      else if (filter?.username) bump(generations.byUser, filter.username);
+      else generations.global++;
       for (const key of [...cache.keys()]) {
         const [username, serverName] = JSON.parse(key) as [string, string];
         if (
@@ -119,6 +144,24 @@ const ensureSubscribed = (): void => {
       }
     },
   );
+};
+
+// At most READINESS_MAX_CONCURRENT_PROBES probes run; a finished one hands its slot to the next.
+let activeProbes = 0;
+const waitingProbes: Array<() => void> = [];
+const withProbeSlot = async <T>(run: () => Promise<T>): Promise<T> => {
+  if (activeProbes >= READINESS_MAX_CONCURRENT_PROBES) {
+    await new Promise<void>((resolve) => waitingProbes.push(resolve));
+  } else {
+    activeProbes++;
+  }
+  try {
+    return await run();
+  } finally {
+    const next = waitingProbes.shift();
+    if (next) next();
+    else activeProbes--;
+  }
 };
 
 const remember = (key: string, entry: CacheEntry): void => {
@@ -140,8 +183,9 @@ const parseTime = (value: unknown): string | null => {
 
 const plainText = (value: unknown, max: number): string | null => {
   if (typeof value !== 'string') return null;
+  // Control characters, and bidi overrides and isolates that could reorder what the user reads.
   // eslint-disable-next-line no-control-regex
-  const text = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+  const text = value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]+/g, ' ').trim();
   return text ? text.slice(0, max) : null;
 };
 
@@ -208,11 +252,21 @@ const probe = async (
   definition: ServerConfig,
   readiness: ReadinessConfig,
   deps: ReadinessDeps,
+  // Filled with the invalidation generation once the bearer is in hand, so a token refresh
+  // while resolving it (which may report a change for this very pair) does not discard the answer.
+  context: { generation: () => number; at?: number },
 ): Promise<ServiceReadiness> => {
   const now = deps.now();
   // The server's url may have changed since the declaration was saved: the bearer only ever goes
   // to the origin of the server the user connected to.
-  if (!isSafeHttpsUrl(readiness.url) || !readinessOriginAllowed(readiness, definition.url)) {
+  let server: ServerConfig;
+  try {
+    server = await deps.expandServer(definition);
+  } catch {
+    note(serverName, 'blocked');
+    return unknownResult(now);
+  }
+  if (!isSafeHttpsUrl(readiness.url) || !readinessOriginAllowed(readiness, server)) {
     note(serverName, 'blocked');
     return unknownResult(now);
   }
@@ -220,6 +274,7 @@ const probe = async (
   let bearer: string;
   try {
     bearer = await deps.resolveBearer(user, serverName, definition);
+    context.at = context.generation();
   } catch (error) {
     // A missing, stale or unrefreshable credential is MCPHub's to report as "sign in again".
     if (
@@ -292,6 +347,8 @@ const probe = async (
 
 const defaultDeps = (): ReadinessDeps => ({
   resolveBearer: resolveReadinessBearer,
+  expandServer: async (definition) =>
+    (await import('./serverConfigEnvironment.js')).expandServerConfig(definition),
   fetch: (url, init) => fetch(url, init),
   now: () => Date.now(),
   timeoutMs: READINESS_TIMEOUT_MS,
@@ -317,21 +374,44 @@ export const getServiceReadiness = async (
   const now = deps.now();
 
   const cached = cache.get(key);
-  if (cached && cached.key === declaration && cached.expiresAt > now) {
-    const throttled = options.refresh && now - cached.fetchedAt < READINESS_REFRESH_MIN_INTERVAL_MS;
-    if (!options.refresh || throttled) return cached.value;
+  const usable = cached && cached.key === declaration ? cached : undefined;
+  if (usable) {
+    const fresh = usable.expiresAt > now;
+    const throttled = options.refresh && now - usable.fetchedAt < READINESS_REFRESH_MIN_INTERVAL_MS;
+    if (fresh && (!options.refresh || throttled)) return usable.value;
+    // Stale while revalidate: the last answer now, a new one for the next read. An explicit
+    // re-check, and an answer too old to trust, wait for the probe instead.
+    if (!fresh && !options.refresh && now - usable.fetchedAt < READINESS_MAX_STALE_MS) {
+      void startProbe(user, serverName, definition, readiness, deps, key, declaration);
+      return usable.value;
+    }
   }
+  return startProbe(user, serverName, definition, readiness, deps, key, declaration);
+};
 
-  // One probe at a time per user, service and declaration.
+// One probe at a time per user, service and declaration, within the global concurrency cap.
+const startProbe = (
+  user: ReadinessUser,
+  serverName: string,
+  definition: ServerConfig,
+  readiness: ReadinessConfig,
+  deps: ReadinessDeps,
+  key: string,
+  declaration: string,
+): Promise<ServiceReadiness> => {
   const flightKey = `${key}\u0000${declaration}`;
   const running = inFlight.get(flightKey);
   if (running) return running;
-  const startedGeneration = generation;
+  const generation = () => generationOf(user.username, serverName);
   const started = (async () => {
+    const context: { generation: () => number; at?: number } = { generation };
+    const begun = generation();
     try {
-      const value = await probe(user, serverName, definition, readiness, deps);
-      // The user's credential changed while the probe ran: its answer is about the old one.
-      if (generation === startedGeneration) {
+      const value = await withProbeSlot(() =>
+        probe(user, serverName, definition, readiness, deps, context),
+      );
+      // The credential changed while the probe ran: its answer is about the old one.
+      if ((context.at ?? begun) === generation()) {
         const failed = value.state === 'unknown' || value.state === 'revoked';
         const fetchedAt = deps.now();
         remember(key, {

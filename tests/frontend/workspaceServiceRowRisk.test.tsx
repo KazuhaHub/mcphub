@@ -181,14 +181,14 @@ describe('the tool risk control in a service page', () => {
 });
 
 describe('the management link in a service page', () => {
-  it('is a button labelled with the service name that opens the stable link', () => {
+  it('is a button-styled link to the stable service page in a new tab', () => {
     const html = render(server({ manageUrl: 'https://example.com/account/token' }));
-    // The hub link is opened on click; the administrator's URL never reaches the markup.
+    expect(html).toContain('href="/services/notes"');
     expect(html).not.toContain('example.com/account/token');
-    expect(html).not.toContain('href="/services/notes"');
-    expect(html).toMatch(
-      /<button[^>]*class="hub-btn"[^>]*aria-label="workspacePage.actions.manageAccountFor"/,
-    );
+    expect(html).toMatch(/<a[^>]*class="hub-btn"/);
+    expect(html).toContain('aria-label="workspacePage.actions.manageAccountFor"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain('workspacePage.actions.manageAccount');
   });
 

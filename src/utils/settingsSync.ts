@@ -60,12 +60,8 @@ const declarationSchema = z.object({
           headers: z.record(z.string(), z.string()).optional(),
           description: z.string().optional(),
           manageUrl: z.string().optional(),
-          readiness: z
-            .object({
-              url: z.string(),
-              auth: z.union([z.literal('oauth'), z.object({ credential: z.string() })]),
-            })
-            .optional(),
+          // Validated while normalizing, where an invalid value is dropped with a warning.
+          readiness: z.unknown().optional(),
           icon: z.string().optional(),
           tags: z.array(z.string()).optional(),
           owner: z.string().optional(),
@@ -188,6 +184,29 @@ export const resolveSyncedServerId = (
 };
 
 /** Startup-only reconciliation. Never use loadOriginalSettings: it can write defaults. */
+/**
+ * Normalizes one declared server. A readiness declaration is an optional addition (a hand-edited
+ * or older file may carry an invalid one), so it is dropped with a warning rather than
+ * aborting the whole sync; any other problem still fails.
+ */
+export const normalizeDeclaredServer = (
+  serverName: string,
+  declared: ServerConfig,
+): ServerConfig => {
+  try {
+    return normalizeServerConfigForPersistence(declared);
+  } catch (error) {
+    if (!Object.prototype.hasOwnProperty.call(declared, 'readiness')) throw error;
+    const { readiness: _readiness, ...withoutReadiness } = declared;
+    const normalized = normalizeServerConfigForPersistence(withoutReadiness);
+    logger.warn('Ignoring an invalid readiness declaration in settings', {
+      serverName,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return normalized;
+  }
+};
+
 export async function syncSettingsToDatabase(): Promise<void> {
   const mode = process.env.MCPHUB_SETTINGS_SYNC;
   if (!mode) return;
@@ -216,7 +235,7 @@ export async function syncSettingsToDatabase(): Promise<void> {
         credentialWriteClients: _credentialWriteClients,
         ...declared
       } = input as ServerConfig;
-      const config = normalizeServerConfigForPersistence(declared);
+      const config = normalizeDeclaredServer(serverName, declared);
       if (
         !config.type ||
         (config.type === 'stdio' && !config.command) ||
