@@ -522,12 +522,14 @@
     "useKeyHint": "Sends an Authorization header with a key you create, instead of signing in with OAuth.",
     "format": "Configuration format",
     "urlLabel": "Server URL",
-    "openClaude": "Open Claude connectors",
-    "openChatgpt": "Open ChatGPT plugins",
+    "urlCopied": "Server URL copied. Paste it on the page that opened.",
+    "copyAndOpenClaude": "Copy URL and open Claude connectors",
+    "copyAndOpenChatgpt": "Copy URL and open ChatGPT plugins",
     "openSettings": "Open settings",
     "addToCursor": "Add to Cursor",
     "addToVsCode": "Add to VS Code",
     "addToLmStudio": "Add to LM Studio",
+    "addToGoose": "Add to Goose",
     "steps": {
       "claude": {
         "open": "Open Customize, then Connectors, in Claude on the web or the desktop app.",
@@ -567,7 +569,9 @@
       "oauthUnverified": "This client's documentation does not confirm OAuth sign-in. If it asks for a key, switch to the API key option.",
       "keyOnly": "This client's documentation only describes header-based sign-in, so an API key is used.",
       "fallbackSnippet": "If the button does nothing, paste this configuration instead.",
-      "claudePublic": "Claude connects from Anthropic's servers, so your MCPHub address must be reachable on public HTTPS (port 443)."
+      "claudePublic": "Claude connects from Anthropic's servers, so your MCPHub address must be reachable on public HTTPS (port 443).",
+      "copiedOnOpen": "This app has no link that fills in the address for you, so the button copies it and opens the settings page. Paste it there.",
+      "fallbackUrl": "If the button does nothing, add a Streamable HTTP extension in the app and paste the server URL above."
     }
   },
   "pagination": {

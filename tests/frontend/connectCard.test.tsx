@@ -76,6 +76,14 @@ describe('ConnectTiles', () => {
     expect(ids.length).toBeGreaterThan(8);
   });
 
+  it('draws the OpenAI mark for ChatGPT and keeps letter tiles for Codex and Cherry Studio', () => {
+    const html = tiles(1400);
+    const tile = (id: string) => html.match(new RegExp(`data-testid="connect-tile-${id}"[^]*?</button>`))?.[0] ?? '';
+    expect(tile('chatgpt')).toContain('viewBox="175 175 366 366"');
+    expect(tile('codex')).not.toContain('<svg');
+    expect(tile('cherry-studio')).not.toContain('<svg');
+  });
+
   it('draws one equal-width column per tile', () => {
     expect(tiles(343)).toContain('repeat(4, minmax(0, 1fr))');
   });
@@ -124,6 +132,28 @@ describe('ConnectDialog', () => {
     const html = dialog({ service: null, client: 'other' });
     expect(html).toContain('id="connect-format"');
     expect(html).toContain('mcpServers');
+  });
+
+  it('offers one copy-and-open button for Claude and ChatGPT, with the URL visible as a fallback', () => {
+    for (const [id, label, url] of [
+      ['claude', 'connect.copyAndOpenClaude', 'https://claude.ai/customize/connectors'],
+      ['chatgpt', 'connect.copyAndOpenChatgpt', 'https://chatgpt.com/plugins'],
+    ] as const) {
+      const html = dialog({ service: null, client: id });
+      expect(html).toContain(label);
+      expect(html).toContain(`href="${url}"`);
+      expect(html).toContain('connect.notes.copiedOnOpen');
+      expect(html).toContain('https://hub.example.com/alice/mcp');
+    }
+  });
+
+  it('shows the Goose button and keeps the tile order with Claude first and ChatGPT second', () => {
+    const html = dialog({ service: null, client: 'goose' });
+    expect(html).toContain('connect.addToGoose');
+    expect(html).toContain('href="goose://extension?');
+    const ids = CONNECT_CLIENTS.map((c) => c.id);
+    expect(ids.slice(0, 2)).toEqual(['claude', 'chatgpt']);
+    expect(ids).toContain('goose');
   });
 
   it('hides the API key toggle for ChatGPT, which documents OAuth only', () => {

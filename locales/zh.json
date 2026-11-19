@@ -523,12 +523,14 @@
     "useKeyHint": "使用你创建的密钥发送 Authorization 请求头,而不是通过 OAuth 登录。",
     "format": "配置格式",
     "urlLabel": "服务器 URL",
-    "openClaude": "打开 Claude 连接器",
-    "openChatgpt": "打开 ChatGPT 插件",
+    "urlCopied": "已复制服务器地址，请粘贴到打开的页面里。",
+    "copyAndOpenClaude": "复制地址并打开 Claude 连接器",
+    "copyAndOpenChatgpt": "复制地址并打开 ChatGPT 插件",
     "openSettings": "打开设置",
     "addToCursor": "添加到 Cursor",
     "addToVsCode": "添加到 VS Code",
     "addToLmStudio": "添加到 LM Studio",
+    "addToGoose": "添加到 Goose",
     "steps": {
       "claude": {
         "open": "在 Claude 网页版或桌面应用中,打开“自定义”,再进入“连接器”。",
@@ -568,7 +570,9 @@
       "oauthUnverified": "该客户端的文档没有确认支持 OAuth 登录。如果它要求密钥,请切换到 API 密钥选项。",
       "keyOnly": "该客户端的文档只描述了基于请求头的认证,因此使用 API 密钥。",
       "fallbackSnippet": "如果按钮没有反应,请改为粘贴下面的配置。",
-      "claudePublic": "Claude 从 Anthropic 的服务器发起连接,因此你的 MCPHub 地址必须能通过公网 HTTPS(443 端口)访问。"
+      "claudePublic": "Claude 从 Anthropic 的服务器发起连接,因此你的 MCPHub 地址必须能通过公网 HTTPS(443 端口)访问。",
+      "copiedOnOpen": "这个应用没有可以自动填入地址的链接，所以按钮会先复制地址，再打开设置页，请在那里粘贴。",
+      "fallbackUrl": "如果点按钮没有反应，请在应用里添加一个 Streamable HTTP 扩展，并粘贴上面的服务器地址。"
     }
   },
   "pagination": {

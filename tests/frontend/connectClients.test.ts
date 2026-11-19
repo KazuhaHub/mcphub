@@ -5,6 +5,7 @@ import {
   buildConnectPlan,
   buildCursorDeepLink,
   buildGeminiCommand,
+  buildGooseDeepLink,
   buildLmStudioDeepLink,
   buildVsCodeDeepLink,
   canChooseAuth,
@@ -118,7 +119,53 @@ describe('deep links', () => {
   });
 });
 
+describe('Goose link', () => {
+  const parse = (link: string) => new URL(link.replace(/^goose:\/\//, 'https://'));
+
+  it('builds a streamable_http extension link', () => {
+    const link = buildGooseDeepLink(target);
+    expect(link.startsWith('goose://extension?')).toBe(true);
+    const params = parse(link).searchParams;
+    expect(params.get('type')).toBe('streamable_http');
+    expect(params.get('url')).toBe(target.url);
+    expect(params.get('id')).toBe('mcphub');
+    expect(params.get('name')).toBe('mcphub');
+    expect(params.get('description')).toBe('MCPHub');
+    expect(params.getAll('header')).toEqual([]);
+  });
+
+  it('encodes the name and carries headers as repeatable Name=value params', () => {
+    const headers = { Authorization: 'Bearer <your-access-token>' };
+    const params = parse(buildGooseDeepLink({ name: 'my service_1', url: target.url }, headers)).searchParams;
+    expect(params.get('name')).toBe('my service_1');
+    expect(params.get('id')).toBe('my-service-1');
+    expect(params.getAll('header')).toEqual(['Authorization=Bearer <your-access-token>']);
+  });
+});
+
 describe('connect plans', () => {
+  it('copies the URL and opens the settings page for Claude and ChatGPT, without prefill params', () => {
+    const urls = { claude: 'https://claude.ai/customize/connectors', chatgpt: 'https://chatgpt.com/plugins' } as const;
+    for (const id of ['claude', 'chatgpt'] as const) {
+      const plan = buildConnectPlan(client(id), target, { auth: 'oauth' });
+      expect(plan.settingsUrl).toBe(urls[id]);
+      expect(plan.copyOnOpen).toBe(true);
+      expect(plan.copyUrl).toBe(target.url);
+      expect(plan.noteKeys).toContain('connect.notes.copiedOnOpen');
+    }
+  });
+
+  it('gives Goose a deep link and a copyable URL fallback, with OAuth flagged unverified', () => {
+    const plan = buildConnectPlan(client('goose'), target, { auth: 'oauth' });
+    expect(plan.deepLink?.href).toBe(buildGooseDeepLink(target));
+    expect(plan.copyUrl).toBe(target.url);
+    expect(plan.noteKeys).toEqual(expect.arrayContaining(['connect.notes.oauthUnverified', 'connect.notes.fallbackUrl']));
+    const key = buildConnectPlan(client('goose'), target, { auth: 'key' });
+    expect(new URL(key.deepLink!.href.replace(/^goose:\/\//, 'https://')).searchParams.getAll('header')).toEqual([
+      'Authorization=Bearer <your-access-token>',
+    ]);
+  });
+
   it('walks Claude through the custom connector and offers the settings page', () => {
     const plan = buildConnectPlan(client('claude'), target, { auth: 'oauth' });
     expect(plan.kind).toBe('web');
