@@ -116,6 +116,16 @@ describe('AppServer headless web mode', () => {
     expect(response.text).toContain('test ui');
   });
 
+  it('does not announce the framework in any response header', async () => {
+    const app = await createApp();
+
+    const page = await request(app).get('/').expect(200);
+    const mcp = await request(app).post('/mcp/test-group').send({}).expect(204);
+
+    expect(page.headers['x-powered-by']).toBeUndefined();
+    expect(mcp.headers['x-powered-by']).toBeUndefined();
+  });
+
   it('disables the web UI while keeping MCP routes available when DISABLE_WEB=true', async () => {
     process.env.DISABLE_WEB = 'true';
     const app = await createApp();

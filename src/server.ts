@@ -91,6 +91,7 @@ export class AppServer {
 
   constructor() {
     this.app = express();
+    this.app.disable('x-powered-by');
     this.app.use(replicaRequestContext);
     this.app.set('trust proxy', resolveTrustProxySetting());
     // Delegate-based CORS so the Host header is available for the same-host

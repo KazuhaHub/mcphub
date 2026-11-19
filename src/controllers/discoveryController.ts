@@ -200,7 +200,7 @@ export const getMarketplaceWellKnown = (_req: Request, res: Response): void => {
     res.json({
       name: 'mcphub-marketplace',
       version: '0.1',
-      hub: { name: config.mcpHubName, version: config.mcpHubVersion },
+      hub: { name: config.mcpHubName },
       endpoints: {
         servers: `${base}/discovery/servers`,
         server: `${base}/discovery/servers/{name}`,

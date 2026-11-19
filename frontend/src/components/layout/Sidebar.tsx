@@ -28,7 +28,7 @@ import {
 } from '@/utils/navigationPermissions';
 import { usePermissionCheck } from '../PermissionChecker';
 import UserProfileMenu from '@/components/ui/UserProfileMenu';
-import { APP_VERSION } from '@/utils/appVersion';
+import { useAppVersion } from '@/hooks/useAppVersion';
 import { checkActivityAvailable } from '@/services/activityService';
 import { useModalDrawer } from '@/hooks/useModalDrawer';
 
@@ -58,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = fal
   const { workspaceEnabled, workspaceResolved } = useSettings();
   const [activityAvailable, setActivityAvailable] = useState(false);
 
-  const appVersion = APP_VERSION;
+  const appVersion = useAppVersion();
   const asideRef = useRef<HTMLElement>(null);
   const drawerOpen = drawer && open;
 

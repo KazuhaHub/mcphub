@@ -538,12 +538,16 @@ const getGroupInstructions = async (group?: string): Promise<string | undefined>
   return foundGroup && canAccessGroupRoute(foundGroup) ? foundGroup.instructions : undefined;
 };
 
+// The MCP initialize answer can be reachable without a token (enableBearerAuth off), so it never
+// carries the real MCPHub version; that is served only to signed-in dashboard users (GET /api/version).
+const PUBLIC_SERVER_VERSION = 'mcphub';
+
 const getMcpServerDescriptor = async (group?: string): Promise<McpServerDescriptor> => {
   const groupInstructions = await getGroupInstructions(group);
   if (!group || isSmartRoutingGroup(group)) {
     return {
       name: config.mcpHubName,
-      version: config.mcpHubVersion,
+      version: PUBLIC_SERVER_VERSION,
       group,
       instructions: joinInstructions(groupInstructions),
     };
@@ -556,7 +560,7 @@ const getMcpServerDescriptor = async (group?: string): Promise<McpServerDescript
     const [serverInfo] = filteredServerInfos;
     return {
       name: serverInfo.name,
-      version: serverInfo.version || config.mcpHubVersion,
+      version: serverInfo.version || PUBLIC_SERVER_VERSION,
       instructions: joinInstructions(groupInstructions, serverInfo.instructions),
       appendGroupSuffix: false,
     };
@@ -564,7 +568,7 @@ const getMcpServerDescriptor = async (group?: string): Promise<McpServerDescript
 
   return {
     name: config.mcpHubName,
-    version: config.mcpHubVersion,
+    version: PUBLIC_SERVER_VERSION,
     group,
     instructions: joinInstructions(groupInstructions),
     appendGroupSuffix: true,

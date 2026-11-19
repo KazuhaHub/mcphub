@@ -30,6 +30,8 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
   // Check for new version on login and component mount.
   useEffect(() => {
     const checkForNewVersion = async () => {
+      // The version arrives after sign-in; nothing to compare until then.
+      if (!version) return;
       try {
         const info = await fetchChangelogUpdateInfo({
           currentVersion: version,

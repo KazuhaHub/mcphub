@@ -8,7 +8,7 @@ export const getChangelogUpdateInfoHandler = async (req: Request, res: Response)
     const locale = typeof req.query.locale === 'string' ? req.query.locale : undefined;
     const force = req.query.force === 'true';
     const currentVersion =
-      typeof req.query.currentVersion === 'string'
+      typeof req.query.currentVersion === 'string' && req.query.currentVersion
         ? req.query.currentVersion
         : config.mcpHubVersion;
 

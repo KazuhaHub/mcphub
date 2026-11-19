@@ -3,7 +3,6 @@ export interface RuntimeConfig {
   basePath: string;
   smartRoutingPath?: string;
   isHosted?: boolean;
-  version: string;
   name: string;
 }
 

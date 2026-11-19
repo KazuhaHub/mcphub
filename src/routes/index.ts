@@ -138,6 +138,7 @@ import { mountPasswordLoginRoute } from './passwordLoginRoute.js';
 import { getAllLogs, clearLogs, streamLogs } from '../controllers/logController.js';
 import {
   getRuntimeConfig,
+  getVersion,
   getPublicConfig,
   getMcpSettingsJson,
 } from '../controllers/configController.js';
@@ -569,6 +570,9 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
   authenticatedRouter.get('/registry/servers', getAllRegistryServers);
   authenticatedRouter.get('/registry/servers/versions', getRegistryServerVersions);
   authenticatedRouter.get('/registry/servers/version', getRegistryServerVersion);
+
+  // Running MCPHub version, for signed-in dashboard users only
+  authenticatedRouter.get('/version', getVersion);
 
   // Changelog routes (latest GitHub release of this fork)
   authenticatedRouter.get('/changelog/update-info', getChangelogUpdateInfoHandler);

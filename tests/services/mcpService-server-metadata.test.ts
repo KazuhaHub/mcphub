@@ -276,7 +276,8 @@ describe('mcpService initialize metadata', () => {
 
     expect((server as any)._serverInfo).toEqual({
       name: 'test-hub_team-a_group',
-      version: '1.0.0',
+      // never the hub version (the config mock says 1.0.0): initialize can run without a token
+      version: 'mcphub',
     });
     expect((server as any)._instructions).toBeUndefined();
   });
@@ -336,7 +337,7 @@ describe('mcpService initialize metadata', () => {
       expect(mockFindGroupByName).toHaveBeenCalledWith('team-a');
       expect((server as any)._serverInfo).toEqual({
         name: 'test-hub_$smart/team-a_group',
-        version: '1.0.0',
+        version: 'mcphub',
       });
       expect((server as any)._instructions).toBe('Search before you call.');
     });

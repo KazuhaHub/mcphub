@@ -111,6 +111,7 @@ jest.mock('../../src/controllers/logController.js', () => ({
 
 jest.mock('../../src/controllers/configController.js', () => ({
   getRuntimeConfig: routeHandler,
+  getVersion: routeHandler,
   getPublicConfig: routeHandler,
   getMcpSettingsJson: routeHandler,
 }));

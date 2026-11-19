@@ -134,10 +134,22 @@ Retrieves the essential runtime configuration required for the frontend applicat
     "success": true,
     "data": {
       "basePath": "",
-      "version": "1.0.0",
       "name": "MCPHub"
     }
   }
+  ```
+
+---
+
+### Get Version
+
+Returns the running MCPHub version. The version is never published to callers who are not signed in: `/config`, `/public-config`, the health endpoints, the MCP `initialize` answer and the dashboard's static files do not contain it, and responses carry no `X-Powered-By` header. This endpoint requires authentication.
+
+- **Endpoint**: `/api/version`
+- **Method**: `GET`
+- **Success Response**:
+  ```json
+  { "success": true, "data": { "version": "1.0.0" } }
   ```
 
 ---
