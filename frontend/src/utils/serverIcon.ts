@@ -16,9 +16,20 @@ export const serverInitial = (name: string): string => {
 };
 
 // Icons are only served to signed-in users, with the auth header an <img> cannot send, so the
-// bytes are fetched once per versioned URL and shown from a blob: URL. The URL carries a hash
+// bytes are fetched once per versioned URL and shown from a data: URL. The URL carries a hash
 // of the bytes, so a replaced icon is a new entry. Failures are not cached.
 const cache = new Map<string, Promise<string | null>>();
+
+// A data: URL, not a blob: URL. A blob: URL has the dashboard's origin, so opening the image in
+// a new tab would run an SVG's script there (with the sign-in token in reach); a data: document
+// has an opaque origin and browsers block navigating to it from the page.
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 
 export const loadServerIcon = (url: string): Promise<string | null> => {
   const cached = cache.get(url);
@@ -29,7 +40,7 @@ export const loadServerIcon = (url: string): Promise<string | null> => {
       if (!response.ok) return null;
       const type = response.headers.get('content-type') ?? '';
       if (!/^image\/(?:png|jpeg|webp|svg\+xml)$/.test(type)) return null;
-      return URL.createObjectURL(await response.blob());
+      return await blobToDataUrl(await response.blob());
     } catch {
       return null;
     }

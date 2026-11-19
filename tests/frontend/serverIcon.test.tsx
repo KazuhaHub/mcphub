@@ -40,6 +40,7 @@ beforeEach(() => {
   mockFetch.mockReset();
   blobCounter = 0;
   Object.assign(URL, { createObjectURL: jest.fn(() => `blob:icon-${++blobCounter}`) });
+  (URL.createObjectURL as jest.Mock).mockClear();
 });
 
 describe('serverInitial', () => {
@@ -81,7 +82,7 @@ describe('ServerIcon', () => {
       expect(screen.getByTestId('server-icon').getAttribute('data-icon')).toBe('image'),
     );
     expect(screen.getByTestId('server-icon').querySelector('img')!.getAttribute('src')).toBe(
-      'blob:icon-1',
+      'data:image/png;base64,eA==',
     );
     expect(mockFetch).toHaveBeenCalledWith('/api/servers/notes/icon?v=abc123abc123');
   });
@@ -108,12 +109,10 @@ describe('ServerIcon', () => {
   it('follows the icon when it is replaced', async () => {
     mockFetch.mockResolvedValue(imageResponse());
     const { rerender } = render(<ServerIcon name="notes" icon="/api/servers/notes/icon?v=a" />);
-    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('server-icon').getAttribute('data-icon')).toBe('image'));
     rerender(<ServerIcon name="notes" icon="/api/servers/notes/icon?v=b" />);
     await waitFor(() =>
-      expect(screen.getByTestId('server-icon').querySelector('img')!.getAttribute('src')).toBe(
-        'blob:icon-2',
-      ),
+      expect(screen.getByTestId('server-icon').querySelector('img')!.getAttribute('src')).toMatch(/^data:image\/png;base64,/),
     );
     rerender(<ServerIcon name="notes" />);
     expect(screen.getByTestId('server-icon').getAttribute('data-icon')).toBe('letter');
@@ -135,7 +134,14 @@ describe('loadServerIcon', () => {
     mockFetch.mockRejectedValueOnce(new Error('offline'));
     expect(await loadServerIcon('/api/servers/a/icon?v=1')).toBeNull();
     mockFetch.mockResolvedValueOnce(imageResponse());
-    expect(await loadServerIcon('/api/servers/a/icon?v=1')).toBe('blob:icon-1');
+    expect(await loadServerIcon('/api/servers/a/icon?v=1')).toBe('data:image/png;base64,eA==');
+  });
+
+  it('never produces a blob: URL, which would carry the dashboard origin', async () => {
+    mockFetch.mockResolvedValue(imageResponse('image/svg+xml'));
+    const shown = await loadServerIcon('/api/servers/a/icon?v=1');
+    expect(shown).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 });
 

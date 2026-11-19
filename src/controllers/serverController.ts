@@ -348,7 +348,7 @@ const isIconUrlEcho = (value: unknown, existing?: { name: string; icon?: unknown
   value === serverIconUrl(existing.name, existing.icon, appConfig.basePath);
 
 // A server's icon is chosen by an administrator, like the management page link: a non-admin
-// may only send it blank, so an edit that leaves the icon alone still works.
+// may only send it unchanged (its URL) or blank when none is stored, never set or clear it.
 const iconRefusal = (
   currentUser: RequestUser | null | undefined,
   config: object,
@@ -356,12 +356,12 @@ const iconRefusal = (
 ): string | undefined => {
   if (currentUser?.isAdmin === true || !hasOwnKey(config, 'icon')) return undefined;
   const value = (config as { icon?: unknown }).icon;
-  return value === undefined ||
-    value === null ||
-    value === '' ||
-    isIconUrlEcho(value, existing)
+  const blank = value === undefined || value === null || value === '';
+  const hasStored = typeof existing?.icon === 'string' && existing.icon !== '';
+  // Blank means "remove", so it is only allowed where nothing is stored.
+  return (blank && !hasStored) || isIconUrlEcho(value, existing)
     ? undefined
-    : 'Only admins can set a server icon';
+    : 'Only admins can set or remove a server icon';
 };
 
 // Admin availability state after an edit: a key the request leaves out keeps its stored value.

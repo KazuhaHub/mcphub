@@ -4623,7 +4623,7 @@ describe('serverController - maintenance and per-user pause', () => {
       Buffer.from('pixels'),
     ]);
     const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
-    const refusal = { success: false, message: 'Only admins can set a server icon' };
+    const refusal = { success: false, message: 'Only admins can set or remove a server icon' };
     const originalBasePath = appConfig.basePath;
     beforeEach(() => {
       appConfig.basePath = '';
@@ -4698,11 +4698,11 @@ describe('serverController - maintenance and per-user pause', () => {
         } as unknown as Request,
         res,
       );
-      expect(JSON.stringify(json.mock.calls)).toContain('Only admins can set a server icon');
+      expect(JSON.stringify(json.mock.calls)).toContain('Only admins can set or remove a server icon');
       expect(mockAddServer).not.toHaveBeenCalled();
     });
 
-    it('lets a non-admin save without the key, with a blank one, or with the echoed URL', async () => {
+    it('lets a non-admin save without the key or with the echoed URL', async () => {
       withStored();
       await update(alice, { description: 'mine' });
       expect(status).not.toHaveBeenCalled();
@@ -4712,6 +4712,25 @@ describe('serverController - maintenance and per-user pause', () => {
       await update(alice, { icon: serverIconUrl('test-server', dataUrl, '') });
       expect(status).not.toHaveBeenCalled();
       expect(updatesOf()).not.toHaveProperty('icon');
+    });
+
+    it.each([['blank', ''], ['null', null]])(
+      'refuses a non-admin who sends a %s icon to clear a stored one',
+      async (_label, icon) => {
+        withStored();
+        await update(alice, { icon });
+        expect(status).toHaveBeenCalledWith(403);
+        expect(json).toHaveBeenLastCalledWith({
+          success: false,
+          message: 'Only admins can set or remove a server icon',
+        });
+        expect(mockServerDao.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('lets a non-admin send a blank icon when none is stored', async () => {
+      await update(alice, { icon: '' });
+      expect(status).not.toHaveBeenCalled();
     });
 
     it('returns the icon as a versioned URL, never the stored image data', async () => {
