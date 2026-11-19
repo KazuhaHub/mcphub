@@ -6,6 +6,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import ServerAvailabilityFields from './ServerAvailabilityFields';
 import { useServerContext } from '../contexts/ServerContext';
 import TagInput from './ui/TagInput';
+import ServerIconField from './ServerIconField';
 import { getServerTagOptions, normalizeTags } from '../utils/serverTags';
 import { getServerConfigPermissionError } from '../utils/serverPermissions.js';
 import { MANAGE_URL_MAX_LENGTH, getManageUrlSubmitProblem } from '../utils/manageUrl';
@@ -671,7 +672,10 @@ const ServerForm = ({
       });
 
       // Only an administrator sets the management page link; leaving the key out keeps it.
-      if (!isAdmin) delete payload.config.manageUrl;
+      if (!isAdmin) {
+        delete payload.config.manageUrl;
+        delete payload.config.icon;
+      }
 
       const permissionError = getServerConfigPermissionError(payload.config, auth.user?.isAdmin);
       if (permissionError) {
@@ -773,6 +777,14 @@ const ServerForm = ({
                 />
                 <p className="mt-1 text-xs text-[var(--hub-ink-3)]">{t('server.manageUrlHint')}</p>
               </div>
+            )}
+            {isAdmin && (
+              <ServerIconField
+                name={formData.name}
+                stored={initialData?.config?.icon}
+                value={formData.iconEdit}
+                onChange={(iconEdit) => setFormData((prev) => ({ ...prev, iconEdit }))}
+              />
             )}
             <div className="md:col-span-2">
               <label

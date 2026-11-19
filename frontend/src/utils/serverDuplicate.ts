@@ -42,6 +42,8 @@ export const buildDuplicateSource = (server: Server): Server => {
     toolRiskOverrides: _toolRiskOverrides,
     defaultUserRisk: _defaultUserRisk,
     credentialWriteClients: _credentialWriteClients,
+    // The icon is the source's own image; a copy starts without one.
+    icon: _icon,
     ...config
   } = server.config ?? {};
   const {

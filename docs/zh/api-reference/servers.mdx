@@ -136,6 +136,7 @@ import { Card, Cards } from 'mintlify';
     - `enableKeepAlive` (boolean): 是否为远端服务启用周期性健康检查。已断连的远端服务始终会通过有上限的指数退避和随机抖动自动重连。
     - `owner` (string): 服务器的所有者。默认为当前用户或“admin”。
     - `tags` (string[]): 用于整理控制台服务器列表的标签，仅为元数据，不影响连接。
+    - `icon` (string): 服务器的可选图标，base64 `data:` URL（PNG、JPEG、WebP 或 SVG，不超过 256 KB），仅管理员可设置；传 `""` 即移除。响应返回其带版本号的 URL，由 `GET /api/servers/{name}/icon` 提供给能看到该服务器的用户。详见 [MCP 设置](/zh/configuration/mcp-settings)。
 
 ---
 

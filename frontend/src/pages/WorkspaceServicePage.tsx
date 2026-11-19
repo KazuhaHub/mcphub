@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Copy, ExternalLink, Plug, RefreshCw } from 'lucide-react';
+import ServerIcon from '@/components/ServerIcon';
 import { StatusDot } from '@/components/ui/StatusDot';
 import ConnectDialog from '@/components/connect/ConnectDialog';
 import { CredentialPanelBody } from '@/components/credentials/CredentialDialog';
@@ -237,6 +238,7 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
 
       <header className="space-y-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <ServerIcon name={server.name} icon={server.icon} size={40} />
           <h1 className="hub-h1 min-w-0 break-words" data-testid="service-title">
             {server.name}
           </h1>

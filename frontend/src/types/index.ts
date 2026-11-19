@@ -229,6 +229,8 @@ export interface ServerConfig {
   description?: string;
   manageUrl?: string;
   tags?: string[];
+  // The server's icon as a versioned URL; the stored image is never sent to the dashboard.
+  icon?: string;
   url?: string;
   command?: string;
   args?: string[];
@@ -440,6 +442,8 @@ export interface ServerFormData {
   description?: string;
   manageUrl?: string;
   tags?: string[];
+  // Chosen in the form: a data: URL to set the icon, '' to remove it, absent to leave it.
+  iconEdit?: string;
   url: string;
   command: string;
   arguments: string;
@@ -1024,6 +1028,7 @@ export type ToolRiskLevel = 'read' | 'write' | 'external';
 export interface WorkspaceServer {
   name: string;
   description?: string;
+  icon?: string;
   manageUrl?: string;
   selected: boolean;
   enabled: boolean;

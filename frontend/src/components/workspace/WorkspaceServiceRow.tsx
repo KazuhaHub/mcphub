@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
+import ServerIcon from '@/components/ServerIcon';
 import { StatusDot } from '@/components/ui/StatusDot';
 import type { MyCredentialBinding, WorkspaceServer } from '@/types';
 import { resolveServiceChip, serviceChipTone } from '@/utils/workspace';
@@ -66,11 +67,12 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
         disabled={busy}
         onClick={() => onToggle(server.name, !server.selected)}
       />
+      <ServerIcon name={server.name} icon={server.icon} size={24} />
       <button
         ref={openRef}
         type="button"
         data-testid={`workspace-open-${server.name}`}
-        className="flex min-w-0 flex-1 basis-[150px] flex-wrap items-center gap-x-3 gap-y-1 text-left"
+        className="flex min-w-0 flex-1 basis-[120px] flex-wrap items-center gap-x-3 gap-y-1 text-left"
         onClick={() => onOpen(server.name)}
       >
         <span className="min-w-0 break-words font-medium">{server.name}</span>

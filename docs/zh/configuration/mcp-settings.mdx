@@ -931,6 +931,12 @@ ls -la /path/to/server
 
 每个值都是 base64 `data:` URL，类型为 `image/png`、`image/jpeg`、`image/webp` 或 `image/svg+xml`，解码后不超过 256 KB。不接受远程 URL，因此控制台不会让浏览器访问其他主机。图片通过 `GET /api/branding/<slot>`（`icon`、`logoLight`、`logoDark`）无需登录即可获取，带有正确的 `Content-Type`、`nosniff`、基于内容哈希的 `ETag` 和一年的 immutable 缓存；SVG 还会带有沙箱化的 `Content-Security-Policy`。公共配置只列出带版本号的 URL（`...?v=<哈希前缀>`），不包含图片数据，替换图片后 URL 会随之变化。图片仅通过 `<img>` 元素显示，SVG 中的脚本不会执行。较大的位图会在上传前由控制台缩小。移除图片即清空该槽位，图片也会包含在设置导出中。文件和数据库存储模式均支持持久化；若关闭了数据库结构同步，升级前请先执行 `docs/migrations/0009-dashboard-branding.sql`（或在启用同步的情况下运行 `pnpm db:setup`）。
 
+#### 服务器图标
+
+管理员可以为每个服务器设置图标，方便大家一眼认出：在服务器编辑表单中选择 **图标 → 上传图标**（也可更换或移除）。图标保存为服务器的可选字段 `icon`，显示在工作台服务列表、服务页面、管理端服务器列表和“连接到 AI”的服务选择中；没有图标的服务器显示名称首字母的方块。
+
+规则与上面的控制台图片相同：base64 `data:` URL，类型为 `image/png`、`image/jpeg`、`image/webp` 或 `image/svg+xml`，解码后不超过 256 KB，不接受远程 URL；较大的位图会在上传前由控制台缩小。只有管理员可以设置。服务器列表、服务器详情和设置接口返回带版本号的 URL（`/api/servers/<name>/icon?v=<哈希前缀>`），不包含图片数据。该路由需要登录，且只对能看到该服务器的用户返回（与服务器列表的规则相同）；服务器不存在、用户看不到该服务器、服务器没有图标，都返回相同的 404。响应带有正确的 `Content-Type`、`nosniff`、基于内容哈希的 `ETag` 和私有的一年 immutable 缓存，SVG 还带有沙箱化的 `Content-Security-Policy`。图标会包含在设置导出中，也可从 `mcp_settings.json` 读取；只修改图标不会让服务器重新连接。由设置同步管理的服务器，其图标属于声明的一部分，与 `description` 相同。若关闭了数据库结构同步，升级前请先执行 `docs/migrations/0011-server-icons.sql`（或在启用同步的情况下运行 `pnpm db:setup`）。上游服务器自己声明的图标不会被获取。
+
 
 ## 用户组共享
 
