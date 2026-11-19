@@ -21,6 +21,7 @@ import {
   normalizeMaxToolRisk,
   normalizeToolRiskOverrides,
 } from './toolRisk.js';
+import { logger } from './logger.js';
 
 const trimToUndefined = (value?: string): string | undefined => {
   if (typeof value !== 'string') {
@@ -50,6 +51,85 @@ const normalizeStringArray = (value?: string[]): string[] | undefined => {
 
   const normalized = value.map((item) => item.trim()).filter((item) => item.length > 0);
   return normalized.length > 0 ? normalized : undefined;
+};
+
+export const SERVER_TAG_MAX_LENGTH = 64;
+export const SERVER_TAG_MAX_COUNT = 32;
+
+// Control and format characters (zero-width, bidi overrides) are dropped so a
+// tag can't hide or reorder text on another user's screen.
+const normalizeTagText = (tag: string): string =>
+  tag
+    .replace(/[\p{Cc}\p{Cf}]/gu, '')
+    .trim()
+    .replace(/\s+/g, ' ');
+
+export const normalizeServerTags = (
+  value: unknown,
+  options: { truncate?: boolean } = {},
+): string[] | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || !value.every((tag) => typeof tag === 'string')) {
+    throw new ServerConfigValidationError('tags must be an array of strings');
+  }
+
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of value as string[]) {
+    const tag = normalizeTagText(raw);
+    if (!tag) {
+      continue;
+    }
+    if (tag.length > SERVER_TAG_MAX_LENGTH) {
+      throw new ServerConfigValidationError(
+        `tags must be at most ${SERVER_TAG_MAX_LENGTH} characters`,
+      );
+    }
+    const key = tag.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      tags.push(tag);
+    }
+  }
+  if (tags.length > SERVER_TAG_MAX_COUNT && !options.truncate) {
+    throw new ServerConfigValidationError(`a server can have at most ${SERVER_TAG_MAX_COUNT} tags`);
+  }
+  const kept = tags.slice(0, SERVER_TAG_MAX_COUNT);
+  return kept.length > 0 ? kept : undefined;
+};
+
+const warnedStoredTags = new Set<string>();
+
+export const readStoredServerTags = (serverName: string, value: unknown): string[] | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const entries: unknown[] = Array.isArray(value) ? value : [];
+  const valid = entries.filter(
+    (tag): tag is string =>
+      typeof tag === 'string' && normalizeTagText(tag).length <= SERVER_TAG_MAX_LENGTH,
+  );
+  if (!Array.isArray(value) || valid.length !== entries.length) {
+    const warningKey = `${serverName}\u0000${JSON.stringify(value)}`;
+    if (!warnedStoredTags.has(warningKey)) {
+      warnedStoredTags.add(warningKey);
+      logger.warn(
+        `Ignoring invalid tags for server "${serverName}": tags must be an array of strings of at most ${SERVER_TAG_MAX_LENGTH} characters`,
+      );
+    }
+  }
+  // Stored data is read leniently: tags over the limit are dropped, not fatal.
+  const tags = normalizeServerTags(valid, { truncate: true });
+  if (valid.length > SERVER_TAG_MAX_COUNT && !warnedStoredTags.has(`${serverName}\u0000count`)) {
+    warnedStoredTags.add(`${serverName}\u0000count`);
+    logger.warn(
+      `Server "${serverName}" has more than ${SERVER_TAG_MAX_COUNT} tags; only the first ${SERVER_TAG_MAX_COUNT} are used`,
+    );
+  }
+  return tags;
 };
 
 const normalizeSharedUsers = (value?: string[]): string[] | undefined => {
@@ -377,9 +457,7 @@ export const normalizeToolConfig = (key: string, tool: unknown): ToolConfig => {
  * when there is nothing to store so an explicit `tools: undefined` is dropped
  * rather than persisted as null.
  */
-const normalizeToolsConfig = (
-  tools: ServerConfig['tools'],
-): ServerConfig['tools'] | undefined => {
+const normalizeToolsConfig = (tools: ServerConfig['tools']): ServerConfig['tools'] | undefined => {
   // A nullable simple-json column surfaces as null in DB mode; treat it as absent.
   if (tools === undefined || tools === null) return undefined;
   if (typeof tools !== 'object' || Array.isArray(tools)) {
@@ -396,6 +474,7 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
   const normalizedType = inferServerType(config);
   resolveUpstreamProtocolMode({ ...config, type: normalizedType });
   const description = trimToUndefined(config.description);
+  const tags = normalizeServerTags(config.tags);
   const owner = trimToUndefined(config.owner) ?? config.owner;
   const url = trimToUndefined(config.url);
   const command = trimToUndefined(config.command);
@@ -465,6 +544,7 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
     protocolNegotiation: config.protocolNegotiation ?? undefined,
     credentialTemplate: validateCredentialTemplate({ ...config, type: normalizedType }),
     description,
+    tags,
     owner,
     visibility,
     sharedWithUsers,

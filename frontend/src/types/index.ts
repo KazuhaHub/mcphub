@@ -228,6 +228,7 @@ export interface ServerConfig {
   type?: 'stdio' | 'sse' | 'streamable-http' | 'openapi';
   description?: string;
   manageUrl?: string;
+  tags?: string[];
   url?: string;
   command?: string;
   args?: string[];
@@ -438,6 +439,7 @@ export interface ServerFormData {
   name: string;
   description?: string;
   manageUrl?: string;
+  tags?: string[];
   url: string;
   command: string;
   arguments: string;

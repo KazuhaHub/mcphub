@@ -3,6 +3,7 @@ import { ServerDao, ServerConfigWithName, PaginatedResult } from './index.js';
 import { ServerRepository } from '../db/repositories/ServerRepository.js';
 import { ServerConfig } from '../types/index.js';
 import {
+  readStoredServerTags,
   unpackStartOnDemandOptions,
   mirrorStartOnDemandIntoOptions,
 } from '../utils/serverConfigPersistence.js';
@@ -95,6 +96,7 @@ export class ServerDaoDbImpl implements ServerDao {
       type: entity.type,
       description: entity.description,
       manageUrl: entity.manageUrl,
+      tags: entity.tags,
       url: entity.url,
       command: entity.command,
       args: entity.args,
@@ -157,6 +159,7 @@ export class ServerDaoDbImpl implements ServerDao {
     assignNullable('type');
     assignNullable('description');
     assignNullable('manageUrl');
+    assignNullable('tags');
     assignNullable('url');
     assignNullable('command');
     assignNullable('args');
@@ -308,6 +311,7 @@ export class ServerDaoDbImpl implements ServerDao {
     type?: string;
     description?: string;
     manageUrl?: string;
+    tags?: string[];
     url?: string;
     command?: string;
     args?: string[];
@@ -355,6 +359,7 @@ export class ServerDaoDbImpl implements ServerDao {
       type: server.type as 'stdio' | 'sse' | 'streamable-http' | 'openapi' | undefined,
       description: server.description,
       manageUrl: server.manageUrl ?? undefined,
+      tags: readStoredServerTags(server.name, server.tags),
       url: server.url,
       command: server.command,
       args: server.args,

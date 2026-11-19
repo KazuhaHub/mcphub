@@ -123,6 +123,7 @@ describe('buildServerPayload', () => {
         type: 'openapi',
         description: '',
         manageUrl: '',
+        tags: [],
         visibility: 'private',
         options: {},
         headers: {},

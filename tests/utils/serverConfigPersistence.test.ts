@@ -1,5 +1,8 @@
 import { normalizeServerConfigForPersistence } from '../../src/utils/serverConfigPersistence.js';
 import { ServerConfig, ServerInfo } from '../../src/types/index.js';
+import { hasConnectionRelevantChange } from '../../src/utils/connectionRelevantConfig.js';
+import { readStoredServerTags } from '../../src/utils/serverConfigPersistence.js';
+import { logger } from '../../src/utils/logger.js';
 
 describe('normalizeServerConfigForPersistence', () => {
   it('preserves absolute OAuth expiry alongside its shared access token', () => {
@@ -506,9 +509,7 @@ describe('file staging (#1056)', () => {
         args: ['-y', 'pkg'],
         tools: { mcphub_file_upload: { enabled: true } },
       }),
-    ).toThrow(
-      "tool name `mcphub_file_upload` is reserved by the hub's built-in staging tools",
-    );
+    ).toThrow("tool name `mcphub_file_upload` is reserved by the hub's built-in staging tools");
   });
 
   it('still accepts ordinary tool names', () => {
@@ -536,4 +537,93 @@ it('preserves a personal OAuth app on an OpenAPI server', () => {
       oauth,
     }).oauth,
   ).toMatchObject(oauth);
+});
+
+describe('server tags (#1506)', () => {
+  const base: ServerConfig = { type: 'stdio', command: 'npx', args: ['-y', 'pkg'] };
+
+  it('trims, collapses whitespace and de-duplicates tags case-insensitively', () => {
+    const normalized = normalizeServerConfigForPersistence({
+      ...base,
+      tags: ['  Database ', 'database', 'test   env', '', 'DB'],
+    });
+
+    expect(normalized.tags).toEqual(['Database', 'test env', 'DB']);
+  });
+
+  it('drops an empty tag list so clearing tags clears the stored value', () => {
+    const normalized = normalizeServerConfigForPersistence({ ...base, tags: ['  ', ''] });
+
+    expect(normalized.tags).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(normalized, 'tags')).toBe(true);
+  });
+
+  it('rejects malformed and overlong tags', () => {
+    expect(() =>
+      normalizeServerConfigForPersistence({ ...base, tags: 'db' as unknown as string[] }),
+    ).toThrow('tags must be an array of strings');
+    expect(() =>
+      normalizeServerConfigForPersistence({ ...base, tags: [1] as unknown as string[] }),
+    ).toThrow('tags must be an array of strings');
+    expect(() => normalizeServerConfigForPersistence({ ...base, tags: ['x'.repeat(65)] })).toThrow(
+      'tags must be at most 64 characters',
+    );
+  });
+
+  it('treats a tags-only edit as metadata that needs no reconnect', () => {
+    const existing = { name: 'mongo', ...base, tags: ['db'] };
+
+    expect(hasConnectionRelevantChange(existing, { ...base, tags: ['db', 'test'] })).toBe(false);
+    expect(hasConnectionRelevantChange(existing, { ...base })).toBe(false);
+  });
+});
+
+describe('readStoredServerTags (#1506)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('keeps valid tags without warning', () => {
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    expect(readStoredServerTags('valid', [' db ', 'DB', 'prod'])).toEqual(['db', 'prod']);
+    expect(readStoredServerTags('valid', undefined)).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('drops malformed entries and warns once per server and value', () => {
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    expect(readStoredServerTags('hand-edited', [123, 'db', 'x'.repeat(65)])).toEqual(['db']);
+    expect(readStoredServerTags('hand-edited', [123, 'db', 'x'.repeat(65)])).toEqual(['db']);
+    expect(readStoredServerTags('scalar-tags', 'db')).toBeUndefined();
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[0][0]).toContain('"hand-edited"');
+    expect(warn.mock.calls[1][0]).toContain('"scalar-tags"');
+  });
+});
+
+describe('server tag limits', () => {
+  it('removes control and format characters from tags', async () => {
+    const { normalizeServerTags } = await import('../../src/utils/serverConfigPersistence.js');
+    expect(normalizeServerTags(['pr‮od', 'a​b', '\u0007dev'])).toEqual(['prod', 'ab', 'dev']);
+  });
+
+  it('refuses more than 32 tags when saving', async () => {
+    const { normalizeServerTags, SERVER_TAG_MAX_COUNT } = await import(
+      '../../src/utils/serverConfigPersistence.js'
+    );
+    const many = Array.from({ length: SERVER_TAG_MAX_COUNT + 1 }, (_, i) => `t${i}`);
+    expect(() => normalizeServerTags(many)).toThrow(/at most 32 tags/);
+    expect(normalizeServerTags(many.slice(0, SERVER_TAG_MAX_COUNT))).toHaveLength(32);
+  });
+
+  it('keeps the first 32 stored tags instead of failing to read', () => {
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const many = Array.from({ length: 40 }, (_, i) => `t${i}`);
+    expect(readStoredServerTags('many-tags', many)).toHaveLength(32);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
 });

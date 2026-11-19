@@ -137,6 +137,12 @@
       "scheme": "L'URL de la page de gestion doit commencer par https:// (http:// n'est autorisé que pour localhost)",
       "credentials": "L'URL de la page de gestion ne doit contenir ni nom d'utilisateur ni mot de passe"
     },
+    "tags": "Tags",
+    "tagsPlaceholder": "Ajoutez un tag puis appuyez sur Entrée",
+    "removeTag": "Retirer le tag {{tag}}",
+    "tagFilter": "Filtrer par tag",
+    "allTags": "Tous les tags",
+    "searchPlaceholder": "Rechercher par nom, note, tag ou outil",
     "url": "URL du serveur",
     "apiKey": "Clé API",
     "save": "Enregistrer",

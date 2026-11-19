@@ -137,6 +137,12 @@
       "scheme": "URL trang quản lý phải bắt đầu bằng https:// (http:// chỉ được phép với localhost)",
       "credentials": "URL trang quản lý không được chứa tên người dùng hoặc mật khẩu"
     },
+    "tags": "Thẻ",
+    "tagsPlaceholder": "Nhập thẻ rồi nhấn Enter",
+    "removeTag": "Xóa thẻ {{tag}}",
+    "tagFilter": "Lọc theo thẻ",
+    "allTags": "Tất cả thẻ",
+    "searchPlaceholder": "Tìm theo tên, ghi chú, thẻ hoặc công cụ",
     "url": "URL máy chủ",
     "apiKey": "Khóa API",
     "save": "Lưu",

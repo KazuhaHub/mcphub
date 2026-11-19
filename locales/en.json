@@ -137,6 +137,12 @@
       "scheme": "The management page URL must start with https:// (http:// is allowed only for localhost)",
       "credentials": "The management page URL must not contain a username or password"
     },
+    "tags": "Tags",
+    "tagsPlaceholder": "Add a tag and press Enter",
+    "removeTag": "Remove tag {{tag}}",
+    "tagFilter": "Filter by tag",
+    "allTags": "All tags",
+    "searchPlaceholder": "Search by name, note, tag, or tool",
     "url": "Server URL",
     "apiKey": "API Key",
     "save": "Save",
