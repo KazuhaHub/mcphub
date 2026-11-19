@@ -30,6 +30,7 @@ import { getServerDao } from '../../src/dao/index.js';
 import { logger } from '../../src/utils/logger.js';
 import { normalizeServerConfigForPersistence } from '../../src/utils/serverConfigPersistence.js';
 import type { ServerConfigWithName } from '../../src/types/index.js';
+import { hashFlowNonce, readFlowNonce } from '../../src/utils/oauthFlowBinding.js';
 
 jest.mock('../../src/dao/index.js', () => ({
   getServerDao: jest.fn(),
@@ -569,6 +570,14 @@ test('database mode rejects personal OAuth without a persistent key before stori
   expect(fs.existsSync(`${process.env.MCPHUB_SETTING_PATH}.credentials.key`)).toBe(false);
 });
 
+// What starting a flow through the API does: bind it to the browser holding this nonce.
+const bindFlow = async (context: PersonalOAuthContext, nonce = 'browser-nonce') => {
+  await context.mutate(({ oauth }) => {
+    oauth.pendingAuthorization!.browserBinding = hashFlowNonce(nonce);
+  });
+  return { nonce };
+};
+
 const relayApp = () => {
   const app = express();
   app.get('/oauth/relay/:name', mcpConnectionRateLimiter, handleOAuthRelay);
@@ -643,11 +652,12 @@ test('relay supports two users, recovery, callback consumption, broker exchange,
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['referrer-policy']).toBe('no-referrer');
     expect(new URL(response.headers.location).searchParams.get('state')).toBe(pending.state);
+    const proof = await bindFlow(p.context);
     await expect(
-      completePersonalOAuth(pending.state!, username, 'https://wrong.example'),
+      completePersonalOAuth(pending.state!, username, 'https://wrong.example', proof),
     ).rejects.toThrow('issuer');
-    expect(await completePersonalOAuth(pending.state!, username, issuer)).toBe(true);
-    expect(await completePersonalOAuth(pending.state!, username, issuer)).toBe(false);
+    expect(await completePersonalOAuth(pending.state!, username, issuer, proof)).toBe(true);
+    expect(await completePersonalOAuth(pending.state!, username, issuer, proof)).toBe(false);
     await request(relayApp()).get(relayPath(pending.state!)).expect(400);
     expect(tokenRequests.at(-1)!.get('code_verifier')).toBe(pending.codeVerifier);
     const recovered = await provider(username);
@@ -814,6 +824,8 @@ test('OpenAPI personal OAuth exchanges PKCE codes and uses isolated, rotated tok
       const completed = await completePersonalOAuth(
         String(req.query.state),
         String(req.query.code),
+        undefined,
+        { nonce: readFlowNonce(req) },
       );
       res.sendStatus(completed ? 200 : 400);
     } catch {
@@ -866,10 +878,13 @@ test('OpenAPI personal OAuth exchanges PKCE codes and uses isolated, rotated tok
       const url = new URL(started.body.data.authorizationUrl);
       expect(url.searchParams.get('code_challenge_method')).toBe('S256');
       url.searchParams.set('user', username);
+      const flowCookie = (started.headers['set-cookie'] as unknown as string[])
+        .map((cookie) => cookie.split(';')[0])
+        .join('; ');
       const authorized = await http.get(url.pathname + url.search).expect(302);
       const callback = new URL(authorized.headers.location);
-      await http.get(callback.pathname + callback.search).expect(200);
-      await http.get(callback.pathname + callback.search).expect(400);
+      await http.get(callback.pathname + callback.search).set('Cookie', flowCookie).expect(200);
+      await http.get(callback.pathname + callback.search).set('Cookie', flowCookie).expect(400);
 
       const auth = await provider(username);
       const client = new OpenAPIClient(auth.context.config, {
@@ -966,3 +981,38 @@ test.each([true, false])(
     }
   },
 );
+
+describe('a personal OAuth flow is bound to the browser and user that started it', () => {
+  const start = async (username: string) => {
+    const started = await startRelay(username);
+    return started;
+  };
+
+  it("refuses another user's browser (no cookie, wrong cookie, other session) and discards the flow", async () => {
+    for (const proof of [
+      {},
+      { nonce: 'victims-own-nonce' },
+      { nonce: 'attacker-nonce', sessionUsername: 'victim' },
+    ]) {
+      const alice = await start('alice');
+      await bindFlow(alice.context, 'attacker-nonce');
+      const state = alice.context.config.oauth.pendingAuthorization!.state!;
+      await expect(completePersonalOAuth(state, 'victim-code', issuer, proof)).rejects.toThrow(
+        'Invalid authorization state',
+      );
+      // The flow is gone: even the right browser cannot finish it now, and nothing was exchanged.
+      expect(await completePersonalOAuth(state, 'alice-code', issuer, { nonce: 'attacker-nonce' })).toBe(
+        false,
+      );
+      expect((await provider('alice')).context.config.oauth.accessToken).toBeUndefined();
+    }
+  });
+
+  it('refuses a flow that was never bound to a browser', async () => {
+    const alice = await start('alice');
+    const state = alice.context.config.oauth.pendingAuthorization!.state!;
+    await expect(
+      completePersonalOAuth(state, 'code', issuer, { nonce: 'anything' }),
+    ).rejects.toThrow('Invalid authorization state');
+  });
+});

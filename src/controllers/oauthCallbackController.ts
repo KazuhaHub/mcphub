@@ -1,4 +1,5 @@
 import { completePersonalOAuth } from './personalOAuthController.js';
+import { clearFlowCookie, readFlowNonce } from '../utils/oauthFlowBinding.js';
 /**
  * OAuth Callback Controller
  *
@@ -342,7 +343,14 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
     }
 
     try {
-      if (await completePersonalOAuth(stateParam, codeParam, normalizeQueryParam(req.query.iss))) {
+      const proof = {
+        nonce: readFlowNonce(req),
+        sessionUsername: (req as Request & { user?: { username?: string } }).user?.username,
+      };
+      if (
+        await completePersonalOAuth(stateParam, codeParam, normalizeQueryParam(req.query.iss), proof)
+      ) {
+        clearFlowCookie(req, res);
         return res.send(
           generateHtmlResponse(
             t,

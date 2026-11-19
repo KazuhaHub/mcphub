@@ -14,6 +14,14 @@ import { createTransportFromConfig } from '../services/mcpService.js';
 import { validateAuthorizationIss } from '../utils/oauthIssuer.js';
 import { CredentialBindingError } from '../utils/credentialTemplate.js';
 import { resolveSelfResource, revokeSelfGrants } from '../services/selfOAuthResource.js';
+import { getAuthorizationCode } from '../models/OAuth.js';
+import { logger } from '../utils/logger.js';
+import {
+  flowNonceMatches,
+  hashFlowNonce,
+  newFlowNonce,
+  setFlowCookie,
+} from '../utils/oauthFlowBinding.js';
 
 export const managePersonalOAuth = async (req: Request, res: Response): Promise<void> => {
   const user = (req as Request & { user?: RequestPrincipal }).user;
@@ -113,7 +121,18 @@ export const managePersonalOAuth = async (req: Request, res: Response): Promise<
         }
       }
     }
-    if (req.method === 'POST') await notifyWorkspaceUser(user.username);
+    if (req.method === 'POST') {
+      // Tie the new flow to this browser: only a callback carrying the cookie set here completes it.
+      const pending = context.config.oauth.pendingAuthorization;
+      if (pending?.state) {
+        const nonce = newFlowNonce();
+        await context.mutate(({ oauth }) => {
+          if (oauth.pendingAuthorization) oauth.pendingAuthorization.browserBinding = hashFlowNonce(nonce);
+        });
+        setFlowCookie(res, nonce, pending.authorizationUrl);
+      }
+      await notifyWorkspaceUser(user.username);
+    }
     let authorizationUrl = context.authorizationUrl;
     if (authorizationUrl && context.config.oauth.authorizationRelay) {
       const callback = new URL(authorizationUrl).searchParams.get('redirect_uri');
@@ -143,14 +162,40 @@ export const managePersonalOAuth = async (req: Request, res: Response): Promise<
   }
 };
 
+/** What the callback request proves about the browser that delivers it. */
+export interface PersonalOAuthCallbackProof {
+  /** The flow cookie's value (`readFlowNonce`). */
+  nonce?: string;
+  /** The signed-in MCPHub user of the callback request, when it carries a session. */
+  sessionUsername?: string;
+}
+
+const refuseFlow = async (
+  context: PersonalOAuthContext,
+  reason: string,
+): Promise<never> => {
+  logger.warn(
+    `Personal OAuth callback refused (${reason}) for '${context.serverName}', flow owner '${context.username}'; the flow was discarded`,
+  );
+  await context.clearOAuthData(context.serverName, 'verifier').catch(() => undefined);
+  throw new CredentialBindingError('Invalid authorization state');
+};
+
 export const completePersonalOAuth = async (
   state: string,
   code: string,
   iss?: string,
+  proof: PersonalOAuthCallbackProof = {},
 ): Promise<boolean> => {
   const context = await findPersonalOAuthFlow(state);
   if (!context) return false;
   const pending = context.config.oauth.pendingAuthorization!;
+  // `state` only finds the flow. Completing it takes the browser that started it (its cookie), and
+  // a session, if the request has one, of the user who owns the flow.
+  if (!flowNonceMatches(pending.browserBinding, proof.nonce))
+    return refuseFlow(context, 'the browser did not start this flow');
+  if (proof.sessionUsername !== undefined && proof.sessionUsername !== context.username)
+    return refuseFlow(context, `signed in as '${proof.sessionUsername}'`);
   const result = validateAuthorizationIss({
     iss,
     authorizationUrl: pending.authorizationUrl,
@@ -158,6 +203,12 @@ export const completePersonalOAuth = async (
     issRequired: pending.issRequired,
   });
   if (!result.valid) throw new CredentialBindingError('Invalid authorization issuer');
+  // This hub's own authorization server issued the code for a known user: it must be the owner.
+  if (await resolveSelfResource(context.config)) {
+    const issued = await getAuthorizationCode(code);
+    if (!issued || issued.username !== context.username)
+      return refuseFlow(context, 'the code was issued for another user');
+  }
   // Persist consumption before redeeming the code: concurrent/replayed callbacks fail closed.
   await context.mutate(({ oauth }) => {
     delete oauth.pendingAuthorization!.state;
