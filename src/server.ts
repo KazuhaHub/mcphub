@@ -91,6 +91,7 @@ export class AppServer {
 
   constructor() {
     this.app = express();
+    this.app.disable('x-powered-by');
     this.app.use(replicaRequestContext);
     this.app.set('trust proxy', resolveTrustProxySetting());
     // Delegate-based CORS so the Host header is available for the same-host
@@ -314,7 +315,20 @@ export class AppServer {
     if (this.frontendPath) {
       logger.log('Serving frontend', JSON.stringify({ frontendPath: this.frontendPath }));
       // Serve static files with base path
-      this.app.use(this.basePath, express.static(this.frontendPath));
+      // No Last-Modified or mtime-based ETag: they would reveal the build time before login.
+      // Asset file names are content-hashed, so they can be cached for good instead.
+      this.app.use(
+        this.basePath,
+        express.static(this.frontendPath, {
+          etag: false,
+          lastModified: false,
+          setHeaders: (res, filePath) => {
+            if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+              res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            }
+          },
+        }),
+      );
 
       // Add the wildcard route for SPA with base path
       if (fs.existsSync(path.join(this.frontendPath, 'index.html'))) {
@@ -415,7 +429,9 @@ export class AppServer {
     // Hand the staging lock back before the process exits: the next instance
     // would otherwise refuse to start until the heartbeat staleness window.
     try {
-      const { releaseAllStagingProcessLocks } = await import('./services/fileStaging/processLock.js');
+      const { releaseAllStagingProcessLocks } = await import(
+        './services/fileStaging/processLock.js'
+      );
       await releaseAllStagingProcessLocks();
     } catch (error) {
       logger.error('[SHUTDOWN] Error releasing the staging lock', safeStringify({ error }));

@@ -18,7 +18,6 @@ import GitHubIcon from '@/components/icons/GitHubIcon';
 import DefaultPasswordWarningModal from '@/components/ui/DefaultPasswordWarningModal';
 import LoginMethods, { type AlternativeSignIn } from '@/components/LoginMethods';
 import { PROJECT_DOCS_URL, PROJECT_REPO_URL } from '@/constants/links';
-import { APP_VERSION } from '@/utils/appVersion';
 import {
   clearLoggedOut,
   decideLoginPresentation,
@@ -530,10 +529,6 @@ const LoginPage: React.FC = () => {
               onCancelRedirect={() => setRedirectCancelled(true)}
             />
           </div>
-
-          <p className="text-center hub-mono" style={{ fontSize: 11, color: 'var(--hub-ink-3)' }}>
-            v{APP_VERSION}
-          </p>
         </div>
       </div>
 

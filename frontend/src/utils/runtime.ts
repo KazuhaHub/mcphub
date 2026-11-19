@@ -7,7 +7,6 @@ export const getRuntimeConfig = (): RuntimeConfig => {
   return (
     window.__MCPHUB_CONFIG__ || {
       basePath: '',
-      version: 'dev',
       name: 'mcphub',
     }
   );
@@ -91,14 +90,12 @@ export const loadRuntimeConfig = async (): Promise<RuntimeConfig> => {
     console.warn('Could not load runtime config from server, using defaults');
     return {
       basePath: '',
-      version: 'dev',
       name: 'mcphub',
     };
   } catch (error) {
     console.error('Error loading runtime config:', error);
     return {
       basePath: '',
-      version: 'dev',
       name: 'mcphub',
     };
   }

@@ -320,7 +320,7 @@ describe('discoveryController', () => {
         expect.objectContaining({
           name: 'mcphub-marketplace',
           version: '0.1',
-          hub: { name: 'mcphub', version: '0.0.0-test' },
+          hub: { name: 'mcphub' },
           total_servers: 2,
           endpoints: expect.objectContaining({
             servers: '/discovery/servers',

@@ -36,7 +36,7 @@ jest.mock('@/hooks/useGroupData', () => ({ useGroupData: () => ({ groups: [] }) 
 jest.mock('@/services/activityService', () => ({
   checkActivityAvailable: jest.fn(() => Promise.resolve(false)),
 }));
-jest.mock('@/utils/appVersion', () => ({ APP_VERSION: 'test' }));
+jest.mock('@/hooks/useAppVersion', () => ({ useAppVersion: () => 'test' }));
 jest.mock('@/components/ui/UserProfileMenu', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../frontend/src/components/PermissionChecker', () => ({
   usePermissionCheck: () => true,

@@ -130,10 +130,22 @@ import { Card, Cards } from 'mintlify';
     "success": true,
     "data": {
       "basePath": "",
-      "version": "1.0.0",
       "name": "MCPHub"
     }
   }
+  ```
+
+---
+
+### 获取版本号
+
+返回正在运行的 MCPHub 版本。未登录的调用方拿不到版本号：`/config`、`/public-config`、健康检查端点、MCP `initialize` 响应和控制台静态文件都不包含版本号，响应也不带 `X-Powered-By` 头。此端点需要身份验证。
+
+- **端点**: `/api/version`
+- **方法**: `GET`
+- **成功响应**:
+  ```json
+  { "success": true, "data": { "version": "1.0.0" } }
   ```
 
 ---

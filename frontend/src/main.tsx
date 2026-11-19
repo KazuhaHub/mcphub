@@ -34,7 +34,6 @@ async function initializeApp() {
     console.log('Starting app with default configuration...');
     window.__MCPHUB_CONFIG__ = {
       basePath: '',
-      version: 'dev',
       name: 'mcphub',
     };
 

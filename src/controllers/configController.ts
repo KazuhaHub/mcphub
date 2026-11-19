@@ -41,7 +41,6 @@ export const getRuntimeConfig = (req: Request, res: Response): void => {
       basePath: config.basePath,
       isHosted: isHostedModeEnabled(),
       smartRoutingPath: config.smartRoutingPath,
-      version: config.mcpHubVersion,
       name: config.mcpHubName,
     };
 
@@ -60,6 +59,14 @@ export const getRuntimeConfig = (req: Request, res: Response): void => {
       message: 'Failed to get runtime configuration',
     });
   }
+};
+
+/**
+ * Get the running MCPHub version. Mounted under /api, so only authenticated callers reach it.
+ */
+export const getVersion = (_req: Request, res: Response): void => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ success: true, data: { version: config.mcpHubVersion } });
 };
 
 /**

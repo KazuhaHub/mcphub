@@ -11,7 +11,6 @@ jest.mock('react-router-dom', () => ({
   useLocation: () => ({ pathname: '/login', search: mockSearch, hash: '', state: null }),
   useNavigate: () => mockNavigate,
 }));
-jest.mock('@/utils/appVersion', () => ({ APP_VERSION: 'test' }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, vars?: Record<string, string>) => (vars?.name ? `${key}:${vars.name}` : key),

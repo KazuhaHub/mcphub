@@ -4,11 +4,6 @@ import path from 'path';
 import tailwindcss from '@tailwindcss/vite';
 import { createDevBasePathRedirectPlugin } from './viteBasePath.js';
 import { createDevProxyConfig } from './viteProxy.js';
-// Import the package.json to get the version
-import { readFileSync } from 'fs';
-
-// Get package.json version
-const packageJson = JSON.parse(readFileSync(path.resolve(__dirname, '../package.json'), 'utf-8'));
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -21,9 +16,6 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
       },
-    },
-    define: {
-      'import.meta.env.PACKAGE_VERSION': JSON.stringify(packageJson.version),
     },
     build: {
       sourcemap: true,
