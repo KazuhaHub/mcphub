@@ -100,21 +100,27 @@ export const clearReadinessCache = (): void => {
   inFlight.clear();
 };
 
-// A user changing or removing their credential makes the cached answer stale.
-credentialBindingEvents.on(
-  'invalidate',
-  (filter: { serverName?: string; username?: string } | undefined) => {
-    for (const [key] of cache) {
-      const [username, serverName] = JSON.parse(key) as [string, string];
-      if (
-        (!filter?.serverName || filter.serverName === serverName) &&
-        (!filter?.username || filter.username === username)
-      ) {
-        cache.delete(key);
+// A user changing or removing their credential makes the cached answer stale. Subscribed on
+// first use, so importing this module has no side effect.
+let subscribed = false;
+const ensureSubscribed = (): void => {
+  if (subscribed) return;
+  subscribed = true;
+  credentialBindingEvents.on(
+    'invalidate',
+    (filter: { serverName?: string; username?: string } | undefined) => {
+      for (const key of [...cache.keys()]) {
+        const [username, serverName] = JSON.parse(key) as [string, string];
+        if (
+          (!filter?.serverName || filter.serverName === serverName) &&
+          (!filter?.username || filter.username === username)
+        ) {
+          cache.delete(key);
+        }
       }
-    }
-  },
-);
+    },
+  );
+};
 
 const remember = (key: string, entry: CacheEntry): void => {
   cache.delete(key);
@@ -305,6 +311,7 @@ export const getServiceReadiness = async (
 ): Promise<ServiceReadiness | null> => {
   const readiness = definition.readiness;
   if (!readiness) return null;
+  ensureSubscribed();
   const deps: ReadinessDeps = { ...defaultDeps(), ...options.deps };
   const key = cacheKey(user.username, serverName);
   const declaration = JSON.stringify(readiness);

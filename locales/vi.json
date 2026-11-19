@@ -351,6 +351,22 @@
       "read": "Chỉ đọc (mặc định)",
       "write": "Đọc và thay đổi dữ liệu của chính người dùng",
       "external": "Mọi thứ mức tối đa cho phép"
+    },
+    "readiness": {
+      "label": "Kiểm tra sẵn sàng",
+      "urlPlaceholder": "https://service.example.com/readiness",
+      "auth": "Đăng nhập kiểm tra",
+      "authOAuth": "Mã OAuth cá nhân",
+      "authSlot": "Thông tin xác thực: {{name}}",
+      "hint": "Tùy chọn. Hub hỏi URL https này xem thiết lập của từng người dùng có hoạt động không và hiển thị kết quả trong không gian làm việc của họ. Hub gửi mã của chính người dùng; xem Service Readiness trong tài liệu.",
+      "invalid": {
+        "tooLong": "URL kiểm tra sẵn sàng quá dài.",
+        "invalid": "URL kiểm tra sẵn sàng phải là URL tuyệt đối.",
+        "scheme": "URL kiểm tra sẵn sàng phải dùng https.",
+        "credentials": "URL kiểm tra sẵn sàng không được chứa tên người dùng hoặc mật khẩu.",
+        "authRequired": "Hãy chọn cách hub đăng nhập vào URL kiểm tra sẵn sàng.",
+        "slotMissing": "Thông tin xác thực đã chọn không nằm trong các trường thông tin xác thực của máy chủ này."
+      }
     }
   },
   "status": {
@@ -2007,6 +2023,30 @@
         "updateCredentials": "Update credentials"
       },
       "tabsLabel": "Sections of {{name}}"
+    },
+    "readiness": {
+      "state": {
+        "ready": "Sẵn sàng sử dụng",
+        "needs_setup": "Cần thiết lập",
+        "degraded": "Hoạt động một phần",
+        "expiring": "Sắp hết hạn",
+        "expired": "Đã hết hạn",
+        "revoked": "Đăng nhập lại",
+        "unknown": "Không có thông tin trạng thái"
+      },
+      "text": {
+        "needs_setup": "Dịch vụ này cần thêm một bước thiết lập mới hoạt động được.",
+        "degraded": "Dịch vụ này chỉ hoạt động một phần hoặc với dữ liệu đã cũ.",
+        "expiring": "Thiết lập của bạn hiện hoạt động nhưng sắp hết hạn.",
+        "expired": "Thiết lập của bạn đã hết hạn.",
+        "revoked": "Dịch vụ này đã từ chối đăng nhập của bạn. Hãy đăng nhập lại hoặc kết nối lại.",
+        "unknown": "Hiện chưa thể kiểm tra trạng thái. Hãy thử Kiểm tra lại."
+      },
+      "expiresAt": "Hết hạn vào {{date}}",
+      "expiredAt": "Đã hết hạn vào {{date}}",
+      "recheck": "Kiểm tra lại",
+      "rechecking": "Đang kiểm tra…",
+      "recheckFailed": "Không thể kiểm tra lại dịch vụ này. Hãy thử lại."
     }
   },
   "serviceLink": {

@@ -351,6 +351,22 @@
       "read": "Salt okunur (varsayılan)",
       "write": "Okuma ve kullanıcının kendi verilerini değiştirme",
       "external": "En yüksek düzeyin izin verdiği her şey"
+    },
+    "readiness": {
+      "label": "Hazırlık denetimi",
+      "urlPlaceholder": "https://service.example.com/readiness",
+      "auth": "Denetim oturumu",
+      "authOAuth": "Kişisel OAuth belirteci",
+      "authSlot": "Kimlik bilgisi: {{name}}",
+      "hint": "İsteğe bağlı. Hub, her kullanıcının kurulumunun çalışıp çalışmadığını bu https adresine sorar ve yanıtı çalışma alanında gösterir. Kullanıcının kendi belirtecini gönderir; belgelerdeki Service Readiness bölümüne bakın.",
+      "invalid": {
+        "tooLong": "Hazırlık denetimi adresi çok uzun.",
+        "invalid": "Hazırlık denetimi adresi mutlak bir URL olmalı.",
+        "scheme": "Hazırlık denetimi adresi https kullanmalı.",
+        "credentials": "Hazırlık denetimi adresi kullanıcı adı veya parola içermemeli.",
+        "authRequired": "Hub'ın hazırlık denetimi adresinde nasıl oturum açacağını seçin.",
+        "slotMissing": "Seçilen kimlik bilgisi bu sunucunun kimlik bilgisi alanlarından biri değil."
+      }
     }
   },
   "status": {
@@ -2007,6 +2023,30 @@
         "updateCredentials": "Update credentials"
       },
       "tabsLabel": "Sections of {{name}}"
+    },
+    "readiness": {
+      "state": {
+        "ready": "Kullanıma hazır",
+        "needs_setup": "Kurulum gerekli",
+        "degraded": "Kısmen çalışıyor",
+        "expiring": "Yakında sona erecek",
+        "expired": "Süresi doldu",
+        "revoked": "Yeniden oturum açın",
+        "unknown": "Durum alınamıyor"
+      },
+      "text": {
+        "needs_setup": "Bu hizmetin çalışması için bir kurulum adımı daha gerekiyor.",
+        "degraded": "Bu hizmet yalnızca kısmen veya güncel olmayan verilerle çalışıyor.",
+        "expiring": "Kurulumunuz şu anda çalışıyor ancak yakında sona erecek.",
+        "expired": "Kurulumunuzun süresi doldu.",
+        "revoked": "Bu hizmet oturum açmanızı reddetti. Yeniden oturum açın veya yeniden bağlayın.",
+        "unknown": "Durum şu anda denetlenemedi. Yeniden denetle düğmesini deneyin."
+      },
+      "expiresAt": "Bitiş: {{date}}",
+      "expiredAt": "Süresi doldu: {{date}}",
+      "recheck": "Yeniden denetle",
+      "rechecking": "Denetleniyor…",
+      "recheckFailed": "Bu hizmet yeniden denetlenemedi. Tekrar deneyin."
     }
   },
   "serviceLink": {

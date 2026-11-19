@@ -435,7 +435,12 @@ describe('the overview', () => {
     expect(
       screen.getByLabelText('workspacePage.services.copyEndpointFor:anteater-shared'),
     ).toBeTruthy();
-    expect(document.querySelector('a[href="/services/anteater-shared"]')).not.toBeNull();
+    // A real button (not a small link) that opens the stable service link.
+    expect(
+      screen.getByRole('button', {
+        name: 'workspacePage.actions.manageAccountFor:anteater-shared',
+      }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByLabelText('connect.rowActionFor:anteater-shared'));
     expect(screen.getByTestId('connect-dialog-stub').getAttribute('data-service')).toBe(
       'anteater-shared',

@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import ServerIcon from '@/components/ServerIcon';
 import { StatusDot } from '@/components/ui/StatusDot';
 import type { MyCredentialBinding, WorkspaceServer } from '@/types';
+import { readinessTone, shouldShowReadinessChip } from '@/utils/readiness';
 import { resolveServiceChip, serviceChipTone } from '@/utils/workspace';
 
 export type RowAction = 'signin' | 'credentials';
@@ -36,6 +37,8 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
   const { t } = useTranslation();
   const openRef = useRef<HTMLButtonElement>(null);
   const { chip, action, reauth } = resolveServiceChip(server, credentialServers, credentialBinding);
+  // A service that works as far as the hub can tell shows what the service itself reported.
+  const readiness = shouldShowReadinessChip(server.readiness, chip) ? server.readiness : null;
 
   const actionLabel =
     action === 'signin'
@@ -76,8 +79,19 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
         onClick={() => onOpen(server.name)}
       >
         <span className="min-w-0 break-words font-medium">{server.name}</span>
-        <span data-testid={`workspace-chip-${server.name}`} data-chip={chip}>
-          <StatusDot kind={serviceChipTone(chip)} label={t(`workspacePage.chip.${chip}`)} />
+        <span
+          data-testid={`workspace-chip-${server.name}`}
+          data-chip={chip}
+          {...(readiness ? { 'data-readiness': readiness.state } : {})}
+        >
+          {readiness ? (
+            <StatusDot
+              kind={readinessTone(readiness.state)}
+              label={t(`workspacePage.readiness.state.${readiness.state}`)}
+            />
+          ) : (
+            <StatusDot kind={serviceChipTone(chip)} label={t(`workspacePage.chip.${chip}`)} />
+          )}
         </span>
       </button>
       {action && (

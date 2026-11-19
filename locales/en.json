@@ -356,6 +356,22 @@
       "read": "Read only (default)",
       "write": "Read, and change the user's own data",
       "external": "Everything the maximum allows"
+    },
+    "readiness": {
+      "label": "Readiness check",
+      "urlPlaceholder": "https://service.example.com/readiness",
+      "auth": "Readiness sign-in",
+      "authOAuth": "Personal OAuth token",
+      "authSlot": "Credential: {{name}}",
+      "hint": "Optional. The hub asks this https URL whether each user's setup works and shows the answer in their workspace. It sends the user's own token; see Service Readiness in the docs.",
+      "invalid": {
+        "tooLong": "The readiness URL is too long.",
+        "invalid": "The readiness URL must be an absolute URL.",
+        "scheme": "The readiness URL must use https.",
+        "credentials": "The readiness URL must not contain a username or password.",
+        "authRequired": "Choose how the hub signs in to the readiness URL.",
+        "slotMissing": "The chosen credential is not one of this server's credential fields."
+      }
     }
   },
   "status": {
@@ -2057,6 +2073,30 @@
       "remove": "Remove from my services",
       "removeTitle": "Remove {{name}}?",
       "removeMessage": "{{name}} leaves your list and your endpoint. Your credentials and permission choices are kept if you add it again."
+    },
+    "readiness": {
+      "state": {
+        "ready": "Ready to use",
+        "needs_setup": "Setup needed",
+        "degraded": "Partly working",
+        "expiring": "Expiring soon",
+        "expired": "Expired",
+        "revoked": "Sign in again",
+        "unknown": "Status unavailable"
+      },
+      "text": {
+        "needs_setup": "This service needs one more setup step before it works.",
+        "degraded": "This service works only partly, or with outdated data.",
+        "expiring": "Your setup works now but is about to expire.",
+        "expired": "Your setup has expired.",
+        "revoked": "This service rejected your sign-in. Sign in again or reconnect it.",
+        "unknown": "The status could not be checked right now. Try Re-check."
+      },
+      "expiresAt": "Expires {{date}}",
+      "expiredAt": "Expired {{date}}",
+      "recheck": "Re-check",
+      "rechecking": "Checking…",
+      "recheckFailed": "Could not re-check this service. Try again."
     }
   },
   "serviceLink": {

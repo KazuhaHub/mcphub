@@ -204,6 +204,31 @@ export interface CredentialSlot {
   label?: string;
 }
 
+// An administrator-set check the hub runs per user to learn whether a service actually works.
+export interface ReadinessConfig {
+  url: string;
+  auth: 'oauth' | { credential: string };
+}
+
+export type WorkspaceReadinessState =
+  | 'ready'
+  | 'needs_setup'
+  | 'degraded'
+  | 'expiring'
+  | 'expired'
+  | 'revoked'
+  | 'unknown';
+
+// What a service answered for the signed-in user. `summary` is plain text from the service; null
+// means the dashboard words the state itself.
+export interface WorkspaceReadiness {
+  state: WorkspaceReadinessState;
+  summary: string | null;
+  action: { label: string; url: string } | null;
+  expiresAt: string | null;
+  checkedAt: string;
+}
+
 export interface MyCredentialBinding {
   serverName: string;
   manageUrl?: string;
@@ -228,6 +253,8 @@ export interface ServerConfig {
   type?: 'stdio' | 'sse' | 'streamable-http' | 'openapi';
   description?: string;
   manageUrl?: string;
+  // Admin-only; null clears it on save.
+  readiness?: ReadinessConfig | null;
   tags?: string[];
   // The server's icon as a versioned URL; the stored image is never sent to the dashboard.
   icon?: string;
@@ -441,6 +468,9 @@ export interface ServerFormData {
   name: string;
   description?: string;
   manageUrl?: string;
+  // Admin-only readiness check: the URL, and 'oauth' or 'credential:<slot name>' for the bearer.
+  readinessUrl?: string;
+  readinessAuth?: string;
   tags?: string[];
   // Chosen in the form: a data: URL to set the icon, '' to remove it, absent to leave it.
   iconEdit?: string;
@@ -1057,6 +1087,9 @@ export interface WorkspaceServer {
   hasCredentialSlots?: boolean;
   credentialConfigured: boolean;
   status: WorkspaceServerStatus;
+  // Null when the service has no check, or the user's credential is not configured yet. Absent
+  // in data from an older server.
+  readiness?: WorkspaceReadiness | null;
 }
 
 export interface WorkspaceServerEndpoint {

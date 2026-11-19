@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Copy, ExternalLink, Plug, Plus, RefreshCw, Trash2 } from 'lucide-react';
@@ -7,9 +7,22 @@ import { StatusDot } from '@/components/ui/StatusDot';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import ConnectDialog from '@/components/connect/ConnectDialog';
 import { CredentialPanelBody } from '@/components/credentials/CredentialDialog';
-import { refreshWorkspace, useWorkspaceData, type WorkspaceData } from '@/hooks/useWorkspaceData';
+import {
+  mutateWorkspace,
+  refreshWorkspace,
+  useWorkspaceData,
+  type WorkspaceData,
+} from '@/hooks/useWorkspaceData';
 import { useServiceActions } from '@/hooks/useServiceActions';
+import { useToast } from '@/contexts/ToastContext';
+import { checkWorkspaceReadiness } from '@/services/workspaceService';
 import type { WorkspaceServer } from '@/types';
+import {
+  readinessExpiryNote,
+  readinessPrimaryAction,
+  readinessTone,
+  shouldShowReadinessChip,
+} from '@/utils/readiness';
 import { getSafeManageHref } from '@/utils/manageUrl';
 import { getServiceLinkHref } from '@/utils/serviceLink';
 import { TOOL_RISK_LEVELS, countHiddenByCeiling, isRiskChoiceAllowed } from '@/utils/toolRisk';
@@ -154,17 +167,62 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
   );
   const [connecting, setConnecting] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [checking, setChecking] = useState(false);
+  // Set when the user leaves for the service's own page (its fix-it action or the account page);
+  // the next time the window regains focus the readiness is asked again, past the server cache.
+  const leftForService = useRef(false);
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const { pending, toggle, setAdded, changeRisk, signIn, copyEndpoint } = useServiceActions({
     onAuthorizationLink: (_name, url) => setAuthorizationUrl(url),
   });
   const busy = pending.has(server.name);
   const added = isAdded(server);
+  const readiness = server.readiness ?? null;
+  const serverName = server.name;
+
+  const recheck = useCallback(async () => {
+    setChecking(true);
+    try {
+      // The refresh that follows reads the answer the server just cached.
+      await mutateWorkspace(async () => {
+        await checkWorkspaceReadiness(serverName);
+      });
+    } catch {
+      showToast(t('workspacePage.readiness.recheckFailed'), 'error');
+    } finally {
+      setChecking(false);
+    }
+  }, [serverName, showToast, t]);
+
+  useEffect(() => {
+    if (!readiness) return undefined;
+    const onReturn = () => {
+      if (!leftForService.current || document.visibilityState === 'hidden') return;
+      leftForService.current = false;
+      void recheck();
+    };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
+  }, [readiness, recheck]);
+
+  // Opened from a click, so it is not a blocked popup; `noopener` keeps the page unreachable.
+  const openOutside = (href: string) => {
+    leftForService.current = true;
+    window.open(href, '_blank', 'noopener,noreferrer');
+  };
 
   const endpoint = endpoints?.servers.find((entry) => entry.name === server.name);
   const binding = bindings?.find((entry) => entry.serverName === server.name);
   const credentialServers = bindings ? new Set(bindings.map((entry) => entry.serverName)) : null;
   const { chip } = resolveServiceChip(server, credentialServers, binding);
+  const showReadinessChip = shouldShowReadinessChip(readiness, chip);
+  const readinessAction = readinessPrimaryAction(readiness);
+  const expiryNote = readinessExpiryNote(readiness);
   const notice = resolveServiceNotice(server, credentialServers, binding);
   // A personal sign-in has no slots, so no credentials tab.
   const hasCredentials = hasCredentialSlots(server, credentialServers);
@@ -248,7 +306,14 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
             {server.name}
           </h1>
           <span data-testid="service-chip" data-chip={chip}>
-            <StatusDot kind={serviceChipTone(chip)} label={t(`workspacePage.chip.${chip}`)} />
+            {showReadinessChip && readiness ? (
+              <StatusDot
+                kind={readinessTone(readiness.state)}
+                label={t(`workspacePage.readiness.state.${readiness.state}`)}
+              />
+            ) : (
+              <StatusDot kind={serviceChipTone(chip)} label={t(`workspacePage.chip.${chip}`)} />
+            )}
           </span>
           {added ? (
             <button
@@ -343,17 +408,63 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
       >
         {tab === 'overview' && (
           <>
-            <p className="text-[13px]" data-testid="service-tools">
-              {server.toolCount !== null
-                ? t('workspacePage.services.toolCount', { count: server.toolCount })
-                : toolsPending
-                  ? t('workspacePage.risk.connectedPending')
-                  : t('workspacePage.panel.toolsAfterSignIn')}
-            </p>
+            {readiness && (
+              <div
+                className="space-y-1"
+                data-testid="service-readiness"
+                data-state={readiness.state}
+                data-tone={readinessTone(readiness.state)}
+                role="status"
+              >
+                <StatusDot
+                  kind={readinessTone(readiness.state)}
+                  label={t(`workspacePage.readiness.state.${readiness.state}`)}
+                />
+                {readiness.state !== 'ready' && (
+                  <p className="break-words text-[13px]" data-testid="readiness-summary">
+                    {readiness.summary || t(`workspacePage.readiness.text.${readiness.state}`)}
+                  </p>
+                )}
+                {readiness.state === 'ready' && readiness.summary && (
+                  <p className="break-words text-[13px]" style={muted}>
+                    {readiness.summary}
+                  </p>
+                )}
+                {expiryNote && (
+                  <p className="text-[12px]" style={muted}>
+                    {t(
+                      expiryNote.kind === 'expired'
+                        ? 'workspacePage.readiness.expiredAt'
+                        : 'workspacePage.readiness.expiresAt',
+                      { date: formatUntil(expiryNote.date) },
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+            {(server.toolCount !== null || !readiness) && (
+              <p className="text-[13px]" data-testid="service-tools">
+                {server.toolCount !== null
+                  ? t('workspacePage.services.toolCount', { count: server.toolCount })
+                  : toolsPending
+                    ? t('workspacePage.risk.connectedPending')
+                    : t('workspacePage.panel.toolsAfterSignIn')}
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-2">
+              {readinessAction && (
+                <button
+                  type="button"
+                  className="hub-btn primary"
+                  data-testid="readiness-action"
+                  onClick={() => openOutside(readinessAction.url)}
+                >
+                  {readinessAction.label} <ExternalLink size={12} aria-hidden />
+                </button>
+              )}
               <button
                 type="button"
-                className="hub-btn primary"
+                className={'hub-btn' + (readinessAction ? '' : ' primary')}
                 disabled={!endpoint?.url}
                 onClick={() => setConnecting(true)}
                 title={
@@ -376,15 +487,30 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
                 <Copy size={13} /> {t('workspacePage.panel.copyUrl')}
               </button>
               {manageHref && (
-                <a
-                  href={getServiceLinkHref(server.name)}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  className="hub-btn"
                   aria-label={t('workspacePage.actions.manageAccountFor', { name: server.name })}
-                  className="inline-flex items-center gap-1 text-[13px] underline"
+                  onClick={() => openOutside(getServiceLinkHref(server.name))}
                 >
-                  {t('workspacePage.actions.manageAccount')} <ExternalLink size={12} />
-                </a>
+                  {t('workspacePage.actions.manageAccount')} <ExternalLink size={12} aria-hidden />
+                </button>
+              )}
+              {readiness && (
+                <button
+                  type="button"
+                  className="hub-btn"
+                  disabled={checking}
+                  data-testid="readiness-recheck"
+                  onClick={() => void recheck()}
+                >
+                  <RefreshCw size={13} className={checking ? 'animate-spin' : undefined} />{' '}
+                  {t(
+                    checking
+                      ? 'workspacePage.readiness.rechecking'
+                      : 'workspacePage.readiness.recheck',
+                  )}
+                </button>
               )}
             </div>
           </>

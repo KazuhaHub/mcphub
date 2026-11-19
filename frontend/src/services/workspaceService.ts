@@ -4,6 +4,7 @@ import type {
   WorkspaceActivityPage,
   WorkspaceClient,
   WorkspaceEndpoints,
+  WorkspaceReadiness,
   UserServiceEntry,
   WorkspaceServer,
 } from '../types';
@@ -29,6 +30,16 @@ export const fetchWorkspaceServers = async (): Promise<WorkspaceServer[]> =>
 
 export const fetchWorkspaceEndpoints = async (): Promise<WorkspaceEndpoints> =>
   unwrap(await apiGet<ApiResponse<WorkspaceEndpoints>>('/workspace/endpoints'), 'endpoints');
+
+/** Asks the service now, bypassing the server's five-minute cache. Null when nothing is probed. */
+export const checkWorkspaceReadiness = async (name: string): Promise<WorkspaceReadiness | null> =>
+  unwrap(
+    await apiPost<ApiResponse<{ name: string; readiness: WorkspaceReadiness | null }>>(
+      `/workspace/servers/${encodeURIComponent(name)}/readiness/check`,
+      {},
+    ),
+    'readiness',
+  ).readiness;
 
 export const saveServerSelection = async (name: string, selected: boolean): Promise<void> => {
   unwrap(

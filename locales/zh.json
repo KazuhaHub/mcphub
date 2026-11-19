@@ -356,6 +356,22 @@
       "read": "仅读取（默认）",
       "write": "读取，并可修改用户自己的数据",
       "external": "最大值允许的全部操作"
+    },
+    "readiness": {
+      "label": "就绪检查",
+      "urlPlaceholder": "https://service.example.com/readiness",
+      "auth": "就绪检查登录方式",
+      "authOAuth": "个人 OAuth 令牌",
+      "authSlot": "凭据：{{name}}",
+      "hint": "可选。中心会向这个 https 地址询问每位用户的设置是否可用，并在其工作区显示结果。请求会携带该用户自己的令牌，详见文档“服务就绪状态”。",
+      "invalid": {
+        "tooLong": "就绪检查地址过长。",
+        "invalid": "就绪检查地址必须是完整的 URL。",
+        "scheme": "就绪检查地址必须使用 https。",
+        "credentials": "就绪检查地址不能包含用户名或密码。",
+        "authRequired": "请选择中心访问就绪检查地址时使用的登录方式。",
+        "slotMissing": "所选凭据不是该服务器声明的凭据字段。"
+      }
     }
   },
   "status": {
@@ -2053,6 +2069,30 @@
       "remove": "从我的服务中移除",
       "removeTitle": "移除 {{name}}？",
       "removeMessage": "{{name}} 会从你的列表和接入地址中移除。再次添加时，你的凭据和权限选择仍会保留。"
+    },
+    "readiness": {
+      "state": {
+        "ready": "可以使用",
+        "needs_setup": "需要设置",
+        "degraded": "部分可用",
+        "expiring": "即将过期",
+        "expired": "已过期",
+        "revoked": "请重新登录",
+        "unknown": "暂时无法确定状态"
+      },
+      "text": {
+        "needs_setup": "这个服务还需要完成一步设置才能使用。",
+        "degraded": "这个服务只能部分使用，或数据已过期。",
+        "expiring": "你的设置目前可用，但即将过期。",
+        "expired": "你的设置已过期。",
+        "revoked": "这个服务拒绝了你的登录。请重新登录或重新连接。",
+        "unknown": "暂时无法检查状态，请点击“重新检查”。"
+      },
+      "expiresAt": "将于 {{date}} 过期",
+      "expiredAt": "已于 {{date}} 过期",
+      "recheck": "重新检查",
+      "rechecking": "检查中…",
+      "recheckFailed": "无法重新检查该服务，请重试。"
     }
   },
   "serviceLink": {

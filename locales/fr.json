@@ -351,6 +351,22 @@
       "read": "Lecture seule (par défaut)",
       "write": "Lecture, et modification des données propres à l'utilisateur",
       "external": "Tout ce que le maximum autorise"
+    },
+    "readiness": {
+      "label": "Contrôle de disponibilité",
+      "urlPlaceholder": "https://service.example.com/readiness",
+      "auth": "Connexion du contrôle",
+      "authOAuth": "Jeton OAuth personnel",
+      "authSlot": "Identifiant : {{name}}",
+      "hint": "Facultatif. Le hub interroge cette URL https pour savoir si la configuration de chaque utilisateur fonctionne et affiche la réponse dans son espace de travail. Il envoie le jeton de l'utilisateur lui-même ; voir Service Readiness dans la documentation.",
+      "invalid": {
+        "tooLong": "L'URL de contrôle est trop longue.",
+        "invalid": "L'URL de contrôle doit être une URL absolue.",
+        "scheme": "L'URL de contrôle doit utiliser https.",
+        "credentials": "L'URL de contrôle ne doit pas contenir de nom d'utilisateur ni de mot de passe.",
+        "authRequired": "Choisissez comment le hub se connecte à l'URL de contrôle.",
+        "slotMissing": "L'identifiant choisi ne fait pas partie des champs d'identifiants de ce serveur."
+      }
     }
   },
   "status": {
@@ -2011,6 +2027,30 @@
         "updateCredentials": "Update credentials"
       },
       "tabsLabel": "Sections of {{name}}"
+    },
+    "readiness": {
+      "state": {
+        "ready": "Prêt à l'emploi",
+        "needs_setup": "Configuration requise",
+        "degraded": "Fonctionne en partie",
+        "expiring": "Expire bientôt",
+        "expired": "Expiré",
+        "revoked": "Reconnectez-vous",
+        "unknown": "État indisponible"
+      },
+      "text": {
+        "needs_setup": "Ce service nécessite encore une étape de configuration pour fonctionner.",
+        "degraded": "Ce service ne fonctionne qu'en partie, ou avec des données obsolètes.",
+        "expiring": "Votre configuration fonctionne actuellement, mais va bientôt expirer.",
+        "expired": "Votre configuration a expiré.",
+        "revoked": "Ce service a refusé votre connexion. Reconnectez-vous ou reconnectez le service.",
+        "unknown": "L'état n'a pas pu être vérifié pour le moment. Essayez Revérifier."
+      },
+      "expiresAt": "Expire le {{date}}",
+      "expiredAt": "Expiré le {{date}}",
+      "recheck": "Revérifier",
+      "rechecking": "Vérification…",
+      "recheckFailed": "Impossible de revérifier ce service. Réessayez."
     }
   },
   "serviceLink": {
