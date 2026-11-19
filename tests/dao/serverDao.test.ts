@@ -266,6 +266,34 @@ describe('credentialWriteClients (file mode)', () => {
   });
 });
 
+describe('readiness (file storage)', () => {
+  const readiness = { url: 'https://example.com/ready', auth: { credential: 'TOKEN' } };
+  const run = async (updates: object) => {
+    const dao = new ServerDaoImpl();
+    jest.spyOn(dao as any, 'loadSettings').mockResolvedValue({
+      mcpServers: { linked: { type: 'sse', url: 'https://example.com/sse', readiness } },
+    });
+    const save = jest.spyOn(dao as any, 'saveSettings').mockResolvedValue(undefined);
+    await dao.update('linked', updates);
+    return JSON.parse(JSON.stringify(save.mock.calls[0][0].mcpServers.linked));
+  };
+
+  it('reads it back', async () => {
+    const dao = new ServerDaoImpl();
+    jest.spyOn(dao as any, 'loadSettings').mockResolvedValue({
+      mcpServers: { linked: { type: 'sse', readiness } },
+    });
+    expect((await dao.findById('linked'))?.readiness).toEqual(readiness);
+  });
+
+  it('keeps it through an update that does not name it, replaces and clears it', async () => {
+    expect((await run({ description: 'x' })).readiness).toEqual(readiness);
+    expect((await run({ readiness: { url: 'https://example.com/n', auth: 'oauth' } })).readiness)
+      .toEqual({ url: 'https://example.com/n', auth: 'oauth' });
+    expect(await run({ readiness: undefined })).not.toHaveProperty('readiness');
+  });
+});
+
 describe('server icon (file storage)', () => {
   const icon = 'data:image/png;base64,iVBORw0KGgo=';
   const run = async (updates: object) => {

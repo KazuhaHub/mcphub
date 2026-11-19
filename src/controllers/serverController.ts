@@ -18,6 +18,7 @@ import {
   listValidBindingUsers,
 } from '../services/credentialBindingService.js';
 import { renameServerSelections } from '../services/userServerSelectionService.js';
+import { readinessSlotProblem } from '../utils/readinessConfig.js';
 import { assertMaintenanceEndsInFuture } from '../utils/serverMaintenance.js';
 import { primeAnnotationTrust, areAnnotationsTrusted } from '../services/annotationTrustService.js';
 import {
@@ -111,7 +112,10 @@ import {
   normalizeServerConfigForPersistence,
   normalizeToolConfig,
 } from '../utils/serverConfigPersistence.js';
-import { hasConnectionRelevantChange, type ServerRecord } from '../utils/connectionRelevantConfig.js';
+import {
+  hasConnectionRelevantChange,
+  type ServerRecord,
+} from '../utils/connectionRelevantConfig.js';
 import {
   isPrivilegedServerConfig,
   ServerConfigValidationError,
@@ -148,7 +152,6 @@ type DescribableConfig = Record<
   string,
   { enabled: boolean; description?: string; hiddenParams?: string[] }
 >;
-
 
 type RequestUser = {
   username: string;
@@ -340,6 +343,23 @@ const manageUrlRefusal = (
   return 'Only admins can set the management page URL';
 };
 
+// The readiness check makes the hub call an administrator-chosen URL with a user's own
+// credential, so only administrators set it. A non-admin may only send it blank (nothing stored)
+// or, on an edit, equal to the stored value, so an unchanged round trip still works.
+const readinessRefusal = (
+  currentUser: RequestUser | null | undefined,
+  config: object,
+  existing?: { readiness?: unknown },
+): string | undefined => {
+  if (currentUser?.isAdmin === true || !hasOwnKey(config, 'readiness')) return undefined;
+  const asText = (value: unknown): string =>
+    value === undefined || value === null || value === '' ? '' : JSON.stringify(value);
+  if (asText((config as { readiness?: unknown }).readiness) === asText(existing?.readiness)) {
+    return undefined;
+  }
+  return 'Only admins can set the readiness check';
+};
+
 // The API shows a stored icon as its URL. A client that sends a server's config back unchanged
 // echoes that URL, which means "keep the icon" rather than a new image.
 const isIconUrlEcho = (value: unknown, existing?: { name: string; icon?: unknown }): boolean =>
@@ -423,8 +443,6 @@ const clearDescriptionOverride = (
 
   return nextItems;
 };
-
-
 
 export const getAllServers = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -783,6 +801,7 @@ export const createServer = async (req: Request, res: Response): Promise<void> =
     const refusal =
       adminOnlyFieldRefusal(getRequestUser(req), config) ??
       manageUrlRefusal(getRequestUser(req), config) ??
+      readinessRefusal(getRequestUser(req), config) ??
       iconRefusal(getRequestUser(req), config);
     if (refusal) {
       res.status(403).json({ success: false, message: refusal });
@@ -1051,6 +1070,7 @@ export const batchCreateServers = async (req: Request, res: Response): Promise<v
         const refusal =
           adminOnlyFieldRefusal(currentUser as RequestUser | null, config) ??
           manageUrlRefusal(currentUser as RequestUser | null, config) ??
+          readinessRefusal(currentUser as RequestUser | null, config) ??
           iconRefusal(currentUser as RequestUser | null, config);
         if (refusal) {
           results.push({ name: serverName, success: false, message: refusal });
@@ -1378,9 +1398,21 @@ export const updateServer = async (req: Request, res: Response): Promise<void> =
 
     const manageUrlRefused =
       manageUrlRefusal(getRequestUser(req), config, existingServer) ??
+      readinessRefusal(getRequestUser(req), config, existingServer) ??
       iconRefusal(getRequestUser(req), config, existingServer);
     if (manageUrlRefused) {
       res.status(403).json({ success: false, message: manageUrlRefused });
+      return;
+    }
+
+    // A stored readiness declaration must still find its credential slot when this edit
+    // changes the template without naming readiness. (A readiness sent in the body was
+    // already checked against the body's own template while normalizing.)
+    const readinessProblem = hasOwnKey(normalizedConfig, 'readiness')
+      ? null
+      : readinessSlotProblem(existingServer.readiness, normalizedConfig.credentialTemplate);
+    if (readinessProblem) {
+      res.status(400).json({ success: false, message: readinessProblem });
       return;
     }
 
@@ -2105,7 +2137,10 @@ export const toggleTool = async (req: Request, res: Response): Promise<void> => 
  * connect to settle, then report only a failure this restart produced. An
  * on-demand server spawns on the next call, so there is nothing to wait for.
  */
-const restartFailureOf = async (serverName: string, errorBefore: string | null): Promise<boolean> => {
+const restartFailureOf = async (
+  serverName: string,
+  errorBefore: string | null,
+): Promise<boolean> => {
   const runtime = getServerByName(serverName);
   if (!runtime || runtime.config?.startOnDemand === true) return false;
   if (runtime.enabled === false) return false;
@@ -2129,12 +2164,7 @@ const restartFailureOf = async (serverName: string, errorBefore: string | null):
 export const updateToolFileStaging = async (req: Request, res: Response): Promise<void> => {
   try {
     const serverName = decodeURIComponent(req.params.name);
-    const {
-      tool,
-      enabled,
-      inputParams,
-      outputParams,
-    } = (req.body ?? {}) as {
+    const { tool, enabled, inputParams, outputParams } = (req.body ?? {}) as {
       tool?: unknown;
       enabled?: unknown;
       inputParams?: unknown;
@@ -2697,12 +2727,10 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
       dashboardName !== undefined &&
       (typeof dashboardName !== 'string' || dashboardName.trim().length > 100)
     ) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          message: 'dashboardName must be a string of at most 100 characters',
-        });
+      res.status(400).json({
+        success: false,
+        message: 'dashboardName must be a string of at most 100 characters',
+      });
       return;
     }
     const loginPresentationError = validateLoginPresentationUpdate(auth?.betterAuth);
@@ -3660,7 +3688,10 @@ export const updateSystemConfig = async (req: Request, res: Response): Promise<v
     }
 
     if (dashboardBranding !== undefined) {
-      systemConfig.dashboardBranding = mergeBranding(systemConfig.dashboardBranding, dashboardBranding);
+      systemConfig.dashboardBranding = mergeBranding(
+        systemConfig.dashboardBranding,
+        dashboardBranding,
+      );
     }
 
     if (typeof normalizeToolNames === 'boolean') {

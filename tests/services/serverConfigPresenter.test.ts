@@ -122,6 +122,15 @@ describe('serverConfigPresenter (#1036 Phase 1)', () => {
       );
     });
 
+    it('withholds the readiness declaration from shared users', () => {
+      const raw = {
+        ...buildRawServerConfig(),
+        readiness: { url: 'https://svc.example.com/ready', auth: 'oauth' },
+      };
+      const result = presentServerForPrincipal(raw, alice);
+      expect(result.data as Record<string, unknown>).not.toHaveProperty('readiness');
+    });
+
     it('keeps server tags in the shared-user view', () => {
       const raw = { ...buildRawServerConfig(), tags: ['search', 'prod'] };
 

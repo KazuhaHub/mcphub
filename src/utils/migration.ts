@@ -173,6 +173,7 @@ export async function migrateToDatabase(seedServersAndGroups = true): Promise<bo
             type: config.type,
             description: config.description,
             manageUrl: config.manageUrl,
+            readiness: config.readiness,
             icon: normalized.icon,
             tags: normalized.tags,
             url: config.url,

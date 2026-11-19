@@ -60,6 +60,12 @@ const declarationSchema = z.object({
           headers: z.record(z.string(), z.string()).optional(),
           description: z.string().optional(),
           manageUrl: z.string().optional(),
+          readiness: z
+            .object({
+              url: z.string(),
+              auth: z.union([z.literal('oauth'), z.object({ credential: z.string() })]),
+            })
+            .optional(),
           icon: z.string().optional(),
           tags: z.array(z.string()).optional(),
           owner: z.string().optional(),

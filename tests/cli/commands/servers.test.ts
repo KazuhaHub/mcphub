@@ -74,6 +74,57 @@ describe('servers command', () => {
     });
   });
 
+  it('add inline sends --readiness-url with oauth or credential auth', async () => {
+    const { client, calls } = makeClient(() => ({ success: true, data: {} }));
+    const base = ['add', 'canvas', '--type', 'streamable-http', '--url', 'https://c.example.com/mcp'];
+    await servers.run(
+      [...base, '--readiness-url', 'https://c.example.com/ready', '--readiness-auth', 'oauth'],
+      {},
+      { client },
+    );
+    expect(calls[0].body.config.readiness).toEqual({
+      url: 'https://c.example.com/ready',
+      auth: 'oauth',
+    });
+
+    await servers.run(
+      [
+        ...base,
+        '--readiness-url',
+        'https://c.example.com/ready',
+        '--readiness-auth',
+        'credential:UBC_TOKEN',
+      ],
+      {},
+      { client },
+    );
+    expect(calls[1].body.config.readiness).toEqual({
+      url: 'https://c.example.com/ready',
+      auth: { credential: 'UBC_TOKEN' },
+    });
+  });
+
+  it('add inline rejects a readiness url without auth, or bad auth', async () => {
+    const { client } = makeClient(() => ({ success: true, data: {} }));
+    const base = ['add', 'c', '--type', 'streamable-http', '--url', 'https://c.example.com/mcp'];
+    await expect(
+      servers.run([...base, '--readiness-url', 'https://c.example.com/r'], {}, { client }),
+    ).rejects.toThrow(/readiness-auth/);
+    await expect(
+      servers.run(
+        [...base, '--readiness-url', 'https://c.example.com/r', '--readiness-auth', 'basic'],
+        {},
+        { client },
+      ),
+    ).rejects.toThrow(/readiness-auth/);
+  });
+
+  it('add inline leaves readiness unset by default', async () => {
+    const { client, calls } = makeClient(() => ({ success: true, data: {} }));
+    await servers.run(['add', 'foo', '--type', 'stdio', '--command', 'npx'], {}, { client });
+    expect(calls[0].body.config).not.toHaveProperty('readiness');
+  });
+
   it('add inline leaves manageUrl unset without --manage-url', async () => {
     const { client, calls } = makeClient(() => ({ success: true, data: {} }));
     await servers.run(['add', 'foo', '--type', 'stdio', '--command', 'npx'], {}, { client });

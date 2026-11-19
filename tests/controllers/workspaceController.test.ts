@@ -25,6 +25,8 @@ const mockPeekServerTools = jest.fn(
     userTools[principal.username]?.[serverName],
 );
 const mockGetCredentialBindingStatus = jest.fn();
+const mockReadinessBounded = jest.fn();
+const mockReadinessCheck = jest.fn();
 
 jest.mock('../../src/dao/DaoFactory.js', () => ({
   getGroupDao: () => ({
@@ -112,6 +114,10 @@ const mockUsers: Record<string, { username: string; isAdmin?: boolean; userGroup
 jest.mock('../../src/services/userService.js', () => ({
   getUserByUsername: async (username: string) => mockUsers[username],
 }));
+jest.mock('../../src/services/serviceReadinessService.js', () => ({
+  getServiceReadinessBounded: (...args: unknown[]) => mockReadinessBounded(...args),
+  getServiceReadiness: (...args: unknown[]) => mockReadinessCheck(...args),
+}));
 const mockPersonalOAuthLoad = jest.fn();
 jest.mock('../../src/services/personalOAuthService.js', () => ({
   hasPersonalOAuth: (config?: { oauth?: { identityMode?: string } }) =>
@@ -120,6 +126,7 @@ jest.mock('../../src/services/personalOAuthService.js', () => ({
 }));
 
 import {
+  checkWorkspaceReadiness,
   getServiceManageUrl,
   getWorkspaceEndpoints,
   getWorkspaceSummary,
@@ -149,6 +156,7 @@ const buildApp = () => {
     next();
   });
   app.get('/api/workspace/servers', listWorkspaceServers);
+  app.post('/api/workspace/servers/:name/readiness/check', checkWorkspaceReadiness);
   app.get('/api/services/:name/manage-url', getServiceManageUrl);
   app.get('/api/workspace/summary', getWorkspaceSummary);
   app.put('/api/workspace/servers/:name/selection', updateWorkspaceSelection);
@@ -250,6 +258,7 @@ describe('workspace API', () => {
           requiresPersonalCredential: false,
           hasCredentialSlots: false,
           credentialConfigured: true,
+          readiness: null,
           status: { code: 'available', action: null, message: expect.any(String) },
         },
         {
@@ -267,6 +276,7 @@ describe('workspace API', () => {
           requiresPersonalCredential: false,
           hasCredentialSlots: false,
           credentialConfigured: true,
+          readiness: null,
           status: { code: 'not_selected', action: 'select', message: expect.any(String) },
         },
         {
@@ -284,6 +294,7 @@ describe('workspace API', () => {
           requiresPersonalCredential: true,
           hasCredentialSlots: true,
           credentialConfigured: false,
+          readiness: null,
           status: { code: 'not_selected', action: 'select', message: expect.any(String) },
         },
       ]);
@@ -400,6 +411,133 @@ describe('workspace API', () => {
         .expect(200);
 
       expect(response.body.data).toHaveLength(4);
+    });
+  });
+
+  describe('service readiness', () => {
+    const ready = {
+      state: 'needs_setup',
+      summary: 'No Canvas token saved',
+      action: { label: 'Set up Canvas token', url: 'https://canvas.example.com/setup' },
+      expiresAt: null,
+      checkedAt: '2026-11-19T10:00:00.000Z',
+    };
+    const alice = { 'x-test-user': asUser('alice') };
+    const withReadiness = (extra: object = {}) => {
+      servers = [
+        {
+          name: 'canvas',
+          owner: 'admin',
+          visibility: 'public',
+          credentialTemplate: [{ target: 'headers', name: 'X-Canvas-Token' }],
+          readiness: {
+            url: 'https://svc.example.com/ready',
+            auth: { credential: 'X-Canvas-Token' },
+          },
+          ...extra,
+        },
+      ];
+    };
+    const item = async () =>
+      (await request(app).get('/api/workspace/servers').set(alice).expect(200)).body.data[0];
+
+    beforeEach(() => {
+      mockReadinessBounded.mockReset();
+      mockReadinessCheck.mockReset();
+      mockReadinessBounded.mockResolvedValue(ready);
+      mockReadinessCheck.mockResolvedValue(ready);
+    });
+
+    it('adds the probe result to a service whose credential is configured', async () => {
+      withReadiness();
+      mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
+      expect((await item()).readiness).toEqual(ready);
+      expect(mockReadinessBounded).toHaveBeenCalledTimes(1);
+      const [user, name, definition] = mockReadinessBounded.mock.calls[0];
+      expect(user).toMatchObject({ username: 'alice' });
+      expect(name).toBe('canvas');
+      expect(definition.readiness.url).toBe('https://svc.example.com/ready');
+    });
+
+    it('is null, and never probes, while the credential is missing', async () => {
+      withReadiness();
+      mockGetCredentialBindingStatus.mockResolvedValue({ configured: false });
+      expect((await item()).readiness).toBeNull();
+      expect(mockReadinessBounded).not.toHaveBeenCalled();
+    });
+
+    it('is null for a service without a readiness declaration', async () => {
+      withReadiness({ readiness: undefined });
+      mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
+      expect((await item()).readiness).toBeNull();
+      expect(mockReadinessBounded).not.toHaveBeenCalled();
+    });
+
+    it('probes a personal OAuth service once the user is connected', async () => {
+      withReadiness({
+        credentialTemplate: undefined,
+        oauth: { identityMode: 'personal' },
+        readiness: { url: 'https://svc.example.com/ready', auth: 'oauth' },
+      });
+      mockPersonalOAuthLoad.mockResolvedValue({ config: { oauth: { accessToken: 't' } } });
+      expect((await item()).readiness).toEqual(ready);
+    });
+
+    it('never lets a failing probe break the list', async () => {
+      withReadiness();
+      mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
+      mockReadinessBounded.mockRejectedValue(new Error('boom'));
+      const body = await item();
+      expect(body.name).toBe('canvas');
+      expect(body.readiness).toMatchObject({ state: 'unknown', summary: null, action: null });
+    });
+
+    describe('POST /workspace/servers/:name/readiness/check', () => {
+      const post = (name = 'canvas', headers: Record<string, string> = alice) =>
+        request(app).post(`/api/workspace/servers/${name}/readiness/check`).set(headers);
+
+      it('bypasses the cache for one service', async () => {
+        withReadiness();
+        mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
+        const response = await post().expect(200);
+        expect(response.body).toEqual({
+          success: true,
+          data: { name: 'canvas', readiness: ready },
+        });
+        expect(mockReadinessCheck).toHaveBeenCalledWith(
+          expect.objectContaining({ username: 'alice' }),
+          'canvas',
+          expect.objectContaining({ name: 'canvas' }),
+          { refresh: true },
+        );
+      });
+
+      it('answers null without probing when the credential is not configured', async () => {
+        withReadiness();
+        mockGetCredentialBindingStatus.mockResolvedValue({ configured: false });
+        const response = await post().expect(200);
+        expect(response.body.data.readiness).toBeNull();
+        expect(mockReadinessCheck).not.toHaveBeenCalled();
+      });
+
+      it('answers unknown instead of failing when the probe throws', async () => {
+        withReadiness();
+        mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
+        mockReadinessCheck.mockRejectedValue(new Error('boom'));
+        const response = await post().expect(200);
+        expect(response.body.data.readiness.state).toBe('unknown');
+      });
+
+      it('requires a user, hides services the user cannot see, and follows the workspace switch', async () => {
+        withReadiness({ visibility: 'private', owner: 'bob' });
+        await post('canvas', {}).expect(401);
+        await post('canvas').expect(404);
+        await post('missing').expect(404);
+        workspaceConfig = { workspace: { enabled: false } };
+        withReadiness();
+        await post().expect(404);
+        expect(mockReadinessCheck).not.toHaveBeenCalled();
+      });
     });
   });
 

@@ -1,0 +1,100 @@
+---
+title: '服务就绪状态'
+description: '显示用户的个人服务是否真的可用，而不只是已绑定凭据'
+---
+
+已绑定凭据不代表服务可用。用户可能已通过 OAuth 登录某个服务，却从未保存它还需要的第二个令牌；或者连接器持有有效令牌，但配套的浏览器组件从未上传数据。配置**就绪检查（readiness）**后，工作区会直接询问服务本身，并在服务旁显示结果：**可以使用**，或者缺少什么，以及一个能解决问题的按钮。
+
+服务是唯一的事实来源。MCPHub 主动询问（拉取），服务从不推送。
+
+## 配置
+
+管理员可在服务器表单（**就绪检查**）、API、模板中设置服务器的 `readiness`，也可使用 `mcphub servers add --readiness-url <https-url> --readiness-auth <oauth|credential:SLOT>`。与 `manageUrl` 一样，只有管理员可以设置或修改。
+
+```json
+{
+  "mcpServers": {
+    "canvas": {
+      "type": "streamable-http",
+      "url": "https://canvas.mcp.example.com/mcp",
+      "oauth": { "identityMode": "personal" },
+      "readiness": { "url": "https://canvas.mcp.example.com/readiness", "auth": "oauth" }
+    }
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `readiness.url` | 绝对 `https:` URL，不含内嵌凭据，最长 2048 字符。 |
+| `readiness.auth` | `"oauth"` 发送用户的个人 OAuth 访问令牌。`{ "credential": "SLOT_NAME" }` 发送用户在该凭据字段中的值，名称必须是该服务器的某个凭据字段。 |
+
+## 协议，版本 1
+
+### 谁调用谁
+
+仅当服务配置了 `readiness`，并且该用户的个人凭据已配置（已通过 OAuth 登录，或已填写凭据字段）时，MCPHub（服务端，绝不由浏览器发起）才会为一位用户、一个服务调用 `GET <readiness.url>`。没有凭据时工作区不显示就绪状态，因为缺的正是凭据本身。
+
+### 请求
+
+- `GET <readiness.url>`，带 `Accept: application/json` 与 `Authorization: Bearer <credential>`。
+  - `readiness.auth = "oauth"`：用户当前对该服务器的 OAuth 访问令牌，即 MCPHub 调用工具时使用的同一令牌；过期时用现有机制刷新。
+  - `readiness.auth = { "credential": "<SLOT_NAME>" }`：该用户在该凭据字段中的值，例如 `UBC_CONNECTOR_TOKEN`。
+- 超时 5 秒，不跟随重定向，响应体上限 16 KiB，仅限 https，受 MCPHub 的 SSRF 防护约束（禁止私有和回环地址）。不带 Cookie，不带其他用户数据。
+- 绝不记录 Bearer 令牌到日志。
+
+### 响应
+
+HTTP 200，`Content-Type: application/json`：
+
+```json
+{
+  "version": 1,
+  "state": "ready | needs_setup | degraded | expiring | expired | revoked",
+  "summary": "给用户的一句纯文本，不超过 200 字符，可选",
+  "action": { "label": "Set up Canvas token", "url": "https://..." },
+  "expires_at": "2026-12-01T00:00:00Z",
+  "checked_at": "2026-11-19T10:00:00Z"
+}
+```
+
+- `state` 含义：
+  - `ready`：现在可用。
+  - `needs_setup`：已绑定，但缺少必要的设置步骤（没有 Canvas 令牌；从未上传 UBC 快照）。
+  - `degraded`：部分可用或数据已过期（例如 UBC 数据超过新鲜度阈值）。
+  - `expiring`：现在可用但即将过期，必须提供 `expires_at`。
+  - `expired`：曾经设置好，现已过期。
+  - `revoked`：服务拒绝该用户的设置（Canvas 拒绝了令牌；UBC 绑定已撤销）。
+- `action` 可选，其 `url` 必须是 https。状态不是 `ready` 时，控制台把它显示为主按钮。
+- `summary` 以纯文本显示，绝不作为 HTML 渲染。
+- 不要返回任何密钥（令牌、密钥）或其他用户的数据。
+- 未知的 `state`、未知的 `version` 或多余字段：MCPHub 把未知状态当作 `unknown`，并忽略多余字段。
+
+### MCPHub 如何映射失败
+
+这些是 MCPHub 自己的结论，不由服务定义：
+
+- 就绪检查 URL 返回 HTTP 401 或 403，映射为 `revoked`，并显示 MCPHub 自己的“请重新登录或重新连接”文案（MCPHub 的凭据被拒绝）。MCPHub 无法使用或刷新凭据时同样如此。
+- 超时、网络错误、5xx 或其他非 200 状态、非 JSON 或过大的响应体、结构无效，映射为 `unknown`（“无法检查状态”），绝不显示为可用。
+
+### 新鲜度
+
+- 按用户和服务缓存 5 分钟。失败的检查（`unknown` 或 `revoked`）只缓存 30 秒。用户保存或删除凭据会清除对应缓存。
+- 显式重新检查会绕过缓存：用户点击操作或管理链接后回到标签页时，以及点击**重新检查**按钮（`POST /api/workspace/servers/:name/readiness/check`）。同一服务相隔不到 3 秒的重新检查直接使用缓存。
+- 工作区列表与其他工作并行询问，最多等待 2 秒；缓慢或失败的调用显示为 `unknown`，绝不拖慢或破坏列表。探测仍在后台完成并写入缓存。
+
+## 在工作区 API 中
+
+`GET /api/workspace/servers` 的每一项都带有 `readiness`，值为 `null`（未配置检查，或凭据未配置），或：
+
+```json
+{
+  "state": "needs_setup",
+  "summary": "No Canvas token saved",
+  "action": { "label": "Set up Canvas token", "url": "https://canvas.example.com/setup" },
+  "expiresAt": null,
+  "checkedAt": "2026-11-19T10:00:00.000Z"
+}
+```
+
+`state` 是协议中的状态之一，或 `unknown`。`summary` 为 `null` 时，控制台显示自己为该状态准备的文案。

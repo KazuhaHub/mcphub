@@ -361,6 +361,7 @@ function serverConfigToTemplate(config: ServerConfig): {
   if (config.type) templateConfig.type = config.type;
   if (config.description) templateConfig.description = config.description;
   if (config.manageUrl) templateConfig.manageUrl = config.manageUrl;
+  if (config.readiness) templateConfig.readiness = structuredClone(config.readiness);
   if (config.tags?.length) templateConfig.tags = [...config.tags];
   if (config.url) templateConfig.url = config.url;
   if (config.command) templateConfig.command = config.command;
@@ -653,6 +654,7 @@ export async function importTemplate(
         defaultUserRisk: _defaultUserRisk,
         credentialWriteClients: _credentialWriteClients,
         manageUrl,
+        readiness,
         icon,
         ...importable
       } = config as ServerConfig;
@@ -662,6 +664,11 @@ export async function importTemplate(
         // trusted system callers, dropped from a non-admin import.
         ...(manageUrl !== undefined && (!requestingUser || requestingUser.isAdmin)
           ? { manageUrl }
+          : {}),
+        // The readiness check makes the hub call an administrator-chosen URL with the user's
+        // credential, so it is administrator-only like the management page link.
+        ...(readiness !== undefined && (!requestingUser || requestingUser.isAdmin)
+          ? { readiness }
           : {}),
         // Like the management page link, the icon is administrator-chosen.
         ...(icon !== undefined && (!requestingUser || requestingUser.isAdmin) ? { icon } : {}),

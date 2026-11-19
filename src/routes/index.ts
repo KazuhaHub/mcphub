@@ -14,6 +14,7 @@ import { handleOAuthRelay } from '../controllers/oauthRelayController.js';
 import { metrics } from '../controllers/metricsController.js';
 import { managePersonalOAuth } from '../controllers/personalOAuthController.js';
 import {
+  checkWorkspaceReadiness,
   getWorkspaceEndpoints,
   getWorkspaceSummary,
   listWorkspaceActivity,
@@ -363,6 +364,7 @@ export const initRoutes = async (app: express.Application): Promise<void> => {
   authenticatedRouter.put('/workspace/servers/:name/selection', updateWorkspaceSelection);
   authenticatedRouter.put('/workspace/servers/:name/membership', updateWorkspaceMembership);
   authenticatedRouter.put('/workspace/servers/:name/risk', updateWorkspaceRisk);
+  authenticatedRouter.post('/workspace/servers/:name/readiness/check', checkWorkspaceReadiness);
   authenticatedRouter.get('/users/:username/services', listUserServices);
   authenticatedRouter.put('/users/:username/services/:name', updateUserService);
   authenticatedRouter.get('/services/:name/manage-url', getServiceManageUrl);

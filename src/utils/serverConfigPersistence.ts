@@ -5,6 +5,7 @@ import { validateMaxBufferSize } from './stdioOptions.js';
 import { normalizeCredentialWriteClients } from './credentialWriteScope.js';
 import { ServerConfigValidationError } from './serverConfigValidation.js';
 import { normalizeManageUrl } from './manageUrl.js';
+import { normalizeReadiness, readinessSlotProblem } from './readinessConfig.js';
 import { normalizeServerIcon } from './serverIcon.js';
 import {
   assertStagingConfigConsistent,
@@ -483,7 +484,7 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
   const env = normalizeRecord(config.env);
   const headers = normalizeRecord(config.headers);
   const passthroughHeaders = normalizeStringArray(config.passthroughHeaders);
-  const options = normalizeOptions(
+  const serverOptions = normalizeOptions(
     config.options,
     config.startOnDemand === true,
     config.idleTimeoutMs,
@@ -516,6 +517,13 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
         'OpenAPI personal OAuth requires no shared API security',
       );
   }
+  const readiness = Object.prototype.hasOwnProperty.call(config, 'readiness')
+    ? normalizeReadiness(config.readiness)
+    : undefined;
+  // An edit replaces the credential template (omitted means none), so the slot is checked
+  // against the template this very config carries.
+  const readinessProblem = readinessSlotProblem(readiness, config.credentialTemplate);
+  if (readinessProblem) throw new ServerConfigValidationError(readinessProblem);
   const tools = normalizeToolsConfig(config.tools);
   const staging = normalizeServerStaging(config.staging);
 
@@ -555,6 +563,8 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
       ? { manageUrl: normalizeManageUrl(config.manageUrl) }
       : {}),
     // Same rule as manageUrl: absent means unchanged, null or empty clears.
+    ...(Object.prototype.hasOwnProperty.call(config, 'readiness') ? { readiness } : {}),
+    // Same rule as manageUrl: absent means unchanged, null or empty clears.
     ...(Object.prototype.hasOwnProperty.call(config, 'icon')
       ? { icon: normalizeServerIcon(config.icon) }
       : {}),
@@ -578,7 +588,7 @@ export const normalizeServerConfigForPersistence = (config: ServerConfig): Serve
       : {}),
     sharedWithUserGroups:
       visibility === 'group' ? normalizeSharedUsers(config.sharedWithUserGroups) : undefined,
-    options,
+    options: serverOptions,
     perSessionClient: config.perSessionClient === true ? true : undefined,
     // The dashboard sends `startOnDemand: undefined` when the toggle is off, which
     // JSON.stringify strips from the PUT body. Without an explicit key here the

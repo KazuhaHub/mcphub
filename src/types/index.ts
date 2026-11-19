@@ -628,6 +628,32 @@ export interface ServerStagingConfig {
   adapter?: StagingAdapterId;
 }
 
+// Where MCPHub asks whether a user's personal service actually works (readiness contract v1).
+// `auth` names the bearer: the user's personal OAuth access token, or one of their credential slots.
+export interface ReadinessConfig {
+  url: string;
+  auth: 'oauth' | { credential: string };
+}
+
+export type ServiceReadinessState =
+  | 'ready'
+  | 'needs_setup'
+  | 'degraded'
+  | 'expiring'
+  | 'expired'
+  | 'revoked'
+  | 'unknown';
+
+// What the workspace API shows for one (user, service). `summary` is the service's own plain
+// text; null means the dashboard shows its default wording for the state.
+export interface ServiceReadiness {
+  state: ServiceReadinessState;
+  summary: string | null;
+  action: { label: string; url: string } | null;
+  expiresAt: string | null;
+  checkedAt: string;
+}
+
 export interface CredentialSlot {
   target: 'env' | 'headers' | 'args' | 'url';
   allowed?: string[];
@@ -709,6 +735,7 @@ export interface ServerConfig {
   type?: 'stdio' | 'sse' | 'streamable-http' | 'openapi'; // Type of server
   description?: string; // Optional server note/description for management UI
   manageUrl?: string; // Optional https URL of the upstream service's account or token page, shown to users
+  readiness?: ReadinessConfig; // Optional admin-set readiness check (contract v1), probed per user
   tags?: string[];
   icon?: string; // Optional base64 image data: URL shown beside the server; the API returns its URL instead
   url?: string; // URL for SSE or streamable HTTP servers

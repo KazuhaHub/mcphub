@@ -4617,6 +4617,112 @@ describe('serverController - maintenance and per-user pause', () => {
     });
   });
 
+  describe('readiness declaration', () => {
+    const stored = { url: 'https://example.com/ready', auth: 'oauth' as const };
+    const refusal = { success: false, message: 'Only admins can set the readiness check' };
+    const withStored = () =>
+      mockServerDao.findById.mockResolvedValue({
+        name: 'test-server',
+        ...base,
+        owner: 'alice',
+        readiness: stored,
+      });
+
+    it('lets an admin set, change and clear it', async () => {
+      await update(admin, { readiness: { url: ' https://example.com/r2 ', auth: 'oauth' } });
+      expect(updatesOf()).toMatchObject({ readiness: { url: 'https://example.com/r2', auth: 'oauth' } });
+
+      mockServerDao.update.mockClear();
+      await update(admin, { readiness: null });
+      expect(updatesOf()).toHaveProperty('readiness', undefined);
+    });
+
+    it('refuses a non-admin who sets or changes it on an edit', async () => {
+      withStored();
+      for (const readiness of [{ url: 'https://example.com/other', auth: 'oauth' }, null]) {
+        status.mockClear();
+        json.mockClear();
+        await update(alice, { readiness });
+        expect(status).toHaveBeenCalledWith(403);
+        expect(json).toHaveBeenLastCalledWith(refusal);
+      }
+      expect(mockServerDao.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a non-admin who adds it to a server without one', async () => {
+      await update(alice, { readiness: stored });
+      expect(status).toHaveBeenCalledWith(403);
+      expect(json).toHaveBeenLastCalledWith(refusal);
+      expect(mockServerDao.update).not.toHaveBeenCalled();
+    });
+
+    it('accepts a non-admin save that echoes the stored value or omits the key', async () => {
+      withStored();
+      await update(alice, { readiness: { ...stored } });
+      expect(status).not.toHaveBeenCalled();
+
+      mockServerDao.update.mockClear();
+      await update(alice, { description: 'mine' });
+      expect(status).not.toHaveBeenCalled();
+      expect(updatesOf()).not.toHaveProperty('readiness');
+    });
+
+    it('rejects an insecure url or an unknown credential slot without saving', async () => {
+      await update(admin, { readiness: { url: 'http://example.com/r', auth: 'oauth' } });
+      expect(status).toHaveBeenCalledWith(400);
+      expect(mockServerDao.update).not.toHaveBeenCalled();
+
+      status.mockClear();
+      await update(admin, {
+        credentialTemplate: [{ target: 'headers', name: 'X-Token' }],
+        readiness: { url: 'https://example.com/r', auth: { credential: 'NOPE' } },
+      });
+      expect(status).toHaveBeenCalledWith(400);
+      expect(mockServerDao.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a template edit that would orphan the stored readiness slot', async () => {
+      mockServerDao.findById.mockResolvedValue({
+        name: 'test-server',
+        ...base,
+        owner: 'alice',
+        credentialTemplate: [{ target: 'headers', name: 'X-Token' }],
+        readiness: { url: 'https://example.com/r', auth: { credential: 'X-Token' } },
+      });
+      await update(admin, { credentialTemplate: [{ target: 'headers', name: 'X-Other' }] });
+      expect(status).toHaveBeenCalledWith(400);
+      expect(mockServerDao.update).not.toHaveBeenCalled();
+
+      status.mockClear();
+      await update(admin, { credentialTemplate: [{ target: 'headers', name: 'X-Token' }] });
+      expect(status).not.toHaveBeenCalled();
+    });
+
+    it('refuses a non-admin value on create, single or batch', async () => {
+      await createServer(
+        {
+          body: { name: 'fresh', config: { ...base, readiness: stored } },
+          user: alice,
+        } as unknown as Request,
+        res,
+      );
+      expect(status).toHaveBeenCalledWith(403);
+      expect(json).toHaveBeenLastCalledWith(refusal);
+      expect(mockAddServer).not.toHaveBeenCalled();
+
+      json.mockClear();
+      await batchCreateServers(
+        {
+          body: { servers: [{ name: 'fresh', config: { ...base, readiness: stored } }] },
+          user: alice,
+        } as unknown as Request,
+        res,
+      );
+      expect(JSON.stringify(json.mock.calls)).toContain('Only admins can set the readiness check');
+      expect(mockAddServer).not.toHaveBeenCalled();
+    });
+  });
+
   describe('server icon', () => {
     const png = Buffer.concat([
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),

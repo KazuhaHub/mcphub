@@ -27,6 +27,7 @@
             "pages": [
               "features/server-management",
               "features/per-user-credentials",
+              "features/service-readiness",
               "features/group-management",
               "features/smart-routing",
               "features/file-staging",
@@ -78,6 +79,7 @@
             "pages": [
               "zh/features/server-management",
               "zh/features/per-user-credentials",
+              "zh/features/service-readiness",
               "zh/features/group-management",
               "zh/features/smart-routing",
               "zh/features/file-staging",
