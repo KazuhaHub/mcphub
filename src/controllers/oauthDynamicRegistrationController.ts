@@ -14,6 +14,7 @@ import { getSystemConfigDao } from '../dao/DaoFactory.js';
 import { auth } from '../middlewares/auth.js';
 import { parseBearerAuthorization } from '../utils/bearerAuth.js';
 import { resolveInstallBaseUrl } from '../utils/installBaseUrl.js';
+import { getExternalResourceScopes } from '../utils/externalResources.js';
 import { logger } from '../utils/logger.js';
 import { cloneDefaultOAuthServerConfig } from '../constants/oauthServerDefaults.js';
 
@@ -134,7 +135,12 @@ export const registerClient = async (req: Request, res: Response): Promise<void>
 
     // Validate scopes
     const requestedScopes = scope ? scope.split(' ') : ['read', 'write'];
-    const allowedScopes = oauthConfig.allowedScopes || ['read', 'write'];
+    // A client may register for MCPHub's own scopes and for the scopes a configured external
+    // resource declares; which scopes a token carries is still decided per requested resource.
+    const allowedScopes = [
+      ...(oauthConfig.allowedScopes || ['read', 'write']),
+      ...getExternalResourceScopes(systemConfig),
+    ];
     for (const requestedScope of requestedScopes) {
       if (!allowedScopes.includes(requestedScope)) {
         res.status(400).json({
@@ -406,7 +412,10 @@ export const updateClientConfiguration = async (req: Request, res: Response): Pr
     // Validate scopes if provided
     if (scope) {
       const requestedScopes = scope.split(' ');
-      const allowedScopes = oauthConfig?.allowedScopes || ['read', 'write'];
+      const allowedScopes = [
+        ...(oauthConfig?.allowedScopes || ['read', 'write']),
+        ...getExternalResourceScopes(systemConfig),
+      ];
       for (const requestedScope of requestedScopes) {
         if (!allowedScopes.includes(requestedScope)) {
           res.status(400).json({

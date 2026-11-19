@@ -1,5 +1,7 @@
 import {
   classifyResource,
+  findExternalResource,
+  getExternalResourceScopes,
   isClientAllowedForResource,
   isValidExternalResourceUrl,
   normalizeExternalResources,
@@ -108,5 +110,22 @@ describe('implicit allowedClients default and CIMD clients', () => {
 
   it('refuses a CIMD client at classification for an open resource', () => {
     expect(classifyResource('https://open.example/mcp', config, own, CIMD).kind).toBe('invalid');
+  });
+});
+
+describe('malformed externalResources entries', () => {
+  const broken = {
+    oauthServer: {
+      externalResources: [
+        null,
+        { resource: 'https://ok.example/mcp', name: 'OK', scopes: ['ok:write'] },
+      ],
+    },
+  } as any;
+
+  it('skips null entries instead of throwing', () => {
+    expect(getExternalResourceScopes(broken)).toEqual(['ok:write']);
+    expect(findExternalResource(broken, 'https://ok.example/mcp')?.name).toBe('OK');
+    expect(findExternalResource(broken, 'https://missing.example/mcp')).toBeUndefined();
   });
 });
