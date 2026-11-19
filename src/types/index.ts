@@ -815,6 +815,9 @@ export interface ServerConfig {
       codeVerifier?: string;
       discoveryState?: OAuthDiscoveryState;
       createdAt?: number;
+      // Personal OAuth: SHA-256 of the nonce in the cookie set when the flow was started; the callback
+      // must present it (src/utils/oauthFlowBinding.ts).
+      browserBinding?: string;
     };
   };
   perSessionClient?: boolean; // Dedicated upstream client per legacy session or explicit modern client state

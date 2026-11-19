@@ -89,6 +89,9 @@ const createResponse = () => {
       this.body = html;
       return this;
     },
+    clearCookie() {
+      return this;
+    },
   };
   return res;
 };

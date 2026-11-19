@@ -304,8 +304,14 @@ const open = async (user: 'alice' | 'bob') => {
   return client;
 };
 
+// The cookie the browser holds after starting the flow.
+const flowCookieOf = (response: { headers: Record<string, unknown> }): string =>
+  ([] as string[]).concat((response.headers['set-cookie'] as string[] | undefined) ?? [])
+    .map((cookie) => cookie.split(';')[0])
+    .join('; ');
+
 // The part of the flow the user's browser performs.
-const authorizeInBrowser = async (user: string, authorizationUrl: string) => {
+const authorizeInBrowser = async (user: string, authorizationUrl: string, flowCookie = '') => {
   const url = new URL(authorizationUrl);
   expect(`${url.origin}${url.pathname}`).toBe(`${ISSUER}/oauth/authorize`);
   const query = url.searchParams;
@@ -339,7 +345,9 @@ const authorizeInBrowser = async (user: string, authorizationUrl: string) => {
   expect(`${redirect.origin}${redirect.pathname}`).toBe(`${ISSUER}/oauth/callback`);
   expect(redirect.searchParams.get('state')).toBe(query.get('state'));
   // The redirect lands on the hub; the unreachable public host is replaced by the listener.
-  return fetch(`${hub.baseUrl}${redirect.pathname}${redirect.search}`);
+  return fetch(`${hub.baseUrl}${redirect.pathname}${redirect.search}`, {
+    headers: flowCookie ? { cookie: flowCookie } : {},
+  });
 };
 
 const connectUser = async (user: 'alice' | 'bob') => {
@@ -349,7 +357,11 @@ const connectUser = async (user: 'alice' | 'bob') => {
   const start = await hub.api('post', '/api/servers/ubc/oauth/personal', user, {});
   expect(start.status).toBe(200);
   expect(start.body.data.status).toBe('oauth_required');
-  const callback = await authorizeInBrowser(user, start.body.data.authorizationUrl);
+  const callback = await authorizeInBrowser(
+    user,
+    start.body.data.authorizationUrl,
+    flowCookieOf(start),
+  );
   expect(callback.status).toBe(200);
 };
 
@@ -421,6 +433,36 @@ describe('a server that is an external resource of this hub', () => {
     const entry = listed.find((c) => c.id === SELF_CLIENT);
     expect(entry).toBeTruthy();
     expect(JSON.stringify(entry)).toContain('Fake UBC');
+  });
+
+  it("2b. a flow started by alice cannot be completed by bob's browser, with or without her cookie", async () => {
+    expect(
+      (await hub.api('put', '/api/workspace/servers/ubc/selection', 'alice', { selected: true }))
+        .status,
+    ).toBe(200);
+    const neededAuth = async () =>
+      (await serverView('alice')).status.code === 'needs_auth';
+
+    // Alice starts and sends the URL to bob; his browser has no flow cookie.
+    const first = await hub.api('post', '/api/servers/ubc/oauth/personal', 'alice', {});
+    expect(first.status).toBe(200);
+    const bobsBrowser = await authorizeInBrowser('bob', first.body.data.authorizationUrl, '');
+    expect(bobsBrowser.status).toBe(400);
+    expect(await neededAuth()).toBe(true);
+
+    // Even with alice's cookie, the code was issued for bob, so it is refused.
+    const second = await hub.api('post', '/api/servers/ubc/oauth/personal', 'alice', {});
+    const withCookie = await authorizeInBrowser(
+      'bob',
+      second.body.data.authorizationUrl,
+      flowCookieOf(second),
+    );
+    expect(withCookie.status).toBe(400);
+    expect(await neededAuth()).toBe(true);
+
+    // Her own flow still works.
+    await connectUser('alice');
+    expect((await serverView('alice')).status.code).toBe('available');
   });
 
   it('3. an expired access token is refreshed for the same audience and the same user', async () => {

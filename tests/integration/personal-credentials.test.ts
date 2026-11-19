@@ -1679,9 +1679,11 @@ test('dashboard personal OAuth uses DCR and PKCE, consumes callbacks once, and h
   const a = await PersonalOAuthContext.load('oauthDcr', alice, definition);
   const verifier = a.config.oauth.pendingAuthorization?.codeVerifier;
   const state = authorization.searchParams.get('state')!;
-  expect((await request(app).get('/oauth/callback').query({ code: 'alice-code', state, iss: 'https://wrong.example' })).status).toBe(400);
+  const flowCookie = ([] as string[]).concat(start.headers['set-cookie'] ?? []).map((c: string) => c.split(';')[0]).join('; ');
+  expect(flowCookie).toContain('mcphub_oauth_flow_');
+  expect((await request(app).get('/oauth/callback').set('Cookie', flowCookie).query({ code: 'alice-code', state, iss: 'https://wrong.example' })).status).toBe(400);
   expect(exchanged).toHaveLength(0);
-  expect((await request(app).get('/oauth/callback').query({ code: 'alice-code', state, iss: baseUrl, username: bob })).status).toBe(200);
+  expect((await request(app).get('/oauth/callback').set('Cookie', flowCookie).query({ code: 'alice-code', state, iss: baseUrl, username: bob })).status).toBe(200);
   expect(exchanged[0].code_verifier).toBe(verifier);
   expect((await PersonalOAuthContext.load('oauthDcr', alice, definition)).config.oauth.accessToken).toBe('token-alice-code');
   expect((await PersonalOAuthContext.load('oauthDcr', bob, definition)).config.oauth.accessToken).toBeUndefined();
@@ -2160,7 +2162,14 @@ test('consumer OAuth reports missing personal authorization and recovers after s
   const consent = await fetch(start.body.data.authorizationUrl, { redirect: 'manual' });
   expect(consent.status).toBe(302);
   await consent.body?.cancel();
-  const callback = await fetch(consent.headers.get('location')!);
+  const callback = await fetch(consent.headers.get('location')!, {
+    headers: {
+      cookie: ([] as string[])
+        .concat(start.headers['set-cookie'] ?? [])
+        .map((c: string) => c.split(';')[0])
+        .join('; '),
+    },
+  });
   expect(callback.status).toBe(200);
   await callback.text();
   expect(upstreamExchanges).toBe(1);
