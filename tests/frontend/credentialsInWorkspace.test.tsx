@@ -338,7 +338,7 @@ describe('the /credentials route', () => {
     mockSearch = 'server=my%20server';
     page();
     expect(screen.getByTestId('navigate').getAttribute('data-to')).toBe(
-      '/workspace?credentials=my%20server',
+      '/workspace/services/my%20server?tab=credentials',
     );
   });
 

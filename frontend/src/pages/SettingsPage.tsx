@@ -2,7 +2,8 @@ import BrandingSettings from '@/components/BrandingSettings';
 import { getRuntimeConfig, getSmartRoutingPath } from '@/utils/runtime';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { canViewSettings } from '@/utils/navigationPermissions';
 import ResetBearerKeyDialog from '@/components/ResetBearerKeyDialog';
 import ChangePasswordForm from '@/components/ChangePasswordForm';
 import { Switch } from '@/components/ui/ToggleGroup';
@@ -607,7 +608,13 @@ function parseBasePacingDelayForUpdate(
 
 const DEFAULT_OIDC_SCOPES = ['openid', 'profile', 'email'];
 
-const SettingsPage: React.FC = () => {
+/**
+ * What this page shows. `system` is the administrator's settings; the personal items that used
+ * to sit among them are pages of their own: `keys` (API keys) and `password`.
+ */
+export type SettingsView = 'system' | 'keys' | 'password';
+
+const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -987,9 +994,9 @@ const SettingsPage: React.FC = () => {
     betterAuthConfig: false,
     mcpRouterConfig: false,
     nameSeparator: false,
-    password: false,
+    password: view === 'password',
     exportConfig: false,
-    bearerKeys: false,
+    bearerKeys: view === 'keys',
   });
 
   const toggleSection = (
@@ -1973,8 +1980,18 @@ const SettingsPage: React.FC = () => {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="hub-h1">{t('pages.settings.title')}</h1>
-        <p className="hub-sub">{t('settings.subtitle') || ''}</p>
+        <h1 className="hub-h1">
+          {t(
+            view === 'keys'
+              ? 'nav.keys'
+              : view === 'password'
+                ? 'nav.password'
+                : 'pages.settings.title',
+          )}
+        </h1>
+        <p className="hub-sub">
+          {view === 'system' ? t('settings.subtitle') || '' : ''}
+        </p>
       </div>
 
       {keyToReset && (
@@ -1988,7 +2005,7 @@ const SettingsPage: React.FC = () => {
         />
       )}
 
-      {isAdmin && (
+      {view === 'system' && isAdmin && (
         <ToolPolicyPanel
           nameSeparator={nameSeparator}
           rules={toolPolicies}
@@ -2004,24 +2021,10 @@ const SettingsPage: React.FC = () => {
       )}
 
       {/* Bearer Keys Settings */}
+      {view === 'keys' && (
         <div className="hub-card mb-4 overflow-visible">
-          <div
-            className="flex justify-between items-center cursor-pointer transition-colors duration-100 hover:bg-[var(--hub-surface-hover)] hub-disclosure px-4 py-3"
-            onClick={() => toggleSection('bearerKeys')}
-          >
-            <div className="flex items-center gap-2.5">
-              <Key size={15} className="text-[var(--hub-ink-2)]" />
-              <h2 className="text-[16px] font-semibold text-[var(--hub-ink)]"><button type="button" className="text-left" aria-expanded={sectionsVisible.bearerKeys}>
-                {t('settings.bearerKeysSectionTitle') || 'Bearer authentication keys'}
-              </button></h2>
-            </div>
-            <span className="text-[var(--hub-ink-3)]">
-              <ChevronDown size={16} className={'hub-chevron' + (sectionsVisible.bearerKeys ? ' open' : '')} aria-hidden />
-            </span>
-          </div>
-
-          {sectionsVisible.bearerKeys && (
-            <div className="hub-reveal space-y-4 pb-4 px-4 pt-4 border-t border-[var(--hub-line-2)]">
+          {(
+            <div className="hub-reveal space-y-4 p-4">
               {createdBearerToken && (
                 <div className="p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-300 text-sm">
                   <div className="font-medium">
@@ -2479,7 +2482,9 @@ const SettingsPage: React.FC = () => {
             </div>
           )}
         </div>
+      )}
 
+      {view === 'system' && (<>
       {/* Smart Routing Configuration Settings */}
       <PermissionChecker permissions={PERMISSIONS.SETTINGS_SMART_ROUTING}>
         <div className="hub-card mb-4 overflow-hidden">
@@ -4696,26 +4701,16 @@ const SettingsPage: React.FC = () => {
         </div>
       </PermissionChecker>
 
+      </>)}
+
       {/* Change Password */}
-      <div className="hub-card mb-4 overflow-hidden" data-section="password">
-        <div
-          className="flex justify-between items-center cursor-pointer transition-colors duration-100 hover:bg-[var(--hub-surface-hover)] hub-disclosure px-4 py-3"
-          onClick={() => toggleSection('password')}
-        >
-          <div className="flex items-center gap-2.5">
-            <KeyRound size={15} className="text-[var(--hub-ink-2)]" />
-            <h2 className="text-[16px] font-semibold text-[var(--hub-ink)]"><button type="button" className="text-left" aria-expanded={sectionsVisible.password}>{t('auth.changePassword')}</button></h2>
-          </div>
-          <span className="text-[var(--hub-ink-3)]"><ChevronDown size={16} className={'hub-chevron' + (sectionsVisible.password ? ' open' : '')} aria-hidden /></span>
+      {view === 'password' && (
+        <div className="max-w-lg" data-section="password">
+          <ChangePasswordForm showTitle={false} onSuccess={handlePasswordChangeSuccess} />
         </div>
+      )}
 
-        {sectionsVisible.password && (
-          <div className="hub-reveal max-w-lg pb-4 px-4 pt-4 border-t border-[var(--hub-line-2)]">
-            <ChangePasswordForm onSuccess={handlePasswordChangeSuccess} />
-          </div>
-        )}
-      </div>
-
+      {view === 'system' && (<>
       {/* Export MCP Settings */}
       <PermissionChecker permissions={PERMISSIONS.SETTINGS_EXPORT_CONFIG}>
         <div className="hub-card mb-4 overflow-hidden">
@@ -4784,8 +4779,17 @@ const SettingsPage: React.FC = () => {
         confirmText={t('settings.clearCache')}
         variant="warning"
       />
+      </>)}
     </div>
   );
+};
+
+// People with nothing to set here (no administrator rights or settings permission) are sent to
+// the one personal page that used to sit among these settings.
+const SettingsPage: React.FC<{ view?: SettingsView }> = ({ view = 'system' }) => {
+  const { auth } = useAuth();
+  if (view === 'system' && !canViewSettings(auth.user)) return <Navigate to="/password" replace />;
+  return <SettingsContent view={view} />;
 };
 
 export default SettingsPage;

@@ -12,6 +12,7 @@ export const CredentialForm = ({
   bindings,
   onChange,
   bare = false,
+  compact = false,
 }: {
   binding: MyCredentialBinding;
   baseUrl: string;
@@ -19,10 +20,13 @@ export const CredentialForm = ({
   onChange: () => Promise<void>;
   // Inside a panel that already names the server: no card chrome and no repeated heading.
   bare?: boolean;
+  // On a page that already says what is wrong: no status tag, no repeated warning or hints,
+  // and the form opens ready to fill when the credentials are missing or outdated.
+  compact?: boolean;
 }) => {
   const { t } = useTranslation();
   const [mode, setMode] = useState<'view' | 'edit' | 'copy' | 'delete'>(
-    binding.configured ? 'view' : 'edit',
+    binding.configured && !(compact && binding.stale) ? 'view' : 'edit',
   );
   const [values, setValues] = useState<Record<string, string>>({});
   const [sourceServer, setSourceServer] = useState('');
@@ -70,6 +74,17 @@ export const CredentialForm = ({
     }
   };
   const manageHref = getSafeManageHref(binding.manageUrl);
+  const updatedAt = binding.updatedAt ? (
+    <p className="text-xs text-[var(--hub-ink-3)]">
+      {t('credentials.updatedAt')}:{' '}
+      <time dateTime={binding.updatedAt}>
+        {new Date(binding.updatedAt).toLocaleString(undefined, {
+          dateStyle: 'short',
+          timeStyle: 'short',
+        })}
+      </time>
+    </p>
+  ) : null;
   const sourceReason = (entry: (typeof sources)[number]) => {
     if (entry.reason === 'missing')
       return t('credentials.sourceMissing', { slots: entry.missing.join(', ') });
@@ -82,32 +97,24 @@ export const CredentialForm = ({
       className={bare ? 'space-y-4' : 'hub-card p-5 space-y-4'}
       aria-label={binding.serverName}
     >
-      <div className="flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
-        <div className="min-w-0 space-y-1">
-          {!bare && <h2 className="font-semibold break-words">{binding.serverName}</h2>}
-          {binding.updatedAt && (
-            <p className="text-xs text-[var(--hub-ink-3)]">
-              {t('credentials.updatedAt')}:{' '}
-              <time dateTime={binding.updatedAt}>
-                {new Date(binding.updatedAt).toLocaleString(undefined, {
-                  dateStyle: 'short',
-                  timeStyle: 'short',
-                })}
-              </time>
-            </p>
-          )}
+      {!compact && (
+        <div className="flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+          <div className="min-w-0 space-y-1">
+            {!bare && <h2 className="font-semibold break-words">{binding.serverName}</h2>}
+            {updatedAt}
+          </div>
+          <span className="hub-tag shrink-0">
+            {t(
+              binding.stale
+                ? 'credentials.outdatedStatus'
+                : binding.configured
+                  ? 'credentials.savedStatus'
+                  : 'credentials.required',
+            )}
+          </span>
         </div>
-        <span className="hub-tag shrink-0">
-          {t(
-            binding.stale
-              ? 'credentials.outdatedStatus'
-              : binding.configured
-                ? 'credentials.savedStatus'
-                : 'credentials.required',
-          )}
-        </span>
-      </div>
-      {binding.stale && (
+      )}
+      {!compact && binding.stale && (
         <p role="status" className="text-sm" style={{ color: 'var(--hub-err)' }}>
           {t('credentials.staleNotice')}
         </p>
@@ -180,12 +187,14 @@ export const CredentialForm = ({
           }}
         >
           <fieldset disabled={busy} className="space-y-4">
-            <legend className="mb-2 text-sm font-medium">
+            <legend className={compact ? 'sr-only' : 'mb-2 text-sm font-medium'}>
               {t(hasBinding ? 'credentials.update' : 'credentials.configure')}
             </legend>
-            <p className="text-xs text-[var(--hub-ink-3)]">
-              {t(hasBinding ? 'credentials.replaceHint' : 'credentials.configureHint')}
-            </p>
+            {!compact && (
+              <p className="text-xs text-[var(--hub-ink-3)]">
+                {t(hasBinding ? 'credentials.replaceHint' : 'credentials.configureHint')}
+              </p>
+            )}
             {binding.credentialTemplate.map((slot) => {
               const id = `${slot.target}.${slot.name}`;
               return (
@@ -343,6 +352,7 @@ export const CredentialForm = ({
           </div>
         </div>
       )}
+      {compact && updatedAt}
       {feedback && (
         <p
           role={feedback.error ? 'alert' : 'status'}

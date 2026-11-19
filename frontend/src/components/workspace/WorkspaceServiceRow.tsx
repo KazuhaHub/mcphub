@@ -14,16 +14,14 @@ interface WorkspaceServiceRowProps {
   credentialBinding?: MyCredentialBinding;
   busy: boolean;
   onToggle: (name: string, selected: boolean) => void;
-  // Opens the service panel; `credentials` also moves to its credentials section.
-  onOpen: (name: string, focus?: 'credentials') => void;
+  // Goes to the service's page.
+  onOpen: (name: string) => void;
   onAction: (name: string, action: RowAction) => void;
 }
 
-export const rowButtonId = (name: string): string => `workspace-row-${name}`;
-
 /**
  * One line per service: the switch, the name, one status and, only when the user must act,
- * one button. Everything else lives in the panel the row opens.
+ * one button. Everything else lives on the service's page the row opens.
  */
 const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
   server,
@@ -37,12 +35,6 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
   const { t } = useTranslation();
   const openRef = useRef<HTMLButtonElement>(null);
   const { chip, action, reauth } = resolveServiceChip(server, credentialServers, credentialBinding);
-
-  const open = (focus?: 'credentials') => {
-    // Browsers do not always focus a clicked button; focus returns here when the panel closes.
-    openRef.current?.focus({ preventScroll: true });
-    onOpen(server.name, focus);
-  };
 
   const actionLabel =
     action === 'signin'
@@ -61,7 +53,7 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
         if (event.target === openRef.current || openRef.current?.contains(event.target as Node)) {
           return;
         }
-        open();
+        onOpen(server.name);
       }}
     >
       <button
@@ -77,11 +69,9 @@ const WorkspaceServiceRow: React.FC<WorkspaceServiceRowProps> = ({
       <button
         ref={openRef}
         type="button"
-        id={rowButtonId(server.name)}
         data-testid={`workspace-open-${server.name}`}
-        aria-haspopup="dialog"
         className="flex min-w-0 flex-1 basis-[150px] flex-wrap items-center gap-x-3 gap-y-1 text-left"
-        onClick={() => open()}
+        onClick={() => onOpen(server.name)}
       >
         <span className="min-w-0 break-words font-medium">{server.name}</span>
         <span data-testid={`workspace-chip-${server.name}`} data-chip={chip}>

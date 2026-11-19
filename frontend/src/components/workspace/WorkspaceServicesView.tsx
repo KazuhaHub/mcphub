@@ -1,140 +1,47 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Info, RefreshCw } from 'lucide-react';
-import { useToast } from '@/contexts/ToastContext';
-import {
-  launchPersonalOAuth,
-  saveRiskCeiling,
-  saveServerSelection,
-} from '@/services/workspaceService';
-import type { ToolRiskLevel } from '@/types';
-import { changeRiskCeiling, countHiddenTools } from '@/utils/toolRisk';
-import { copyText } from '@/utils/clipboard';
+import { countHiddenTools } from '@/utils/toolRisk';
 import {
   countExposedTools,
-  pruneAuthLinks,
   toolCountLevel,
-  toggleServerSelection,
+  workspaceServicePath,
+  type ServiceTab,
 } from '@/utils/workspace';
-import ConnectDialog from '@/components/connect/ConnectDialog';
-import {
-  mutateWorkspace,
-  refreshWorkspace,
-  updateWorkspaceServers,
-  useWorkspaceData,
-} from '@/hooks/useWorkspaceData';
-import ServicePanel from './ServicePanel';
+import { refreshWorkspace, useWorkspaceData } from '@/hooks/useWorkspaceData';
+import { useServiceActions } from '@/hooks/useServiceActions';
 import WorkspaceServiceRow, { type RowAction } from './WorkspaceServiceRow';
+
+// The main area scrolls, not the window: remember where the list was when a service was opened,
+// so coming back lands on the same row.
+let savedListScroll: number | null = null;
+const scroller = (): HTMLElement | null => document.querySelector('main');
 
 const WorkspaceServicesView: React.FC = () => {
   const { t } = useTranslation();
-  const [search, setSearch] = useSearchParams();
-  const { showToast } = useToast();
+  const navigate = useNavigate();
   // The page's single source of truth: servers, endpoints and the user's credential bindings.
-  const { servers, endpoints, bindings, loaded, error } = useWorkspaceData();
+  const { servers, bindings, loaded, error } = useWorkspaceData();
 
-  // Service whose panel is open. `/workspace?service=` opens it; the older
-  // `?credentials=` (an old `/credentials?server=` link lands there) also moves to its
-  // credentials section.
-  const [panel, setPanel] = useState<{ name: string; credentials: boolean } | null>(() => {
-    const credentials = search.get('credentials');
-    if (credentials) return { name: credentials, credentials: true };
-    const service = search.get('service');
-    return service ? { name: service, credentials: false } : null;
-  });
-  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
-  const [connectService, setConnectService] = useState<string | null>(null);
-  const [authLinks, setAuthLinks] = useState<Record<string, string>>({});
-
-  // A blocked-popup link is moot once the server no longer asks for sign-in.
-  useEffect(() => {
-    setAuthLinks((links) => pruneAuthLinks(links, servers));
-  }, [servers]);
-
-  // The link parameters have done their job once the panel is open.
-  useEffect(() => {
-    if (!search.has('credentials') && !search.has('service')) return;
-    setSearch(
-      (params) => {
-        params.delete('credentials');
-        params.delete('service');
-        return params;
-      },
-      { replace: true },
-    );
-  }, [search, setSearch]);
-
-  // A link to a service the user cannot see opens nothing.
-  useEffect(() => {
-    if (loaded && panel && !servers.some((server) => server.name === panel.name)) setPanel(null);
-  }, [loaded, panel, servers]);
-
-  const closePanel = useCallback(() => setPanel(null), []);
-
-  // One change at a time per service; the store refreshes everything after it.
-  const withPending = async (name: string, run: () => Promise<void>) => {
-    setPending((current) => new Set(current).add(name));
-    try {
-      await mutateWorkspace(run);
-    } finally {
-      setPending((current) => {
-        const next = new Set(current);
-        next.delete(name);
-        return next;
-      });
-    }
+  const open = (name: string, tab?: ServiceTab, state?: { authorizationUrl: string }) => {
+    savedListScroll = scroller()?.scrollTop ?? null;
+    navigate(workspaceServicePath(name, tab), { state });
   };
+  const { pending, toggle, signIn } = useServiceActions({
+    // The link is shown on the service's page, which is where the user lands.
+    onAuthorizationLink: (name, url) => open(name, undefined, { authorizationUrl: url }),
+  });
 
-  const onToggle = (name: string, selected: boolean) =>
-    withPending(name, async () => {
-      const saved = await toggleServerSelection(name, selected, {
-        save: saveServerSelection,
-        update: updateWorkspaceServers,
-      });
-      if (!saved) showToast(t('workspacePage.toggleFailed', { name }), 'error');
-    });
-
-  const onRiskChange = (name: string, riskCeiling: ToolRiskLevel) =>
-    withPending(name, async () => {
-      const server = servers.find((candidate) => candidate.name === name);
-      if (!server) return;
-      const saved = await changeRiskCeiling(server, riskCeiling, {
-        save: saveRiskCeiling,
-        update: updateWorkspaceServers,
-      });
-      if (!saved) showToast(t('workspacePage.risk.changeFailed', { name }), 'error');
-    });
-
-  const connectOAuth = (name: string) =>
-    withPending(name, async () => {
-      try {
-        const result = await launchPersonalOAuth(name);
-        if (result.kind === 'link') {
-          setAuthLinks((links) => ({ ...links, [name]: result.url }));
-          // The link is shown in the panel; open it if the click came from the row.
-          setPanel((current) => current ?? { name, credentials: false });
-          showToast(t('workspacePage.popupBlocked'), 'error');
-        } else if (result.kind === 'invalid') {
-          showToast(t('workspacePage.connectFailed'), 'error');
-        }
-      } catch (err) {
-        showToast(
-          t('workspacePage.connectFailed') +
-            (err instanceof Error && err.message ? ` (${err.message})` : ''),
-          'error',
-        );
-      }
-    });
+  useLayoutEffect(() => {
+    if (!loaded || savedListScroll === null) return;
+    scroller()?.scrollTo?.(0, savedListScroll);
+    savedListScroll = null;
+  }, [loaded]);
 
   const onAction = (name: string, action: RowAction) => {
-    if (action === 'signin') void connectOAuth(name);
-    else setPanel({ name, credentials: true });
-  };
-
-  const onCopyEndpoint = async (url: string) => {
-    if (await copyText(url)) showToast(t('common.copySuccess'), 'success');
-    else showToast(t('common.copyFailed'), 'error');
+    if (action === 'signin') void signIn(name);
+    else open(name, 'credentials');
   };
 
   if (!loaded && !error) {
@@ -187,8 +94,6 @@ const WorkspaceServicesView: React.FC = () => {
   const hiddenTools = countHiddenTools(servers);
   const exposedTools = countExposedTools(servers);
   const toolLevel = toolCountLevel(exposedTools);
-  const endpointByName = new Map((endpoints?.servers ?? []).map((entry) => [entry.name, entry]));
-  const panelServer = panel ? servers.find((server) => server.name === panel.name) : undefined;
 
   return (
     <div className="space-y-4">
@@ -245,8 +150,8 @@ const WorkspaceServicesView: React.FC = () => {
                 credentialServers={credentialServers}
                 credentialBinding={bindings?.find((entry) => entry.serverName === server.name)}
                 busy={pending.has(server.name)}
-                onToggle={(name, selected) => void onToggle(name, selected)}
-                onOpen={(name, focus) => setPanel({ name, credentials: focus === 'credentials' })}
+                onToggle={(name, selected) => void toggle(name, selected)}
+                onOpen={(name) => open(name)}
                 onAction={onAction}
               />
             ))}
@@ -254,28 +159,6 @@ const WorkspaceServicesView: React.FC = () => {
         )}
       </section>
 
-      {panelServer && (
-        <ServicePanel
-          key={panelServer.name}
-          server={panelServer}
-          busy={pending.has(panelServer.name)}
-          authorizationUrl={authLinks[panelServer.name]}
-          focusCredentials={panel?.credentials}
-          onClose={closePanel}
-          onRiskChange={(name, riskCeiling) => void onRiskChange(name, riskCeiling)}
-          onAction={onAction}
-          onCopyEndpoint={(url) => void onCopyEndpoint(url)}
-          onConnectToAi={(name) => setConnectService(name)}
-        />
-      )}
-
-      {connectService && endpoints && (
-        <ConnectDialog
-          aggregateUrl={endpoints.aggregate}
-          initial={{ service: connectService }}
-          onClose={() => setConnectService(null)}
-        />
-      )}
     </div>
   );
 };

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Settings, LogOut, Info, KeyRound, ShieldCheck } from 'lucide-react';
+import { User, LogOut, Info } from 'lucide-react';
 import AboutDialog from './AboutDialog';
 import { ChangelogUpdateInfo } from '@/types';
 import {
@@ -76,11 +76,6 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen]);
 
-  const handleSettingsClick = () => {
-    navigate('/settings');
-    setIsOpen(false);
-  };
-
   const handleLogoutClick = () => {
     logout();
     navigate('/login');
@@ -118,33 +113,6 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
 
       {isOpen && (
         <div data-layer="menu" className="hub-menu absolute bottom-full left-0 z-50 mb-1 w-full min-w-max">
-          <button
-            onClick={() => {
-              navigate('/oauth-applications');
-              setIsOpen(false);
-            }}
-            className="hub-menu-item"
-          >
-            <ShieldCheck className="h-4 w-4" />
-            {t('oauthApprovals.title')}
-          </button>
-          <button
-            onClick={() => {
-              navigate('/passkeys');
-              setIsOpen(false);
-            }}
-            className="hub-menu-item"
-          >
-            <KeyRound className="h-4 w-4" />
-            {t('passkeys.title')}
-          </button>
-          <button
-            onClick={handleSettingsClick}
-            className="hub-menu-item"
-          >
-            <Settings className="h-4 w-4" />
-            {t('nav.settings')}
-          </button>
           {isAdmin && (
             <button
               onClick={handleAboutClick}
@@ -158,7 +126,7 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
             </button>
           )}
 
-          <div className="my-1 border-t border-[var(--hub-line)]"></div>
+          {isAdmin && <div className="my-1 border-t border-[var(--hub-line)]"></div>}
 
           <button
             onClick={handleLogoutClick}

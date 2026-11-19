@@ -57,7 +57,7 @@ describe('credentialsRedirect', () => {
 
   it('sends ordinary users to the workspace, opening the old deep-linked service', () => {
     expect(credentialsRedirect(user, {})).toBe('/workspace');
-    expect(credentialsRedirect(user, { server: 'a b' })).toBe('/workspace?credentials=a%20b');
+    expect(credentialsRedirect(user, { server: 'a b' })).toBe('/workspace/services/a%20b?tab=credentials');
     expect(credentialsRedirect(user, { user: 'alice' })).toBe('/workspace');
   });
 
@@ -65,7 +65,7 @@ describe('credentialsRedirect', () => {
     expect(credentialsRedirect(admin, {})).toBeNull();
     expect(credentialsRedirect(admin, { user: 'alice' })).toBeNull();
     expect(credentialsRedirect(admin, { user: 'alice', server: 'x' })).toBeNull();
-    expect(credentialsRedirect(admin, { server: 'x' })).toBe('/workspace?credentials=x');
+    expect(credentialsRedirect(admin, { server: 'x' })).toBe('/workspace/services/x?tab=credentials');
   });
 
   it('never redirects while Workspace Mode is off', () => {

@@ -13,6 +13,7 @@ interface CredentialPanelBodyProps {
   bindings: readonly MyCredentialBinding[] | null;
   error: string;
   reload: () => Promise<void>;
+  compact?: boolean;
 }
 
 /** The content of the panel: the one selected service's form, never a list of services. */
@@ -22,6 +23,7 @@ export const CredentialPanelBody: React.FC<CredentialPanelBodyProps> = ({
   bindings,
   error,
   reload,
+  compact,
 }) => {
   const { t } = useTranslation();
   const binding = bindings ? findCredentialBinding(bindings, serverName) : undefined;
@@ -45,6 +47,7 @@ export const CredentialPanelBody: React.FC<CredentialPanelBodyProps> = ({
       {binding && (
         <CredentialForm
           bare
+          compact={compact}
           binding={binding}
           bindings={[...(bindings ?? [])]}
           baseUrl={baseUrl}

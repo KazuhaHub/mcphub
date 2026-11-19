@@ -15,6 +15,7 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const OAuthConsentPage = lazy(() => import('./pages/OAuthConsentPage'));
 const DashboardPage = lazy(() => import('./pages/Dashboard'));
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage'));
+const WorkspaceServicePage = lazy(() => import('./pages/WorkspaceServicePage'));
 const CredentialsPage = lazy(() => import('./pages/CredentialsPage'));
 const ServiceLinkPage = lazy(() => import('./pages/ServiceLinkPage'));
 const ServersPage = lazy(() => import('./pages/ServersPage'));
@@ -23,6 +24,10 @@ const UsersPage = lazy(() => import('./pages/UsersPage'));
 const OAuthApprovalsPage = lazy(() => import('./pages/OAuthApprovalsPage'));
 const PasskeysPage = lazy(() => import('./pages/PasskeysPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const KeysPage = lazy(() => import('./pages/KeysPage'));
+const PasswordPage = lazy(() => import('./pages/PasswordPage'));
+const WorkspaceClientsPage = lazy(() => import('./pages/WorkspaceClientsPage'));
+const WorkspaceActivityPage = lazy(() => import('./pages/WorkspaceActivityPage'));
 const MarketPage = lazy(() => import('./pages/MarketPage'));
 const LogsPage = lazy(() => import('./pages/LogsPage'));
 const ActivityPage = lazy(() => import('./pages/ActivityPage'));
@@ -79,6 +84,11 @@ function App() {
                       <Route element={<RouteAccessGuard />}>
                         <Route path="/" element={<DashboardPage />} />
                         <Route path="/workspace" element={<WorkspacePage />} />
+                        <Route path="/workspace/services/:name" element={<WorkspaceServicePage />} />
+                        <Route path="/workspace/clients" element={<WorkspaceClientsPage />} />
+                        <Route path="/workspace/activity" element={<WorkspaceActivityPage />} />
+                        <Route path="/keys" element={<KeysPage />} />
+                        <Route path="/password" element={<PasswordPage />} />
                         <Route path="/oauth-applications" element={<OAuthApprovalsPage />} />
                         <Route path="/passkeys" element={<PasskeysPage />} />
                         <Route path="/credentials" element={<CredentialsPage />} />

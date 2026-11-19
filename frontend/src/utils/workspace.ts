@@ -147,13 +147,71 @@ export const serviceChipTone = (chip: ServiceChip): StatusTone => {
   }
 };
 
-/** Where a workspace link that opens one service's credential panel leads. */
-export const workspaceCredentialsPath = (server: string): string =>
-  `/workspace?credentials=${encodeURIComponent(server)}`;
+export type ServiceTab = 'overview' | 'credentials' | 'permissions';
 
-/** Where a workspace link that opens one service's panel leads. */
-export const workspaceServicePath = (server: string): string =>
-  `/workspace?service=${encodeURIComponent(server)}`;
+/** The page of one service. The tab is a query parameter so a link can open the right one. */
+export const workspaceServicePath = (server: string, tab?: ServiceTab): string =>
+  `/workspace/services/${encodeURIComponent(server)}${tab ? `?tab=${tab}` : ''}`;
+
+/** Where a link that opens one service's credentials leads. */
+export const workspaceCredentialsPath = (server: string): string =>
+  workspaceServicePath(server, 'credentials');
+
+export interface ServiceNotice {
+  /** The state the notice is about; its sentence is `workspacePage.panel.statusText.<text>`. */
+  chip: ServiceChip;
+  text: string;
+  /** What the one button does; null when the user can do nothing about it. */
+  action: 'signin' | 'credentials' | null;
+  /** Label key of the button, under `workspacePage.service.action`. */
+  label: 'signin' | 'signinAgain' | 'addCredentials' | 'updateCredentials' | null;
+  /** Server-provided detail that explains a failure. */
+  detail: boolean;
+}
+
+/**
+ * What a service's page says above its tabs, or null when the user has nothing to do. A service
+ * the user has not turned on still tells them which credentials are missing or outdated, so they
+ * can fix it before turning it on.
+ */
+export const resolveServiceNotice = (
+  server: Pick<WorkspaceServer, 'name' | 'status' | 'hasCredentialSlots'>,
+  credentialServers: ReadonlySet<string> | null,
+  binding?: Pick<MyCredentialBinding, 'stale' | 'configured'>,
+): ServiceNotice | null => {
+  const state = resolveServiceChip(server, credentialServers, binding);
+  let { chip } = state;
+  if (
+    chip === 'not_enabled' &&
+    binding &&
+    hasCredentialSlots(server, credentialServers) &&
+    (binding.stale || !binding.configured)
+  ) {
+    chip = binding.stale ? 'credentials_outdated' : 'needs_credentials';
+  }
+  if (chip === 'ready' || chip === 'not_enabled') return null;
+  const text = state.reauth ? 'signin_again' : chip;
+  switch (chip) {
+    case 'needs_signin':
+      return {
+        chip,
+        text,
+        action: 'signin',
+        label: state.reauth ? 'signinAgain' : 'signin',
+        detail: false,
+      };
+    case 'needs_credentials':
+      return { chip, text, action: 'credentials', label: 'addCredentials', detail: false };
+    case 'credentials_outdated':
+      return { chip, text, action: 'credentials', label: 'updateCredentials', detail: false };
+    case 'credentials_rejected':
+      return { chip, text, action: 'credentials', label: 'updateCredentials', detail: true };
+    case 'unavailable':
+      return { chip, text, action: null, label: null, detail: true };
+    default:
+      return { chip, text, action: null, label: null, detail: false };
+  }
+};
 
 /** The binding of one service, or undefined. The panel never shows any other service. */
 export const findCredentialBinding = (

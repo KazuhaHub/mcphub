@@ -1,6 +1,9 @@
 import {
   ADMIN_ONLY_IN_WORKSPACE,
+  canViewSettings,
   fallbackPath,
+  getAccountNavKeys,
+  getManageNavKeys,
   getWorkspaceNavKeys,
   isDashboardHome,
   isRouteAllowed,
@@ -12,32 +15,62 @@ const adminOff = { isAdmin: true, workspaceEnabled: false };
 const userOff = { isAdmin: false, workspaceEnabled: false };
 
 describe('workspace navigation entries', () => {
-  it('leaves the sidebar unchanged when workspace mode is off', () => {
-    const all = ['dashboard', 'servers', 'groups', 'prompts', 'resources', 'market'];
-    expect(getWorkspaceNavKeys(adminOff)).toEqual(all);
-    expect(getWorkspaceNavKeys(userOff)).toEqual(all);
+  const manage = ['dashboard', 'servers', 'groups', 'prompts', 'resources', 'market'];
+  const workspace = ['workspace', 'clients', 'activity'];
+
+  it('leaves the sidebar as it was when workspace mode is off', () => {
+    for (const ctx of [adminOff, userOff]) {
+      expect(getWorkspaceNavKeys(ctx)).toEqual([]);
+      expect(getManageNavKeys(ctx)).toEqual(manage);
+    }
   });
 
-  it('shows ordinary users only the workspace entry when the mode is on', () => {
-    expect(getWorkspaceNavKeys(userOn)).toEqual(['workspace']);
+  it('shows ordinary users the workspace pages and nothing to manage when the mode is on', () => {
+    expect(getWorkspaceNavKeys(userOn)).toEqual(workspace);
+    expect(getManageNavKeys(userOn)).toEqual([]);
   });
 
   it('renders no entries for an ordinary user until the setting is resolved', () => {
     expect(getWorkspaceNavKeys({ ...userOn, resolved: false })).toEqual([]);
-    expect(getWorkspaceNavKeys({ ...userOff, resolved: false })).toEqual([]);
+    expect(getManageNavKeys({ ...userOff, resolved: false })).toEqual([]);
     expect(getWorkspaceNavKeys({ ...adminOn, resolved: false })).toContain('workspace');
   });
 
-  it('gives admins a workspace entry in addition to everything else', () => {
-    expect(getWorkspaceNavKeys(adminOn)).toEqual([
-      'workspace',
-      'dashboard',
-      'servers',
-      'groups',
-      'prompts',
-      'resources',
-      'market',
-    ]);
+  it('gives admins the same workspace pages and, besides them, the management pages', () => {
+    expect(getWorkspaceNavKeys(adminOn)).toEqual(workspace);
+    expect(getManageNavKeys(adminOn)).toEqual(manage);
+  });
+});
+
+describe('the account section', () => {
+  const account = ['keys', 'passkeys', 'oauthApps', 'password'];
+
+  it('is the same for administrators and ordinary users in workspace mode', () => {
+    expect(getAccountNavKeys(adminOn)).toEqual(account);
+    expect(getAccountNavKeys(userOn)).toEqual(account);
+  });
+
+  it('adds each person\u2019s own credentials page while workspace mode is off', () => {
+    expect(getAccountNavKeys(userOff)).toEqual(['credentials', ...account]);
+    expect(getAccountNavKeys(adminOff)).toEqual(['credentials', ...account]);
+  });
+
+  it('keeps the old credentials page out of it until the setting is known', () => {
+    expect(getAccountNavKeys({ ...userOff, resolved: false })).toEqual(account);
+  });
+});
+
+describe('the system settings page', () => {
+  it('is for administrators and people with a settings permission', () => {
+    expect(canViewSettings({ isAdmin: true })).toBe(true);
+    expect(canViewSettings({ isAdmin: false, permissions: ['*'] })).toBe(true);
+    expect(canViewSettings({ permissions: ['settings:route_config'] })).toBe(true);
+  });
+
+  it('is not for everyone else, who have the personal pages instead', () => {
+    expect(canViewSettings({ isAdmin: false })).toBe(false);
+    expect(canViewSettings({ permissions: ['x'] })).toBe(false);
+    expect(canViewSettings(null)).toBe(false);
   });
 });
 
@@ -56,7 +89,18 @@ describe('workspace route access', () => {
     '/logs',
     '/activity',
   ];
-  const personalPages = ['/workspace', '/workspace/clients', '/credentials', '/settings'];
+  const personalPages = [
+    '/workspace',
+    '/workspace/clients',
+    '/workspace/activity',
+    '/keys',
+    '/password',
+    '/passkeys',
+    '/oauth-applications',
+    '/workspace/services/ubc-personal',
+    '/credentials',
+    '/settings',
+  ];
 
   it.each(adminPages)('redirects ordinary users away from %s when the mode is on', (path) => {
     expect(isRouteAllowed(path, userOn)).toBe(false);

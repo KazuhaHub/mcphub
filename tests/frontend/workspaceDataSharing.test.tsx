@@ -1,10 +1,13 @@
 /**
  * @jest-environment jsdom
  */
+import '../utils/textEncoderPolyfill';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { MyCredentialBinding, WorkspaceServer } from '../../frontend/src/types';
 import ConnectCard from '../../frontend/src/components/connect/ConnectCard';
 import WorkspaceServicesView from '../../frontend/src/components/workspace/WorkspaceServicesView';
+import WorkspaceServicePage from '../../frontend/src/pages/WorkspaceServicePage';
 import { resetWorkspaceStore } from '../../frontend/src/hooks/useWorkspaceData';
 
 jest.mock('react-i18next', () => ({
@@ -16,11 +19,6 @@ jest.mock('react-i18next', () => ({
 jest.mock('@/contexts/ToastContext', () => ({ useToast: () => ({ showToast: jest.fn() }) }));
 jest.mock('@/contexts/SettingsContext', () => ({
   useSettings: () => ({ smartRoutingConfig: { enabled: false } }),
-}));
-const mockSetSearch = jest.fn();
-let mockSearch = new URLSearchParams();
-jest.mock('react-router-dom', () => ({
-  useSearchParams: () => [mockSearch, mockSetSearch],
 }));
 
 // "The server": every change bumps `version`, which shows in the endpoint the card displays and
@@ -92,8 +90,6 @@ beforeEach(() => {
   resetWorkspaceStore();
   version = 0;
   bindingsGate = null;
-  mockSearch = new URLSearchParams();
-  mockSetSearch.mockReset();
   for (const fn of [mockSave, mockRisk])
     fn.mockReset().mockImplementation(async () => void version++);
   mockPut.mockReset().mockImplementation(async () => {
@@ -133,17 +129,26 @@ beforeEach(() => {
 });
 afterEach(() => resetWorkspaceStore());
 
-const page = async () => {
+// The workspace page and a service's page both show the Connect card above their own content.
+const page = async (entry = '/workspace') => {
   render(
-    <>
+    <MemoryRouter initialEntries={[entry]}>
       <ConnectCard />
-      <WorkspaceServicesView />
-    </>,
+      <Routes>
+        <Route path="/workspace" element={<WorkspaceServicesView />} />
+        <Route path="/workspace/services/:name" element={<WorkspaceServicePage />} />
+      </Routes>
+    </MemoryRouter>,
   );
-  await screen.findByTestId('workspace-service-notes');
+  await screen.findByTestId(entry === '/workspace' ? 'workspace-service-notes' : 'service-title');
   await screen.findByTestId('connect-tiles');
   await act(async () => {});
 };
+const pageChip = () => screen.getByTestId('service-chip').getAttribute('data-chip');
+const tabIds = () =>
+  within(screen.getByTestId('service-tabs'))
+    .getAllByRole('tab')
+    .map((tab) => tab.id.replace('service-tab-', ''));
 const endpointText = () => screen.getByLabelText('connect.endpoint').textContent;
 const chip = (name: string) =>
   screen
@@ -165,27 +170,23 @@ describe('every view of the workspace page reads one shared source', () => {
     expect(mockSave).toHaveBeenCalled();
   });
 
-  it('follows a permission change made in the panel in the card and the list', async () => {
-    await page();
-    fireEvent.click(screen.getByTestId('workspace-service-notes'));
-    const panel = await screen.findByTestId('service-panel');
-    fireEvent.click(panel.querySelector('[data-risk-level="write"]')!);
+  it('follows a permission change made on the service page in the card', async () => {
+    await page('/workspace/services/notes?tab=permissions');
+    fireEvent.click(document.querySelector('[data-risk-level="write"]')!);
     await waitFor(() => expect(endpointText()).toContain('/v1/'));
     expect(mockRisk).toHaveBeenCalledWith('notes', 'write');
   });
 
-  it('follows a credentials save made in the panel in the card and the list', async () => {
-    await page();
-    fireEvent.click(screen.getByTestId('workspace-service-needs-keys'));
-    const panel = await screen.findByTestId('service-panel');
-    await within(panel).findByLabelText('needs-keys');
-    fireEvent.change(panel.querySelector('input[type="password"]') as HTMLInputElement, {
+  it('follows a credentials save made on the service page in the card and the page', async () => {
+    await page('/workspace/services/needs-keys');
+    await screen.findByLabelText('needs-keys');
+    fireEvent.change(document.querySelector('input[type="password"]') as HTMLInputElement, {
       target: { value: 'secret-value' },
     });
     await act(async () => {
-      fireEvent.click(within(panel).getByText('credentials.save'));
+      fireEvent.click(screen.getByText('credentials.save'));
     });
-    await waitFor(() => expect(chip('needs-keys')).toBe('ready'));
+    await waitFor(() => expect(pageChip()).toBe('ready'));
     expect(endpointText()).toContain('/v3/');
   });
 
@@ -233,30 +234,28 @@ describe('every view of the workspace page reads one shared source', () => {
   });
 });
 
-describe('?credentials= for each kind of service', () => {
-  it('keeps focus on the panel for a personal sign-in, before and after the bindings load', async () => {
+describe('the credentials tab for each kind of service', () => {
+  it('has none for a personal sign-in, before and after the bindings load', async () => {
     let release: () => void = () => undefined;
     bindingsGate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    mockSearch = new URLSearchParams('credentials=canvas-oauth');
-    render(<WorkspaceServicesView />);
-    const panel = await screen.findByTestId('service-panel');
-    // Slots are known from the server's record, so no credentials section ever appears.
-    expect(panel.querySelector('[data-testid="service-panel-credentials"]')).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole('dialog'));
+    await page('/workspace/services/canvas-oauth?tab=credentials');
+    // The server says it has no slots, so the tab never appears.
+    expect(tabIds()).toEqual(['overview', 'permissions']);
     await act(async () => release());
     await act(async () => {});
-    expect(panel.querySelector('[data-testid="service-panel-credentials"]')).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole('dialog'));
+    expect(tabIds()).toEqual(['overview', 'permissions']);
   });
 
-  it('moves focus to the credentials section for a service that takes credentials', async () => {
-    mockSearch = new URLSearchParams('credentials=needs-keys');
-    render(<WorkspaceServicesView />);
-    const panel = await screen.findByTestId('service-panel');
-    const heading = within(panel).getByText('workspacePage.panel.credentials');
-    await waitFor(() => expect(document.activeElement).toBe(heading));
+  it('has one for a service that takes credentials', async () => {
+    await page('/workspace/services/needs-keys');
+    expect(tabIds()).toEqual(['overview', 'credentials', 'permissions']);
+    expect(
+      within(screen.getByTestId('service-tabs'))
+        .getByText('workspacePage.service.tab.credentials')
+        .getAttribute('aria-selected'),
+    ).toBe('true');
   });
 
   it('waits for the data before deciding when the server does not say', async () => {
@@ -269,14 +268,12 @@ describe('?credentials= for each kind of service', () => {
     bindingsGate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    mockSearch = new URLSearchParams('credentials=canvas-oauth');
-    render(<WorkspaceServicesView />);
-    const panel = await screen.findByTestId('service-panel');
-    expect(document.activeElement).toBe(screen.getByRole('dialog'));
+    await page('/workspace/services/canvas-oauth');
+    // Until the bindings are known the credentials are the safer guess.
+    expect(tabIds()).toContain('credentials');
     await act(async () => release());
     await act(async () => {});
-    // The bindings list has no slots for it: it signs in, so there is no credentials section.
-    expect(panel.querySelector('[data-testid="service-panel-credentials"]')).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole('dialog'));
+    // The bindings list has no slots for it: it signs in, so there is no credentials tab.
+    await waitFor(() => expect(tabIds()).toEqual(['overview', 'permissions']));
   });
 });

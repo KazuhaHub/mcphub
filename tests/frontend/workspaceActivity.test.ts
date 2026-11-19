@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import ActivityPanel from '../../frontend/src/components/workspace/ActivityPanel';
 import WorkspacePage from '../../frontend/src/pages/WorkspacePage';
+import WorkspaceActivityPage from '../../frontend/src/pages/WorkspaceActivityPage';
+import WorkspaceClientsPage from '../../frontend/src/pages/WorkspaceClientsPage';
 import {
   activityReasonKey,
   appendActivityItems,
@@ -234,23 +236,23 @@ describe('ActivityPanel states', () => {
   });
 });
 
-describe('WorkspacePage activity tab', () => {
-  const page = (url: string) =>
-    renderToStaticMarkup(
-      createElement(MemoryRouter, { initialEntries: [url] }, createElement(WorkspacePage)),
-    );
+describe('the workspace pages', () => {
+  const page = (url: string, element: ReturnType<typeof createElement>) =>
+    renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [url] }, element));
 
-  it('opens the activity panel from ?tab=activity and marks the tab selected', () => {
-    const html = page('/workspace?tab=activity');
-    expect(html).toContain('ACTIVITY_PANEL');
-    expect(html).not.toContain('SERVICES_VIEW');
-    expect(html).toMatch(/aria-selected="true"[^>]*>Activity</);
+  it('shows the services on the workspace page, with no tabs', () => {
+    const html = page('/workspace', createElement(WorkspacePage));
+    expect(html).toContain('SERVICES_VIEW');
+    expect(html).not.toContain('role="tablist"');
+    expect(html).not.toContain('ACTIVITY_PANEL');
+    expect(html).not.toContain('CLIENTS_PANEL');
   });
 
-  it('keeps the other tabs and falls back to services for unknown values', () => {
-    expect(page('/workspace?tab=clients')).toContain('CLIENTS_PANEL');
-    expect(page('/workspace?tab=bogus')).toContain('SERVICES_VIEW');
-    expect(page('/workspace')).toContain('SERVICES_VIEW');
+  it('gives activity and connected clients pages of their own', () => {
+    expect(page('/workspace/activity', createElement(WorkspaceActivityPage))).toBe(
+      'ACTIVITY_PANEL',
+    );
+    expect(page('/workspace/clients', createElement(WorkspaceClientsPage))).toBe('CLIENTS_PANEL');
   });
 });
 

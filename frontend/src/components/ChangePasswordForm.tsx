@@ -7,9 +7,11 @@ import { validatePasswordStrength } from '../utils/passwordValidation';
 interface ChangePasswordFormProps {
   onSuccess?: () => void;
   onCancel?: () => void;
+  // False where the page already says what this is.
+  showTitle?: boolean;
 }
 
-const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ onSuccess, onCancel }) => {
+const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ onSuccess, onCancel, showTitle = true }) => {
   const { t } = useTranslation();
   const [formData, setFormData] = useState<ChangePasswordCredentials>({
     currentPassword: '',
@@ -76,7 +78,7 @@ const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ onSuccess, onCa
 
   return (
     <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
-      <h2 className="text-xl font-bold mb-4">{t('auth.changePassword')}</h2>
+      {showTitle && <h2 className="text-xl font-bold mb-4">{t('auth.changePassword')}</h2>}
 
       {success ? (
         <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
