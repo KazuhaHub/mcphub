@@ -11,6 +11,7 @@ import { buildRedirectUriFromBase } from '../utils/oauthRedirectUri.js';
 import { resolveInstallBaseUrl } from '../utils/installBaseUrl.js';
 import type { FetchLike } from '../utils/ssrf.js';
 import { logger } from '../utils/logger.js';
+import { personalOAuthContexts } from './personalOAuthService.js';
 import { CredentialBindingError } from '../utils/credentialTemplate.js';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 
@@ -38,10 +39,14 @@ const stripTrailingSlashes = (value: string): string => value.replace(/\/+$/, ''
  * issuer, as for the tokens themselves) and an enabled authorization server. A server that pins
  * its own authorization endpoints is left alone.
  */
-export const resolveSelfResource = async (
+export const resolveSelfResourceStrict = async (
   conf: ServerConfig,
 ): Promise<SelfResource | undefined> => {
   const oauth = conf.oauth;
+  // A per-user config also carries the client id the SDK stored in the user's binding; only the
+  // one in the server definition is the administrator's.
+  const personal = personalOAuthContexts.get(conf);
+  const adminClientId = personal ? personal.definitionClientId : oauth?.clientId;
   if (
     oauth?.identityMode !== 'personal' ||
     !conf.url ||
@@ -50,19 +55,26 @@ export const resolveSelfResource = async (
     oauth.tokenEndpoint ||
     // An explicit client is the administrator's own configuration and keeps it. (The SDK stores
     // the public client's own id in the user's binding after the first authorization.)
-    (oauth.clientId && oauth.clientId !== SELF_OAUTH_CLIENT_ID)
+    (adminClientId && adminClientId !== SELF_OAUTH_CLIENT_ID)
   ) {
     return undefined;
   }
+  const systemConfig = await getSystemConfigDao().get();
+  const entry = findExternalResource(systemConfig, conf.url);
+  if (!entry) return undefined;
+  const merged = { ...cloneDefaultOAuthServerConfig(), ...systemConfig?.oauthServer };
+  if (merged.enabled === false) return undefined;
+  const base = resolveInstallBaseUrl(systemConfig);
+  if (!base) return undefined;
+  return { issuer: stripTrailingSlashes(base), entry };
+};
+
+/** As above, but a failure to read the configuration is logged and read as "not self-resource". */
+export const resolveSelfResource = async (
+  conf: ServerConfig,
+): Promise<SelfResource | undefined> => {
   try {
-    const systemConfig = await getSystemConfigDao().get();
-    const entry = findExternalResource(systemConfig, conf.url);
-    if (!entry) return undefined;
-    const merged = { ...cloneDefaultOAuthServerConfig(), ...systemConfig?.oauthServer };
-    if (merged.enabled === false) return undefined;
-    const base = resolveInstallBaseUrl(systemConfig);
-    if (!base) return undefined;
-    return { issuer: stripTrailingSlashes(base), entry };
+    return await resolveSelfResourceStrict(conf);
   } catch (error) {
     logger.warn('Could not determine whether a server is an external resource of this hub', error);
     return undefined;
@@ -88,6 +100,11 @@ export const assertSelfClientIdInUse = async (
   self: SelfResource | undefined,
 ): Promise<void> => {
   if (config.oauth?.clientId === SELF_OAUTH_CLIENT_ID && !self) {
+    const stored = personalOAuthContexts.get(config);
+    if (stored && stored.definitionClientId !== SELF_OAUTH_CLIENT_ID)
+      throw new CredentialBindingError(
+        `'${serverName}' is no longer served by this MCPHub's own authorization server, or that could not be determined. Disconnect and reconnect it.`,
+      );
     throw new CredentialBindingError(`'${serverName}': ${RESERVED_CLIENT_MESSAGE}`);
   }
 };

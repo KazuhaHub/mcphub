@@ -13,7 +13,12 @@ import { notifyWorkspaceUser } from '../services/userServerStatusService.js';
 import { createTransportFromConfig } from '../services/mcpService.js';
 import { validateAuthorizationIss } from '../utils/oauthIssuer.js';
 import { CredentialBindingError } from '../utils/credentialTemplate.js';
-import { resolveSelfResource, revokeSelfGrants } from '../services/selfOAuthResource.js';
+import {
+  SELF_OAUTH_CLIENT_ID,
+  resolveSelfResource,
+  resolveSelfResourceStrict,
+  revokeSelfGrants,
+} from '../services/selfOAuthResource.js';
 import { getAuthorizationCode } from '../models/OAuth.js';
 import { logger } from '../utils/logger.js';
 import {
@@ -90,7 +95,11 @@ export const managePersonalOAuth = async (req: Request, res: Response): Promise<
     const context = await PersonalOAuthContext.load(definition.name, user.username, definition);
     if (req.method === 'POST') {
       // Starting a new flow supersedes the previous flow and invalidates live sessions.
-      const selfResource = await resolveSelfResource(definition);
+      // An error reading the configuration must not read as "not self-resource": it stops here.
+      const selfResource = await resolveSelfResourceStrict(definition);
+      // The user's own connect is the only place stale state of a previous issuer is dropped.
+      if (selfResource)
+        await context.discardForeignIssuerState(selfResource.issuer, SELF_OAUTH_CLIENT_ID);
       if (selfResource) {
         await revokeSelfGrants(user.username, [
           selfResource.entry.resource,

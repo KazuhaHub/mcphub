@@ -304,6 +304,10 @@ export class MCPHubOAuthProvider implements OAuthClientProvider {
       // Note: we only use cache here since this is a sync method
       const serverConfig = this.serverConfig;
 
+      // A self-resource server never uses a client id stored for another issuer.
+      if (this.selfResource) {
+        return { client_id: SELF_OAUTH_CLIENT_ID, token_endpoint_auth_method: 'none' };
+      }
       // Try to use static client configuration from serverConfig
       if (serverConfig?.oauth?.clientId) {
         return {
@@ -621,7 +625,8 @@ export class MCPHubOAuthProvider implements OAuthClientProvider {
       const discovered = (metadata?.issuer ?? state.authorizationServerUrl).replace(/\/+$/, '');
       const announced = state.resourceMetadata;
       const listed = (announced?.authorization_servers ?? []).some(
-        (server) => typeof server === 'string' && server.replace(/\/+$/, '') === this.selfResource?.issuer,
+        (server) =>
+          typeof server === 'string' && server.replace(/\/+$/, '') === this.selfResource?.issuer,
       );
       if (discovered !== this.selfResource.issuer || !listed) {
         throw new Error(
