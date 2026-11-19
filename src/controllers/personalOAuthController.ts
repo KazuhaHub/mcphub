@@ -21,6 +21,7 @@ import {
   hashFlowNonce,
   newFlowNonce,
   setFlowCookie,
+  flowIsSecure,
 } from '../utils/oauthFlowBinding.js';
 
 export const managePersonalOAuth = async (req: Request, res: Response): Promise<void> => {
@@ -127,9 +128,10 @@ export const managePersonalOAuth = async (req: Request, res: Response): Promise<
       if (pending?.state) {
         const nonce = newFlowNonce();
         await context.mutate(({ oauth }) => {
-          if (oauth.pendingAuthorization) oauth.pendingAuthorization.browserBinding = hashFlowNonce(nonce);
+          if (oauth.pendingAuthorization)
+            oauth.pendingAuthorization.browserBinding = hashFlowNonce(nonce);
         });
-        setFlowCookie(res, nonce, pending.authorizationUrl);
+        setFlowCookie(res, nonce, pending.state, pending.authorizationUrl);
       }
       await notifyWorkspaceUser(user.username);
     }
@@ -150,30 +152,25 @@ export const managePersonalOAuth = async (req: Request, res: Response): Promise<
       },
     });
   } catch (error) {
-    res
-      .status(error instanceof CredentialBindingError ? 400 : 502)
-      .json({
-        success: false,
-        message:
-          error instanceof CredentialBindingError
-            ? error.message
-            : 'Unable to prepare personal authorization',
-      });
+    res.status(error instanceof CredentialBindingError ? 400 : 502).json({
+      success: false,
+      message:
+        error instanceof CredentialBindingError
+          ? error.message
+          : 'Unable to prepare personal authorization',
+    });
   }
 };
 
 /** What the callback request proves about the browser that delivers it. */
 export interface PersonalOAuthCallbackProof {
-  /** The flow cookie's value (`readFlowNonce`). */
+  /** Reads the flow's cookie by state and callback scheme (`flowNonceReader(req)`). */
+  readNonce?: (state: string, secure: boolean) => string | undefined;
+  /** A nonce given directly; for callers that already read the right cookie (tests). */
   nonce?: string;
-  /** The signed-in MCPHub user of the callback request, when it carries a session. */
-  sessionUsername?: string;
 }
 
-const refuseFlow = async (
-  context: PersonalOAuthContext,
-  reason: string,
-): Promise<never> => {
+const refuseFlow = async (context: PersonalOAuthContext, reason: string): Promise<never> => {
   logger.warn(
     `Personal OAuth callback refused (${reason}) for '${context.serverName}', flow owner '${context.username}'; the flow was discarded`,
   );
@@ -190,12 +187,13 @@ export const completePersonalOAuth = async (
   const context = await findPersonalOAuthFlow(state);
   if (!context) return false;
   const pending = context.config.oauth.pendingAuthorization!;
-  // `state` only finds the flow. Completing it takes the browser that started it (its cookie), and
-  // a session, if the request has one, of the user who owns the flow.
-  if (!flowNonceMatches(pending.browserBinding, proof.nonce))
+  // `state` only finds the flow. Completing it takes the browser that started it: the cookie set
+  // for this flow, read under the name its callback scheme dictates.
+  const nonce = proof.readNonce
+    ? proof.readNonce(state, flowIsSecure(pending.authorizationUrl))
+    : proof.nonce;
+  if (!flowNonceMatches(pending.browserBinding, nonce))
     return refuseFlow(context, 'the browser did not start this flow');
-  if (proof.sessionUsername !== undefined && proof.sessionUsername !== context.username)
-    return refuseFlow(context, `signed in as '${proof.sessionUsername}'`);
   const result = validateAuthorizationIss({
     iss,
     authorizationUrl: pending.authorizationUrl,

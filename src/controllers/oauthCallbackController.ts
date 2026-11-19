@@ -1,5 +1,5 @@
 import { completePersonalOAuth } from './personalOAuthController.js';
-import { clearFlowCookie, readFlowNonce } from '../utils/oauthFlowBinding.js';
+import { clearFlowCookie, flowNonceReader } from '../utils/oauthFlowBinding.js';
 /**
  * OAuth Callback Controller
  *
@@ -343,20 +343,23 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
     }
 
     try {
-      const proof = {
-        nonce: readFlowNonce(req),
-        sessionUsername: (req as Request & { user?: { username?: string } }).user?.username,
-      };
+      // Whatever the outcome, the flow's one-time cookie is no longer needed.
+      clearFlowCookie(res, stateParam);
       if (
-        await completePersonalOAuth(stateParam, codeParam, normalizeQueryParam(req.query.iss), proof)
+        await completePersonalOAuth(stateParam, codeParam, normalizeQueryParam(req.query.iss), {
+          readNonce: flowNonceReader(req),
+        })
       ) {
-        clearFlowCookie(req, res);
         return res.send(
           generateHtmlResponse(
             t,
             'success',
             t('oauthCallback.authorizationSuccessful'),
-            t(isWorkspaceEnabled() ? 'server.oauth.personalSuccessWorkspace' : 'server.oauth.personalSuccess'),
+            t(
+              isWorkspaceEnabled()
+                ? 'server.oauth.personalSuccessWorkspace'
+                : 'server.oauth.personalSuccess',
+            ),
             undefined,
             true,
           ),

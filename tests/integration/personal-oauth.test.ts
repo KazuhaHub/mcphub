@@ -30,7 +30,7 @@ import { getServerDao } from '../../src/dao/index.js';
 import { logger } from '../../src/utils/logger.js';
 import { normalizeServerConfigForPersistence } from '../../src/utils/serverConfigPersistence.js';
 import type { ServerConfigWithName } from '../../src/types/index.js';
-import { hashFlowNonce, readFlowNonce } from '../../src/utils/oauthFlowBinding.js';
+import { flowIsSecure, flowNonceReader, hashFlowNonce } from '../../src/utils/oauthFlowBinding.js';
 
 jest.mock('../../src/dao/index.js', () => ({
   getServerDao: jest.fn(),
@@ -287,7 +287,12 @@ test('#1432 an expired token without a refresh grant is never returned', async (
 
 test('#1432 a failed renewal rejects concurrent callers and permits a later retry', async () => {
   const a = await provider('alice');
-  await a.provider.saveTokens({ access_token: 'old', refresh_token: 'refresh-alice', token_type: 'Bearer', expires_in: 0 });
+  await a.provider.saveTokens({
+    access_token: 'old',
+    refresh_token: 'refresh-alice',
+    token_type: 'Bearer',
+    expires_in: 0,
+  });
   jest.mocked(createOAuthFetch).mockRejectedValueOnce(new Error('token endpoint unavailable'));
   const results = await Promise.allSettled([a.provider.tokens(), a.provider.tokens()]);
   expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected']);
@@ -751,18 +756,24 @@ test('relay rejects a stored authorization URL outside the declared broker endpo
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
-test.each(['/oauth/relay/gitlab', '/oauth/relay/gitlab?state=forged', '/oauth/relay/gitlab?state=a&state=b'])(
-  'relay rejects missing or invalid flows: %s', async (path) => {
-    const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    await request(relayApp()).get(path).expect(400);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  },
-);
-
+test.each([
+  '/oauth/relay/gitlab',
+  '/oauth/relay/gitlab?state=forged',
+  '/oauth/relay/gitlab?state=a&state=b',
+])('relay rejects missing or invalid flows: %s', async (path) => {
+  const fetchSpy = jest.spyOn(globalThis, 'fetch');
+  await request(relayApp()).get(path).expect(400);
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
 
 test('#1432 invalid_grant clears rejected credentials and prepares authorization', async () => {
   const a = await provider('alice');
-  await a.provider.saveTokens({ access_token: 'expired', refresh_token: 'rejected', token_type: 'Bearer', expires_in: 0 });
+  await a.provider.saveTokens({
+    access_token: 'expired',
+    refresh_token: 'rejected',
+    token_type: 'Bearer',
+    expires_in: 0,
+  });
   let refreshes = 0;
   jest.mocked(createOAuthFetch).mockResolvedValue(async (input, init) => {
     if (!String(input).endsWith('/token')) return fetchFn(input, init);
@@ -825,7 +836,7 @@ test('OpenAPI personal OAuth exchanges PKCE codes and uses isolated, rotated tok
         String(req.query.state),
         String(req.query.code),
         undefined,
-        { nonce: readFlowNonce(req) },
+        { readNonce: flowNonceReader(req) },
       );
       res.sendStatus(completed ? 200 : 400);
     } catch {
@@ -883,8 +894,14 @@ test('OpenAPI personal OAuth exchanges PKCE codes and uses isolated, rotated tok
         .join('; ');
       const authorized = await http.get(url.pathname + url.search).expect(302);
       const callback = new URL(authorized.headers.location);
-      await http.get(callback.pathname + callback.search).set('Cookie', flowCookie).expect(200);
-      await http.get(callback.pathname + callback.search).set('Cookie', flowCookie).expect(400);
+      await http
+        .get(callback.pathname + callback.search)
+        .set('Cookie', flowCookie)
+        .expect(200);
+      await http
+        .get(callback.pathname + callback.search)
+        .set('Cookie', flowCookie)
+        .expect(400);
 
       const auth = await provider(username);
       const client = new OpenAPIClient(auth.context.config, {
@@ -988,22 +1005,33 @@ describe('a personal OAuth flow is bound to the browser and user that started it
     return started;
   };
 
-  it("refuses another user's browser (no cookie, wrong cookie, other session) and discards the flow", async () => {
-    for (const proof of [
+  it("refuses another user's browser (no cookie, wrong cookie, a cookie under the wrong name) and discards the flow", async () => {
+    for (const variant of [
       {},
       { nonce: 'victims-own-nonce' },
-      { nonce: 'attacker-nonce', sessionUsername: 'victim' },
+      // The right value planted under the other variant's name (e.g. without __Host- from a sibling host).
+      'wrong-variant' as const,
     ]) {
       const alice = await start('alice');
       await bindFlow(alice.context, 'attacker-nonce');
       const state = alice.context.config.oauth.pendingAuthorization!.state!;
+      const flowSecure = flowIsSecure(
+        alice.context.config.oauth.pendingAuthorization!.authorizationUrl,
+      );
+      const proof =
+        variant === 'wrong-variant'
+          ? {
+              readNonce: (_s: string, secure: boolean) =>
+                secure === flowSecure ? undefined : 'attacker-nonce',
+            }
+          : variant;
       await expect(completePersonalOAuth(state, 'victim-code', issuer, proof)).rejects.toThrow(
         'Invalid authorization state',
       );
       // The flow is gone: even the right browser cannot finish it now, and nothing was exchanged.
-      expect(await completePersonalOAuth(state, 'alice-code', issuer, { nonce: 'attacker-nonce' })).toBe(
-        false,
-      );
+      expect(
+        await completePersonalOAuth(state, 'alice-code', issuer, { nonce: 'attacker-nonce' }),
+      ).toBe(false);
       expect((await provider('alice')).context.config.oauth.accessToken).toBeUndefined();
     }
   });
