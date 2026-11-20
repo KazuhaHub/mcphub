@@ -4,10 +4,21 @@ import { ServerConfigValidationError } from './serverConfigValidation.js';
 export const READINESS_URL_MAX_LENGTH = 2048;
 export const READINESS_SLOT_NAME_MAX_LENGTH = 128;
 
+// `${VAR}` in the scheme, host or port: not a real origin until expanded, and never the same
+// origin as another URL just because the text matches.
+export const hasAuthorityPlaceholder = (value: string): boolean => {
+  const schemeEnd = value.indexOf('://');
+  const authorityStart = schemeEnd === -1 ? 0 : schemeEnd + 3;
+  const rest = value.slice(authorityStart);
+  const authority = rest.slice(0, rest.search(/[/?#]|$/));
+  return value.slice(0, authorityStart).includes('$') || authority.includes('$');
+};
+
 // An absolute https URL without embedded credentials. Loopback http is not allowed: the hub
 // sends a user's credential to this URL, so it is never a development shortcut.
 export const isSafeHttpsUrl = (value: string): boolean => {
   if (value.length === 0 || value.length > READINESS_URL_MAX_LENGTH) return false;
+  if (hasAuthorityPlaceholder(value)) return false;
   try {
     const parsed = new URL(value);
     return parsed.protocol === 'https:' && !parsed.username && !parsed.password;
@@ -135,6 +146,9 @@ export const readinessServerProblem = (
   const slotProblem = readinessSlotProblem(readiness, server.credentialTemplate);
   if (slotProblem) return slotProblem;
   const base = readinessCredentialUrl(server, readiness.auth);
+  if (base && hasAuthorityPlaceholder(base)) {
+    return "the server's url has a ${...} placeholder in its scheme, host or port, so readiness.url cannot be checked against it";
+  }
   if (base) {
     const serverOrigin = originOf(base);
     if (!serverOrigin || serverOrigin !== originOf(readiness.url)) {

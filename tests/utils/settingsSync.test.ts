@@ -1,4 +1,8 @@
-import { normalizeDeclaredServer, resolveSyncedServerId } from '../../src/utils/settingsSync.js';
+import {
+  normalizeDeclaredServer,
+  normalizeStoredServer,
+  resolveSyncedServerId,
+} from '../../src/utils/settingsSync.js';
 import { isLegacyServerId, legacyServerId } from '../../src/utils/serverIdentity.js';
 
 /**
@@ -69,5 +73,33 @@ describe('normalizeDeclaredServer', () => {
         readiness: { url: 'http://x', auth: 'oauth' },
       }),
     ).toThrow();
+  });
+});
+
+describe('normalizeStoredServer', () => {
+  const stored = {
+    type: 'streamable-http' as const,
+    url: 'https://svc.example.com/mcp',
+    pausedUsers: ['bob'],
+    maintenance: { message: 'x' },
+  };
+
+  it('ignores runtime admin state', () => {
+    const config = normalizeStoredServer('svc', stored as never);
+    expect(config.pausedUsers).toBeUndefined();
+    expect(config.maintenance).toBeUndefined();
+    expect(config.type).toBe('streamable-http');
+  });
+
+  it('does not throw for a stored readiness that is no longer valid', () => {
+    // The server url moved to another origin after the row was saved.
+    const config = normalizeStoredServer('svc', {
+      ...stored,
+      url: 'https://moved.example.net/mcp',
+      oauth: { identityMode: 'personal' },
+      readiness: { url: 'https://svc.example.com/ready', auth: 'oauth' },
+    } as never);
+    expect(config.readiness).toBeUndefined();
+    expect(config.url).toBe('https://moved.example.net/mcp');
   });
 });

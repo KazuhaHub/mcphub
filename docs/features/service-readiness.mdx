@@ -44,7 +44,7 @@ The probe sends a user's credential only to the readiness URL and never follows 
 A different host, a subdomain, another port or `http` is rejected when the server is saved (API, dashboard, CLI, template import; settings sync drops an invalid declaration with a warning), and the probe checks it again every time, so a later change of the server's URL makes the check report `unknown` instead of sending the credential elsewhere. Because the credential only ever goes to an origin the user already connected to, no credential binding is invalidated.
 
 - **Servers with no origin** (stdio, or OpenAPI with an inline schema and no `oauth.resource`): there is nothing to compare, so the readiness check becomes part of the credential binding's destination, for credential slots and for personal OAuth. Adding or changing it marks existing bindings as outdated and users must enter their values or sign in again (as changing the server's command would).
-- **`${VAR}` placeholders:** at probe time the server URL is expanded the same way connections expand it, and the expanded value is compared. When the server is saved the stored text is compared as written, so a URL whose scheme, host or port is a `${VAR}` placeholder cannot be validated and is rejected; write it literally, or keep the placeholder out of the origin.
+- **`${VAR}` placeholders:** a `${...}` in the scheme, host or port of the server's URL or of `readiness.url` is rejected when the server is saved, because such a text is not a real origin until it is expanded. A placeholder in the path or query is fine. At probe time the server URL is expanded the same way connections expand it, and the expanded value is compared.
 - **`"oauth"`** requires a server with personal OAuth and is rejected otherwise.
 
 ## Contract, version 1
@@ -97,7 +97,7 @@ These are MCPHub's own answers, not service-defined:
 
 ### Freshness
 
-- The answer is cached per user and service for 5 minutes. A failed check (`unknown` or `revoked`) is remembered for 30 seconds only. When an answer expires, the last one (up to an hour old) is returned at once and refreshed in the background, so only the first check for a user and service waits. At most 16 probes run at once; the rest queue. Saving or deleting the user's credential clears the cache for it.
+- The answer is cached per user and service for 5 minutes. A failed check (`unknown` or `revoked`) is remembered for 30 seconds only. When an answer expires, the last one (up to an hour old) is returned at once and refreshed in the background, so only the first check for a user and service waits. At most 16 probes run at once and at most 64 wait; beyond that a check answers `unknown` at once. A whole probe, including resolving or refreshing the token and waiting for the personal OAuth lock, is cut off after 10 seconds as `unknown`; a re-check from the dashboard waits at most 12 seconds. Saving or deleting the user's credential clears the cache for it.
 - The dashboard bypasses the cache on an explicit re-check: when the user returns to the tab after clicking an action or manage link, and with the **Re-check** button (`POST /api/workspace/servers/:name/readiness/check`). Re-checks of one service closer than 3 seconds apart answer from the cache.
 - The workspace list asks in parallel with the rest of its work and waits at most 2 seconds for a probe; a slow or failing call shows as `unknown`, never breaks the list, and delays it by at most 2 seconds. The probe still finishes in the background and fills the cache.
 

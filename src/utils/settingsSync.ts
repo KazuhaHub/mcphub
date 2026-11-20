@@ -207,6 +207,22 @@ export const normalizeDeclaredServer = (
   }
 };
 
+/**
+ * Normalizes a stored row for comparison with the declaration. Runtime admin state is left out,
+ * and a stored readiness that no longer validates (the server url moved since it was saved) is
+ * dropped with a warning instead of aborting the sync.
+ */
+export const normalizeStoredServer = (serverName: string, stored: ServerConfig): ServerConfig =>
+  normalizeDeclaredServer(serverName, {
+    ...stored,
+    pausedUsers: undefined,
+    maintenance: undefined,
+    maxToolRisk: undefined,
+    toolRiskOverrides: undefined,
+    defaultUserRisk: undefined,
+    credentialWriteClients: undefined,
+  });
+
 export async function syncSettingsToDatabase(): Promise<void> {
   const mode = process.env.MCPHUB_SETTINGS_SYNC;
   if (!mode) return;
@@ -288,15 +304,7 @@ export async function syncSettingsToDatabase(): Promise<void> {
       const hash = await fingerprintDeclaration(signature, existing?.settingsSyncHash);
       const sameTarget =
         existing &&
-        normalizeServerConfigForPersistence({
-          ...(existing as ServerConfig),
-          pausedUsers: undefined,
-          maintenance: undefined,
-          maxToolRisk: undefined,
-          toolRiskOverrides: undefined,
-          defaultUserRisk: undefined,
-          credentialWriteClients: undefined,
-        }).type === config.type &&
+        normalizeStoredServer(serverName, existing as ServerConfig).type === config.type &&
         existing.url === config.url &&
         (existing.owner ?? null) === (config.owner ?? null);
       const declaredOAuthMatches = Object.entries(config.oauth ?? {}).every(([key, value]) =>

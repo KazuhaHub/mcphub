@@ -28,10 +28,7 @@ import {
   resolveEndpointState,
   type PersonalAuthState,
 } from '../services/userServerStatusService.js';
-import {
-  getServiceReadiness,
-  getServiceReadinessBounded,
-} from '../services/serviceReadinessService.js';
+import { getServiceReadinessBounded } from '../services/serviceReadinessService.js';
 import type {
   IUser,
   ServerConfig,
@@ -146,6 +143,9 @@ const loadServerInfo = async (name: string) => {
   const { getServerByName } = await import('../services/mcpService.js');
   return getServerByName(name);
 };
+
+// A re-check waits a little longer than the probe's own deadline, never indefinitely.
+const RECHECK_WAIT_MS = 12_000;
 
 // A readiness answer that cannot be had must not break the page: it reads as `unknown`.
 const unknownReadiness = (): ServiceReadiness => ({
@@ -302,9 +302,10 @@ export const checkWorkspaceReadiness = async (req: Request, res: Response): Prom
     }
     const personalAuth = await getPersonalAuthState(user, server.name, server);
     const readiness = shouldProbeReadiness(user, server, personalAuth)
-      ? await getServiceReadiness(user, server.name, server, { refresh: true }).catch(
-          unknownReadiness,
-        )
+      ? await getServiceReadinessBounded(user, server.name, server, {
+          refresh: true,
+          waitMs: RECHECK_WAIT_MS,
+        }).catch(unknownReadiness)
       : null;
     res.json({ success: true, data: { name: server.name, readiness } });
   } catch {

@@ -32,6 +32,7 @@ import {
   READINESS_CACHE_TTL_MS,
   READINESS_MAX_BODY_BYTES,
   READINESS_MAX_CONCURRENT_PROBES,
+  READINESS_MAX_QUEUED_PROBES,
   clearReadinessCache,
   getServiceReadiness,
   getServiceReadinessBounded,
@@ -63,6 +64,7 @@ const deps = (extra: Partial<ReadinessDeps> = {}): ReadinessDeps => ({
   fetch: fetchMock as unknown as ReadinessDeps['fetch'],
   now: () => now,
   timeoutMs: 200,
+  deadlineMs: 400,
   // A public address, so the SSRF guard never needs real DNS.
   lookup: async () => ['93.184.216.34'],
   ...extra,
@@ -347,6 +349,123 @@ describe('the server origin the credential goes to', () => {
     );
     expect(result?.state).toBe('unknown');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('the generation snapshot', () => {
+  it("does not cache the old credential's answer when a slot value is saved while it resolves", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // The user saves a new slot value from outside the probe while the bearer resolves.
+    setTimeout(() => {
+      credentialBindingEvents.emit('invalidate', { serverName: 'canvas', username: 'alice' });
+      release();
+    }, 10);
+    const first = await check(
+      definition(),
+      {},
+      {
+        resolveBearer: async () => {
+          await gate;
+          return 'old-credential';
+        },
+      },
+    );
+    expect(first?.state).toBe('ready');
+    fetchMock.mockClear();
+    await check();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the whole probe is bounded', () => {
+  it('ends as unknown within the deadline when the token refresh hangs', async () => {
+    const started = Date.now();
+    const result = await check(
+      definition(),
+      {},
+      {
+        deadlineMs: 40,
+        resolveBearer: () => new Promise<string>(() => undefined),
+      },
+    );
+    expect(result?.state).toBe('unknown');
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('ends as unknown within the deadline when expanding the server hangs', async () => {
+    const result = await check(
+      definition(),
+      {},
+      {
+        deadlineMs: 40,
+        expandServer: () => new Promise<ServerConfig>(() => undefined),
+      },
+    );
+    expect(result?.state).toBe('unknown');
+  });
+
+  it('gives the probe slot back at the deadline so others still run', async () => {
+    const hung = Array.from({ length: READINESS_MAX_CONCURRENT_PROBES }, (_unused, index) =>
+      getServiceReadiness(user, `hung-${index}`, definition(), {
+        deps: deps({ deadlineMs: 40, resolveBearer: () => new Promise<string>(() => undefined) }),
+      }),
+    );
+    await Promise.all(hung);
+    expect((await getServiceReadiness(user, 'next', definition(), { deps: deps() }))?.state).toBe(
+      'ready',
+    );
+  });
+
+  it('answers unknown at once, without queueing, when the queue is full', async () => {
+    const releases: Array<() => void> = [];
+    fetchMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve(jsonResponse({ version: 1, state: 'ready' })));
+        }),
+    );
+    const slow = { timeoutMs: 60_000, deadlineMs: 60_000 };
+    const total = READINESS_MAX_CONCURRENT_PROBES + READINESS_MAX_QUEUED_PROBES;
+    const busy = Array.from({ length: total }, (_unused, index) =>
+      getServiceReadiness(user, `busy-${index}`, definition(), { deps: deps(slow) }),
+    );
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(READINESS_MAX_CONCURRENT_PROBES);
+    const started = Date.now();
+    const overflow = await getServiceReadiness(user, 'overflow', definition(), {
+      deps: deps(slow),
+    });
+    expect(overflow?.state).toBe('unknown');
+    expect(Date.now() - started).toBeLessThan(200);
+    // Let everything finish so no probe outlives the test.
+    for (let round = 0; round < 8 && releases.length + 1 > 0; round++) {
+      while (releases.length) releases.shift()!();
+      await settle();
+    }
+    await Promise.all(busy);
+  });
+
+  it('lets a re-check wait for a bounded time too', async () => {
+    let release!: () => void;
+    fetchMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(jsonResponse({ version: 1, state: 'ready' }));
+        }),
+    );
+    const result = await getServiceReadinessBounded(user, 'canvas', definition(), {
+      refresh: true,
+      waitMs: 20,
+      deps: deps({ timeoutMs: 60_000, deadlineMs: 60_000 }),
+    });
+    expect(result?.state).toBe('unknown');
+    // Let the probe finish so it does not hold a slot past this test.
+    release();
+    await settle();
   });
 });
 

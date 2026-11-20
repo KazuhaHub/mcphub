@@ -508,7 +508,7 @@ describe('workspace API', () => {
           .set(alice)
           .expect(200);
         expect(response.body.data.readiness).toBeNull();
-        expect(mockReadinessCheck).not.toHaveBeenCalled();
+        expect(mockReadinessBounded).not.toHaveBeenCalled();
       },
     );
 
@@ -534,12 +534,14 @@ describe('workspace API', () => {
           success: true,
           data: { name: 'canvas', readiness: ready },
         });
-        expect(mockReadinessCheck).toHaveBeenCalledWith(
+        // A re-check waits a bounded time too, like the list.
+        expect(mockReadinessBounded).toHaveBeenCalledWith(
           expect.objectContaining({ username: 'alice' }),
           'canvas',
           expect.objectContaining({ name: 'canvas' }),
-          { refresh: true },
+          { refresh: true, waitMs: expect.any(Number) },
         );
+        expect(mockReadinessCheck).not.toHaveBeenCalled();
       });
 
       it('answers null without probing when the credential is not configured', async () => {
@@ -553,7 +555,7 @@ describe('workspace API', () => {
       it('answers unknown instead of failing when the probe throws', async () => {
         withReadiness();
         mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
-        mockReadinessCheck.mockRejectedValue(new Error('boom'));
+        mockReadinessBounded.mockRejectedValue(new Error('boom'));
         const response = await post().expect(200);
         expect(response.body.data.readiness.state).toBe('unknown');
       });
@@ -566,7 +568,7 @@ describe('workspace API', () => {
         workspaceConfig = { workspace: { enabled: false } };
         withReadiness();
         await post().expect(404);
-        expect(mockReadinessCheck).not.toHaveBeenCalled();
+        expect(mockReadinessBounded).not.toHaveBeenCalled();
       });
     });
   });

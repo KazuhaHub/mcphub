@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type {
   ReadinessConfig,
   ServerConfig,
@@ -30,6 +31,11 @@ export const READINESS_LIST_WAIT_MS = 2_000;
 export const READINESS_MAX_STALE_MS = 60 * 60_000;
 // Probes in flight at once, across all users and services; the rest queue.
 export const READINESS_MAX_CONCURRENT_PROBES = 16;
+// Probes waiting for a slot; beyond this a check answers `unknown` at once instead of queueing.
+export const READINESS_MAX_QUEUED_PROBES = 64;
+// The whole probe (expanding the server, resolving or refreshing the bearer, waiting on the
+// personal OAuth lock, the request): one deadline over all of it.
+export const READINESS_PROBE_DEADLINE_MS = 10_000;
 const MAX_CACHE_ENTRIES = 2_000;
 const MAX_SUMMARY_LENGTH = 200;
 const MAX_ACTION_LABEL_LENGTH = 80;
@@ -56,7 +62,10 @@ export interface ReadinessDeps {
   fetch: FetchLike;
   lookup?: SsrfLookup;
   now: () => number;
+  // The request alone.
   timeoutMs: number;
+  // Everything the probe does.
+  deadlineMs: number;
 }
 
 export interface ReadinessUser {
@@ -94,6 +103,11 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<ServiceReadiness>>();
 
+// Work done inside a probe (a token refresh while resolving the bearer) may report credential
+// changes of its own; those must not invalidate the probe's own answer. Events raised anywhere
+// else, such as the user saving a credential, carry no such context and do.
+const insideProbe = new AsyncLocalStorage<true>();
+
 // Invalidation counters at the scope an event names, so a probe that began before its own
 // user's or service's credential changed cannot cache its answer, and nobody else's is affected.
 const generations = {
@@ -128,6 +142,7 @@ const ensureSubscribed = (): void => {
   credentialBindingEvents.on(
     'invalidate',
     (filter: { serverName?: string; username?: string } | undefined) => {
+      if (insideProbe.getStore()) return;
       if (filter?.serverName && filter.username) {
         bump(generations.byPair, cacheKey(filter.username, filter.serverName));
       } else if (filter?.serverName) bump(generations.byServer, filter.serverName);
@@ -151,6 +166,7 @@ let activeProbes = 0;
 const waitingProbes: Array<() => void> = [];
 const withProbeSlot = async <T>(run: () => Promise<T>): Promise<T> => {
   if (activeProbes >= READINESS_MAX_CONCURRENT_PROBES) {
+    if (waitingProbes.length >= READINESS_MAX_QUEUED_PROBES) throw new Error('probe queue full');
     await new Promise<void>((resolve) => waitingProbes.push(resolve));
   } else {
     activeProbes++;
@@ -252,9 +268,6 @@ const probe = async (
   definition: ServerConfig,
   readiness: ReadinessConfig,
   deps: ReadinessDeps,
-  // Filled with the invalidation generation once the bearer is in hand, so a token refresh
-  // while resolving it (which may report a change for this very pair) does not discard the answer.
-  context: { generation: () => number; at?: number },
 ): Promise<ServiceReadiness> => {
   const now = deps.now();
   // The server's url may have changed since the declaration was saved: the bearer only ever goes
@@ -273,8 +286,7 @@ const probe = async (
 
   let bearer: string;
   try {
-    bearer = await deps.resolveBearer(user, serverName, definition);
-    context.at = context.generation();
+    bearer = await insideProbe.run(true, () => deps.resolveBearer(user, serverName, definition));
   } catch (error) {
     // A missing, stale or unrefreshable credential is MCPHub's to report as "sign in again".
     if (
@@ -352,6 +364,7 @@ const defaultDeps = (): ReadinessDeps => ({
   fetch: (url, init) => fetch(url, init),
   now: () => Date.now(),
   timeoutMs: READINESS_TIMEOUT_MS,
+  deadlineMs: READINESS_PROBE_DEADLINE_MS,
 });
 
 /**
@@ -389,6 +402,25 @@ export const getServiceReadiness = async (
   return startProbe(user, serverName, definition, readiness, deps, key, declaration);
 };
 
+// Resolves with `onTimeout()` when `work` has not settled in time; `work` may keep running, but
+// its eventual outcome is ignored.
+const withDeadline = <T>(work: Promise<T>, ms: number, onTimeout: () => T): Promise<T> => {
+  work.catch(() => undefined);
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(onTimeout()), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+};
+
 // One probe at a time per user, service and declaration, within the global concurrency cap.
 const startProbe = (
   user: ReadinessUser,
@@ -404,14 +436,16 @@ const startProbe = (
   if (running) return running;
   const generation = () => generationOf(user.username, serverName);
   const started = (async () => {
-    const context: { generation: () => number; at?: number } = { generation };
     const begun = generation();
     try {
       const value = await withProbeSlot(() =>
-        probe(user, serverName, definition, readiness, deps, context),
+        withDeadline(probe(user, serverName, definition, readiness, deps), deps.deadlineMs, () => {
+          note(serverName, 'timeout');
+          return unknownResult(deps.now());
+        }),
       );
       // The credential changed while the probe ran: its answer is about the old one.
-      if ((context.at ?? begun) === generation()) {
+      if (begun === generation()) {
         const failed = value.state === 'unknown' || value.state === 'revoked';
         const fetchedAt = deps.now();
         remember(key, {
@@ -440,7 +474,7 @@ export const getServiceReadinessBounded = async (
   user: ReadinessUser,
   serverName: string,
   definition: ServerConfig,
-  options: { waitMs?: number; deps?: Partial<ReadinessDeps> } = {},
+  options: { waitMs?: number; refresh?: boolean; deps?: Partial<ReadinessDeps> } = {},
 ): Promise<ServiceReadiness | null> => {
   if (!definition.readiness) return null;
   const now = (options.deps?.now ?? Date.now)();
@@ -450,7 +484,10 @@ export const getServiceReadinessBounded = async (
   });
   try {
     return await Promise.race([
-      getServiceReadiness(user, serverName, definition, { deps: options.deps }),
+      getServiceReadiness(user, serverName, definition, {
+        refresh: options.refresh,
+        deps: options.deps,
+      }),
       slow,
     ]);
   } catch {

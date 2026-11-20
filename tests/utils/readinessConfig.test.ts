@@ -175,6 +175,53 @@ describe('readinessServerProblem for OpenAPI servers (no top-level url)', () => 
   });
 });
 
+describe('${VAR} placeholders in the origin', () => {
+  const personal = { oauth: { identityMode: 'personal' } };
+
+  it('rejects a placeholder in the scheme, host or port of the server url at save time', () => {
+    for (const url of [
+      'https://${HOST}/mcp',
+      'https://svc.${DOMAIN}/mcp',
+      'https://svc.example.com:${PORT}/mcp',
+      '${BASE}/mcp',
+    ]) {
+      expect(
+        readinessServerProblem({ url: 'https://svc.example.com/ready', auth: 'oauth' }, {
+          ...personal,
+          url,
+        } as never),
+      ).toMatch(/placeholder|same origin/);
+    }
+  });
+
+  it('names the placeholder as the reason when host and readiness url look identical', () => {
+    expect(
+      readinessServerProblem({ url: 'https://${HOST}/ready', auth: 'oauth' }, {
+        ...personal,
+        url: 'https://${HOST}/mcp',
+      } as never),
+    ).toMatch(/placeholder/);
+  });
+
+  it('allows a placeholder in the path or query', () => {
+    expect(
+      readinessServerProblem({ url: 'https://svc.example.com/ready', auth: 'oauth' }, {
+        ...personal,
+        url: 'https://svc.example.com/${TENANT}/mcp?k=${KEY}',
+      } as never),
+    ).toBeNull();
+  });
+
+  it('rejects a placeholder in the readiness url authority', () => {
+    expect(() => normalizeReadiness({ url: 'https://${HOST}/ready', auth: 'oauth' })).toThrow(
+      ServerConfigValidationError,
+    );
+    expect(
+      normalizeReadiness({ url: 'https://svc.example.com/${X}', auth: 'oauth' }),
+    ).toBeDefined();
+  });
+});
+
 describe('server config persistence', () => {
   const base = { type: 'streamable-http' as const, url: 'https://example.com/mcp' };
 
