@@ -447,7 +447,8 @@
     "inactive": "Inactive",
     "viewAll": "View all",
     "docs": "Docs",
-    "all": "All"
+    "all": "All",
+    "edit": "Edit"
   },
   "clientConfig": {
     "title": "Copy MCP configuration",
@@ -1028,7 +1029,6 @@
     },
     "resetBearerKey": "Reset Bearer key",
     "resetBearerKeyConfirm": "Reset this Bearer key? The old token will stop working immediately. Permissions and enabled status will stay the same.",
-    "resetBearerKeySuccess": "Bearer key reset. Copy and save the new token before closing; it will not be shown again.",
     "resetBearerKeyError": "Failed to reset Bearer key",
     "allowRegistration": "Allow self-registration",
     "allowRegistrationDescription": "Allow visitors to create regular accounts from the login page. Disabled by default; unavailable while password login is disabled.",
@@ -1094,7 +1094,6 @@
     "bearerKeySelectOwner": "Select user...",
     "bearerKeyPersonalScopeHint": "Personal keys inherit your permissions. Specific groups also restrict the key to group endpoints, including group smart routing; global and direct-server endpoints are denied.",
     "bearerKeyAccessUserVisibility": "User visibility",
-    "bearerKeyShownOnce": "Copy this token now. It will not be shown again.",
     "deleteBearerKeyConfirm": "Are you sure you want to delete this key?",
     "generate": "Generate",
     "selectGroups": "Select Groups",
@@ -1376,7 +1375,9 @@
       "confirmClear": "Remove all policies? Access will fall back to existing permissions.",
       "deleteRule": "Delete rule {{number}}",
       "retry": "Retry"
-    }
+    },
+    "authenticationSection": "Authentication",
+    "authenticationSectionDescription": "Bearer authentication for MCP requests, and the API keys of every user, including system-level keys."
   },
   "mcpb": {
     "upload": "Upload",
@@ -2184,5 +2185,18 @@
       "apps": "Authorized apps"
     },
     "tabsLabel": "Account settings sections"
+  },
+  "apiKeys": {
+    "subtitle": "Create keys that let clients and scripts call MCPHub as you. Each key inherits your permissions.",
+    "adminHint": "This page lists your own keys. System-level keys, other users' keys and bearer authentication are managed under",
+    "namePlaceholder": "e.g. My API key"
+  },
+  "tokenReveal": {
+    "title": "API key created — {{name}}",
+    "titleReset": "API key reset — {{name}}",
+    "warning": "Copy this token now. It is shown only once and cannot be retrieved later.",
+    "acknowledge": "I have copied and stored this token",
+    "done": "Done",
+    "copyFailedManual": "Copying failed. Select the token and copy it manually."
   }
 }

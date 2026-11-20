@@ -449,7 +449,8 @@
     "inactive": "未激活",
     "viewAll": "查看全部",
     "docs": "文档",
-    "all": "全部"
+    "all": "全部",
+    "edit": "编辑"
   },
   "clientConfig": {
     "title": "复制 MCP 配置",
@@ -1030,7 +1031,6 @@
     },
     "resetBearerKey": "重置 Bearer key",
     "resetBearerKeyConfirm": "确认重置此 Bearer key？原 token 将立即失效，权限和启用状态保持不变。",
-    "resetBearerKeySuccess": "Bearer key 已重置。请在关闭前复制并保存新 token，之后将不再显示。",
     "resetBearerKeyError": "重置 Bearer key 失败",
     "allowRegistration": "允许自助注册",
     "allowRegistrationDescription": "允许访客从登录页创建普通账号。默认关闭；禁用密码登录时不可用。",
@@ -1096,7 +1096,6 @@
     "bearerKeySelectOwner": "请选择用户...",
     "bearerKeyPersonalScopeHint": "个人密钥继承所属用户的权限。选择特定分组后，仅可访问这些分组的端点（含分组智能路由），全局及服务器直连端点将被拒绝。",
     "bearerKeyAccessUserVisibility": "继承用户可见性",
-    "bearerKeyShownOnce": "请立即复制此密钥，之后将不再显示。",
     "deleteBearerKeyConfirm": "确定要删除这条密钥吗？",
     "generate": "生成",
     "selectGroups": "选择分组",
@@ -1379,7 +1378,9 @@
       "confirmClear": "删除全部策略？访问将恢复为现有权限控制。",
       "deleteRule": "删除规则 {{number}}",
       "retry": "重试"
-    }
+    },
+    "authenticationSection": "身份验证",
+    "authenticationSectionDescription": "MCP 请求的 Bearer 身份验证，以及所有用户的 API 密钥（含系统级密钥）。"
   },
   "mcpb": {
     "upload": "上传",
@@ -2180,5 +2181,18 @@
       "apps": "已授权应用"
     },
     "tabsLabel": "账户设置分区"
+  },
+  "apiKeys": {
+    "subtitle": "创建密钥，让客户端和脚本以你的身份调用 MCPHub。每个密钥都继承你的权限。",
+    "adminHint": "此页面只列出你自己的密钥。系统级密钥、其他用户的密钥和 Bearer 身份验证请在以下位置管理：",
+    "namePlaceholder": "例如：我的 API 密钥"
+  },
+  "tokenReveal": {
+    "title": "API 密钥已创建 — {{name}}",
+    "titleReset": "API 密钥已重置 — {{name}}",
+    "warning": "请立即复制此令牌。它只显示一次，之后无法再次获取。",
+    "acknowledge": "我已复制并妥善保存此令牌",
+    "done": "完成",
+    "copyFailedManual": "复制失败。请选中令牌后手动复制。"
   }
 }

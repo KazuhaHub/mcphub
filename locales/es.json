@@ -442,7 +442,8 @@
     "inactive": "Inactivo",
     "viewAll": "Ver todo",
     "docs": "Documentación",
-    "all": "Todos"
+    "all": "Todos",
+    "edit": "Editar"
   },
   "clientConfig": {
     "title": "Copiar configuración MCP",
@@ -1022,7 +1023,6 @@
     },
     "resetBearerKey": "Restablecer clave Bearer",
     "resetBearerKeyConfirm": "¿Restablecer esta clave Bearer? El token anterior dejará de funcionar inmediatamente. Los permisos y el estado no cambiarán.",
-    "resetBearerKeySuccess": "Clave restablecida. Copia y guarda el nuevo token antes de cerrar; no volverá a mostrarse.",
     "resetBearerKeyError": "No se pudo restablecer la clave Bearer",
     "allowRegistration": "Permitir el registro público",
     "allowRegistrationDescription": "Permite crear cuentas normales desde la página de inicio de sesión. Desactivado por defecto; no disponible si se desactiva el acceso con contraseña.",
@@ -1088,7 +1088,6 @@
     "bearerKeySelectOwner": "Seleccionar usuario...",
     "bearerKeyPersonalScopeHint": "Las claves personales heredan tus permisos. Los grupos específicos limitan la clave a sus endpoints, incluido el enrutamiento inteligente; se deniegan los endpoints globales y directos de servidor.",
     "bearerKeyAccessUserVisibility": "Visibilidad de usuario",
-    "bearerKeyShownOnce": "Copia este token ahora. No se volverá a mostrar.",
     "deleteBearerKeyConfirm": "¿Seguro que quieres eliminar esta clave?",
     "generate": "Generar",
     "selectGroups": "Seleccionar grupos",
@@ -1368,7 +1367,9 @@
       "confirmClear": "¿Eliminar todas las políticas? Se aplicarán los permisos existentes.",
       "deleteRule": "Eliminar regla {{number}}",
       "retry": "Reintentar"
-    }
+    },
+    "authenticationSection": "Autenticación",
+    "authenticationSectionDescription": "Autenticación Bearer para las solicitudes MCP y las claves de API de todos los usuarios, incluidas las claves de nivel de sistema."
   },
   "mcpb": {
     "upload": "Subir",
@@ -2128,5 +2129,18 @@
       "apps": "Aplicaciones autorizadas"
     },
     "tabsLabel": "Secciones de los ajustes de la cuenta"
+  },
+  "apiKeys": {
+    "subtitle": "Crea claves para que clientes y scripts llamen a MCPHub en tu nombre. Cada clave hereda tus permisos.",
+    "adminHint": "Esta página muestra tus propias claves. Las claves de nivel de sistema, las de otros usuarios y la autenticación Bearer se gestionan en",
+    "namePlaceholder": "p. ej. Mi clave de API"
+  },
+  "tokenReveal": {
+    "title": "Clave de API creada — {{name}}",
+    "titleReset": "Clave de API restablecida — {{name}}",
+    "warning": "Copia este token ahora. Solo se muestra una vez y no se podrá recuperar después.",
+    "acknowledge": "He copiado y guardado este token",
+    "done": "Hecho",
+    "copyFailedManual": "No se pudo copiar. Selecciona el token y cópialo manualmente."
   }
 }
