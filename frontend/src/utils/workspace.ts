@@ -247,6 +247,10 @@ export const findCredentialBinding = (
 /** Whether the service is in the user's list; the full list on data from an older server. */
 export const isAdded = (server: Pick<WorkspaceServer, 'added'>): boolean => server.added !== false;
 
+/** Whether the user could add it: an administrator-disabled service is not on offer. */
+const isAddable = (server: WorkspaceServer): boolean =>
+  !isAdded(server) && server.enabled !== false;
+
 /** Services the user has not added yet that match the search (name, description, tags). */
 export const searchCatalog = (
   servers: readonly WorkspaceServer[],
@@ -254,7 +258,7 @@ export const searchCatalog = (
 ): WorkspaceServer[] => {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   return servers.filter((server) => {
-    if (isAdded(server)) return false;
+    if (!isAddable(server)) return false;
     const haystack = [server.name, server.description ?? '', ...(server.tags ?? [])]
       .join(' ')
       .toLowerCase();
@@ -269,7 +273,7 @@ export const summarizeServices = (servers: readonly WorkspaceServer[]) => {
     added: added.length,
     on: added.filter((server) => server.selected).length,
     // Services the user could still add.
-    available: servers.length - added.length,
+    available: servers.filter(isAddable).length,
   };
 };
 
@@ -395,6 +399,8 @@ export class WorkspaceApiError extends Error {
   constructor(
     message: string,
     readonly disabled: boolean,
+    // HTTP status when the server refused the request.
+    readonly status?: number,
   ) {
     super(message);
     this.name = 'WorkspaceApiError';

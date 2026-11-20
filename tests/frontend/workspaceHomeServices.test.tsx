@@ -20,6 +20,7 @@ import {
   attentionItems,
   searchCatalog,
   summarizeServices,
+  WorkspaceApiError,
 } from '../../frontend/src/utils/workspace';
 
 jest.mock('react-i18next', () => ({
@@ -168,6 +169,13 @@ describe('the helpers', () => {
     expect(searchCatalog(servers, 'ubc login').map((s) => s.name)).toEqual(['ubc-personal']);
     expect(searchCatalog(servers, 'campus')).toEqual([]);
     expect(searchCatalog(servers, 'zzz')).toEqual([]);
+  });
+
+  it('never offer an administrator-disabled service that is not added', () => {
+    const off = { ...servers.find((s) => !s.added)!, name: 'off-tool', enabled: false };
+    const list = [...servers, off];
+    expect(summarizeServices(list).available).toBe(2);
+    expect(searchCatalog(list, '').map((s) => s.name)).not.toContain('off-tool');
   });
 
   it('flag only added, switched-on services that need action', () => {
@@ -354,6 +362,22 @@ describe('the Services page', () => {
         ),
       );
       expect(screen.queryByTestId('workspace-service-ubc-personal')).toBeNull();
+    });
+
+    it('shows the server message on a 409 and drops the service the list no longer offers', async () => {
+      const message = "'ubc-personal' is paused by an administrator and cannot be added.";
+      mockMembership.mockImplementationOnce(async () => {
+        servers = servers.filter((server) => server.name !== 'ubc-personal');
+        throw new WorkspaceApiError(message, false, 409);
+      });
+      const dialog = await open();
+      fireEvent.click(within(dialog).getByTestId('catalog-add-ubc-personal'));
+      await waitFor(() => expect(mockToast).toHaveBeenCalledWith(message, 'error'));
+      await waitFor(() => expect(screen.queryByTestId('catalog-add-ubc-personal')).toBeNull());
+      expect(mockToast).not.toHaveBeenCalledWith(
+        'workspacePage.catalog.addFailed:ubc-personal',
+        'error',
+      );
     });
 
     it('closes with Escape', async () => {

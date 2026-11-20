@@ -262,24 +262,6 @@ describe('workspace API', () => {
           status: { code: 'available', action: null, message: expect.any(String) },
         },
         {
-          name: 'alice-tool',
-          added: false,
-          tags: [],
-          selected: false,
-          enabled: false,
-          toolCount: 0,
-          riskCeiling: 'read',
-          riskCeilingIsDefault: true,
-          riskCounts: { read: 0, write: 0, external: 3 },
-          maxAllowedRisk: 'external',
-          annotationsTrusted: false,
-          requiresPersonalCredential: false,
-          hasCredentialSlots: false,
-          credentialConfigured: true,
-          readiness: null,
-          status: { code: 'not_selected', action: 'select', message: expect.any(String) },
-        },
-        {
           name: 'needs-key',
           added: false,
           tags: [],
@@ -404,13 +386,13 @@ describe('workspace API', () => {
       });
     });
 
-    it('shows an admin every server, as the dashboard does', async () => {
+    it('shows an admin every server, except disabled ones they have not added', async () => {
       const response = await request(app)
         .get('/api/workspace/servers')
         .set('x-test-user', asUser('root', true))
         .expect(200);
 
-      expect(response.body.data).toHaveLength(4);
+      expect(response.body.data).toHaveLength(3);
     });
   });
 
@@ -500,6 +482,14 @@ describe('workspace API', () => {
       'does not probe a service that is %s: the hub status takes precedence',
       async (_label, extra) => {
         withReadiness(extra);
+        // A disabled service only stays listed for a user who has added it.
+        selectionRows.push({
+          username: 'alice',
+          serverName: 'canvas',
+          added: true,
+          selected: true,
+          updatedAt: 'x',
+        });
         mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });
         expect((await item()).readiness).toBeNull();
         expect(mockReadinessBounded).not.toHaveBeenCalled();
@@ -650,6 +640,20 @@ describe('workspace API', () => {
     });
 
     it('reports an unselected server as not_selected whatever else is wrong with it', async () => {
+      expect((await statusOf())['needs-key']).toMatchObject({
+        code: 'not_selected',
+        action: 'select',
+      });
+    });
+
+    it('keeps not_selected over paused for a disabled service the user added but switched off', async () => {
+      selectionRows.push({
+        username: 'alice',
+        serverName: 'alice-tool',
+        added: true,
+        selected: false,
+        updatedAt: '2026-01-01',
+      });
       expect((await statusOf())['alice-tool']).toMatchObject({
         code: 'not_selected',
         action: 'select',
@@ -782,7 +786,7 @@ describe('workspace API', () => {
         endpointState: 'empty',
         counts: {
           available: 0,
-          not_selected: 3,
+          not_selected: 2,
           paused: 0,
           maintenance: 0,
           needs_auth: 0,
@@ -797,7 +801,7 @@ describe('workspace API', () => {
       select('alice', 'public-tool');
       expect(await summary()).toMatchObject({
         endpointState: 'normal',
-        counts: { available: 1, not_selected: 2 },
+        counts: { available: 1, not_selected: 1 },
       });
     });
 
@@ -805,7 +809,7 @@ describe('workspace API', () => {
       select('alice', 'public-tool', 'needs-key');
       expect(await summary()).toMatchObject({
         endpointState: 'partial',
-        counts: { available: 1, needs_auth: 1, not_selected: 1 },
+        counts: { available: 1, needs_auth: 1 },
       });
     });
 
@@ -1331,6 +1335,94 @@ describe('services list (added and enabled)', () => {
       .send({ added: 'yes' })
       .expect(400);
     expect(selectionRows).toEqual([]);
+  });
+
+  describe('a service an administrator disabled', () => {
+    beforeEach(() => {
+      servers = [
+        { name: 'public-tool', owner: 'admin', visibility: 'public' },
+        { name: 'off-tool', owner: 'admin', visibility: 'public', enabled: false },
+      ];
+    });
+    const names = async (headers: Record<string, string>) =>
+      (await request(app).get('/api/workspace/servers').set(headers).expect(200)).body.data.map(
+        (entry: { name: string }) => entry.name,
+      );
+
+    it('is not listed for a user who has not added it, admins included', async () => {
+      expect(await names(alice)).toEqual(['public-tool']);
+      expect(await names(root)).toEqual(['public-tool']);
+      const summary = await request(app).get('/api/workspace/summary').set(alice).expect(200);
+      expect(summary.body.data.counts.paused ?? 0).toBe(0);
+    });
+
+    it('stays listed as paused for a user who already added it', async () => {
+      selectionRows.push({
+        username: 'alice',
+        serverName: 'off-tool',
+        added: true,
+        selected: true,
+        updatedAt: 'x',
+      });
+      const body = (await request(app).get('/api/workspace/servers').set(alice).expect(200)).body;
+      const entry = body.data.find((item: any) => item.name === 'off-tool');
+      expect(entry).toMatchObject({ added: true, enabled: false, status: { code: 'paused' } });
+      expect(await names(root)).toEqual(['public-tool']);
+    });
+
+    it('cannot be added: 409, and nothing is stored', async () => {
+      const res = await request(app)
+        .put('/api/workspace/servers/off-tool/membership')
+        .set(alice)
+        .send({ added: true })
+        .expect(409);
+      expect(res.body.message).toContain('off-tool');
+      expect(selectionRows).toEqual([]);
+      expect(mockNotifyUserListsChanged).not.toHaveBeenCalled();
+    });
+
+    it('cannot be switched on to add it: 409, and nothing is stored', async () => {
+      await request(app)
+        .put('/api/workspace/servers/off-tool/selection')
+        .set(alice)
+        .send({ selected: true })
+        .expect(409);
+      expect(selectionRows).toEqual([]);
+    });
+
+    it('can still be removed, and switched off or on while it is in the list', async () => {
+      selectionRows.push({
+        username: 'alice',
+        serverName: 'off-tool',
+        added: true,
+        selected: true,
+        updatedAt: 'x',
+      });
+      await request(app)
+        .put('/api/workspace/servers/off-tool/selection')
+        .set(alice)
+        .send({ selected: false })
+        .expect(200);
+      await request(app)
+        .put('/api/workspace/servers/off-tool/selection')
+        .set(alice)
+        .send({ selected: true })
+        .expect(200);
+      await request(app)
+        .put('/api/workspace/servers/off-tool/membership')
+        .set(alice)
+        .send({ added: false })
+        .expect(200);
+      expect(row('alice', 'off-tool')).toMatchObject({ added: false, selected: false });
+    });
+
+    it('can be removed by a user whose list never recorded it', async () => {
+      await request(app)
+        .put('/api/workspace/servers/off-tool/membership')
+        .set(alice)
+        .send({ added: false })
+        .expect(200);
+    });
   });
 
   describe('administrator managing a user', () => {

@@ -1798,6 +1798,7 @@
     "showingOwn": "Your own credentials"
   },
   "workspace": {
+    "cannotAddDisabled": "'{{serverName}}' đã bị quản trị viên tạm dừng nên không thể thêm.",
     "status": {
       "available": "'{{serverName}}' đang khả dụng.",
       "not_selected": "'{{serverName}}' không nằm trong không gian làm việc của bạn. Hãy chọn nó trong không gian làm việc của bạn để sử dụng.",

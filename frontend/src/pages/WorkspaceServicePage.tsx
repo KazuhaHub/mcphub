@@ -327,7 +327,7 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
               disabled={busy}
               onClick={() => void toggle(server.name, !server.selected)}
             />
-          ) : (
+          ) : server.enabled ? (
             <button
               type="button"
               className="hub-btn primary ml-auto"
@@ -337,7 +337,7 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
             >
               <Plus size={13} /> {t('workspacePage.catalog.addToMine')}
             </button>
-          )}
+          ) : null}
         </div>
         {server.description && <Description text={server.description} />}
       </header>

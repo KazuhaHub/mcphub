@@ -1795,6 +1795,7 @@
     "showingOwn": "Your own credentials"
   },
   "workspace": {
+    "cannotAddDisabled": "'{{serverName}}' bir yönetici tarafından duraklatıldı ve eklenemez.",
     "status": {
       "available": "{{serverName}} kullanılabilir.",
       "not_selected": "{{serverName}} çalışma alanınızda değil. Kullanmak için çalışma alanınızdan seçin.",
