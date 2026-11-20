@@ -31,7 +31,7 @@ export const stripNullishDeep = (value: unknown): unknown =>
 
 // Fields baked into the live MCP client/transport at connect time. Editing any
 // of these requires tearing down and re-establishing the runtime. Everything
-// else in ServerConfig (description, manageUrl, owner, visibility, sharedWithUsers,
+// else in ServerConfig (description, manageUrl, readiness, owner, visibility, sharedWithUsers,
 // `enabled`, and the tools/prompts/resources per-item overrides) is read-time
 // or access metadata that can be applied without a reconnect.
 export const CONNECTION_RELEVANT_CONFIG_FIELDS = [

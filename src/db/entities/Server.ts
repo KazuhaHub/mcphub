@@ -33,6 +33,9 @@ export class Server {
   @Column({ type: 'text', nullable: true })
   manageUrl?: string;
 
+  @Column({ type: 'simple-json', nullable: true })
+  readiness?: { url: string; auth: 'oauth' | { credential: string } };
+
   @Column({ type: 'text', nullable: true })
   url?: string;
 

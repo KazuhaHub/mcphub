@@ -107,6 +107,43 @@ describe('template export of the management page link', () => {
   });
 });
 
+describe('template export of the readiness declaration', () => {
+  it('copies readiness into the exported server config', async () => {
+    mockServerDao.findAll.mockResolvedValue([
+      {
+        name: 'canvas',
+        owner: 'admin',
+        visibility: 'public',
+        enabled: true,
+        url: 'http://d',
+        readiness: { url: 'https://d.example.com/ready', auth: { credential: 'TOKEN' } },
+      },
+      { name: 'plain', owner: 'admin', visibility: 'public', enabled: true, url: 'http://e' },
+    ]);
+    mockGroupDao.findAll.mockResolvedValue([
+      {
+        id: 'g-ready',
+        name: 'Ready',
+        description: '',
+        owner: 'admin',
+        visibility: 'public',
+        servers: [
+          { name: 'canvas', tools: 'all', prompts: 'all', resources: 'all' },
+          { name: 'plain', tools: 'all', prompts: 'all', resources: 'all' },
+        ],
+      },
+    ]);
+
+    const tpl = await exportTemplate({ name: 't', requestingUser: admin });
+
+    expect(tpl.servers.canvas.readiness).toEqual({
+      url: 'https://d.example.com/ready',
+      auth: { credential: 'TOKEN' },
+    });
+    expect(tpl.servers.plain).not.toHaveProperty('readiness');
+  });
+});
+
 describe('template export ownership filtering (GHSA-p589)', () => {
   it('non-admin full export excludes other users’ private servers and groups', async () => {
     const tpl = await exportTemplate({ name: 't', requestingUser: alice });

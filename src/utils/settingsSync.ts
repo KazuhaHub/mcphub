@@ -60,6 +60,8 @@ const declarationSchema = z.object({
           headers: z.record(z.string(), z.string()).optional(),
           description: z.string().optional(),
           manageUrl: z.string().optional(),
+          // Validated while normalizing, where an invalid value is dropped with a warning.
+          readiness: z.unknown().optional(),
           icon: z.string().optional(),
           tags: z.array(z.string()).optional(),
           owner: z.string().optional(),
@@ -182,6 +184,45 @@ export const resolveSyncedServerId = (
 };
 
 /** Startup-only reconciliation. Never use loadOriginalSettings: it can write defaults. */
+/**
+ * Normalizes one declared server. A readiness declaration is an optional addition (a hand-edited
+ * or older file may carry an invalid one), so it is dropped with a warning rather than
+ * aborting the whole sync; any other problem still fails.
+ */
+export const normalizeDeclaredServer = (
+  serverName: string,
+  declared: ServerConfig,
+): ServerConfig => {
+  try {
+    return normalizeServerConfigForPersistence(declared);
+  } catch (error) {
+    if (!Object.prototype.hasOwnProperty.call(declared, 'readiness')) throw error;
+    const { readiness: _readiness, ...withoutReadiness } = declared;
+    const normalized = normalizeServerConfigForPersistence(withoutReadiness);
+    logger.warn('Ignoring an invalid readiness declaration in settings', {
+      serverName,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return normalized;
+  }
+};
+
+/**
+ * Normalizes a stored row for comparison with the declaration. Runtime admin state is left out,
+ * and a stored readiness that no longer validates (the server url moved since it was saved) is
+ * dropped with a warning instead of aborting the sync.
+ */
+export const normalizeStoredServer = (serverName: string, stored: ServerConfig): ServerConfig =>
+  normalizeDeclaredServer(serverName, {
+    ...stored,
+    pausedUsers: undefined,
+    maintenance: undefined,
+    maxToolRisk: undefined,
+    toolRiskOverrides: undefined,
+    defaultUserRisk: undefined,
+    credentialWriteClients: undefined,
+  });
+
 export async function syncSettingsToDatabase(): Promise<void> {
   const mode = process.env.MCPHUB_SETTINGS_SYNC;
   if (!mode) return;
@@ -210,7 +251,7 @@ export async function syncSettingsToDatabase(): Promise<void> {
         credentialWriteClients: _credentialWriteClients,
         ...declared
       } = input as ServerConfig;
-      const config = normalizeServerConfigForPersistence(declared);
+      const config = normalizeDeclaredServer(serverName, declared);
       if (
         !config.type ||
         (config.type === 'stdio' && !config.command) ||
@@ -263,15 +304,7 @@ export async function syncSettingsToDatabase(): Promise<void> {
       const hash = await fingerprintDeclaration(signature, existing?.settingsSyncHash);
       const sameTarget =
         existing &&
-        normalizeServerConfigForPersistence({
-          ...(existing as ServerConfig),
-          pausedUsers: undefined,
-          maintenance: undefined,
-          maxToolRisk: undefined,
-          toolRiskOverrides: undefined,
-          defaultUserRisk: undefined,
-          credentialWriteClients: undefined,
-        }).type === config.type &&
+        normalizeStoredServer(serverName, existing as ServerConfig).type === config.type &&
         existing.url === config.url &&
         (existing.owner ?? null) === (config.owner ?? null);
       const declaredOAuthMatches = Object.entries(config.oauth ?? {}).every(([key, value]) =>

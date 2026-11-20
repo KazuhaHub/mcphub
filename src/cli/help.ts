@@ -63,6 +63,7 @@ Subcommands:
   add <name> --from-file <path>    add a server from a JSON file
   add <name> --type stdio --command <cmd> [--arg <a> ...] [--env K=V ...]
       [--description <d>] [--manage-url <https-url>]
+      [--readiness-url <https-url> --readiness-auth <oauth|credential:SLOT>]
   remove <name>                    delete a server
   toggle <name> [--on|--off]       enable/disable a server
   reload <name>                    reconnect a server

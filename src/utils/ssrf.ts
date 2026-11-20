@@ -285,8 +285,9 @@ export function createRedirectValidatingFetch(
   lookup: SsrfLookup = defaultLookup,
   allowedCidrs?: string[],
   serverId?: string,
+  // 0 follows nothing: a redirect is an error, after the first hop's target was validated.
+  maxHops = 5,
 ): FetchLike {
-  const maxHops = 5;
   const dispatcher = allowInternal
     ? undefined
     : !serverId && lookup === defaultLookup && allowedCidrs === undefined

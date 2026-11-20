@@ -351,6 +351,22 @@
       "read": "Solo lectura (predeterminado)",
       "write": "Lectura y cambios en los datos propios del usuario",
       "external": "Todo lo que permite el máximo"
+    },
+    "readiness": {
+      "label": "Comprobación de disponibilidad",
+      "urlPlaceholder": "https://service.example.com/readiness",
+      "auth": "Inicio de sesión de la comprobación",
+      "authOAuth": "Token OAuth personal",
+      "authSlot": "Credencial: {{name}}",
+      "hint": "Opcional. El hub pregunta a esta URL https si la configuración de cada usuario funciona y muestra la respuesta en su espacio de trabajo. Envía el token del propio usuario; consulta Service Readiness en la documentación.",
+      "invalid": {
+        "tooLong": "La URL de comprobación es demasiado larga.",
+        "invalid": "La URL de comprobación debe ser una URL absoluta.",
+        "scheme": "La URL de comprobación debe usar https.",
+        "credentials": "La URL de comprobación no debe incluir usuario ni contraseña.",
+        "authRequired": "Elige cómo inicia sesión el hub en la URL de comprobación.",
+        "slotMissing": "La credencial elegida no es uno de los campos de credencial de este servidor."
+      }
     }
   },
   "status": {
@@ -2013,6 +2029,30 @@
         "updateCredentials": "Update credentials"
       },
       "tabsLabel": "Sections of {{name}}"
+    },
+    "readiness": {
+      "state": {
+        "ready": "Listo para usar",
+        "needs_setup": "Requiere configuración",
+        "degraded": "Funciona en parte",
+        "expiring": "Caduca pronto",
+        "expired": "Caducado",
+        "revoked": "Acceso revocado",
+        "unknown": "Estado no disponible"
+      },
+      "text": {
+        "needs_setup": "Este servicio necesita un paso de configuración más para funcionar.",
+        "degraded": "Este servicio funciona solo en parte o con datos desactualizados.",
+        "expiring": "Tu configuración funciona ahora, pero está a punto de caducar.",
+        "expired": "Tu configuración ha caducado.",
+        "revoked": "Este servicio rechazó tu inicio de sesión. Inicia sesión de nuevo o vuelve a conectarlo.",
+        "unknown": "No se pudo comprobar el estado ahora. Prueba con Volver a comprobar."
+      },
+      "expiresAt": "Caduca el {{date}}",
+      "expiredAt": "Caducó el {{date}}",
+      "recheck": "Volver a comprobar",
+      "rechecking": "Comprobando…",
+      "recheckFailed": "No se pudo volver a comprobar este servicio. Inténtalo de nuevo."
     }
   },
   "serviceLink": {

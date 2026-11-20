@@ -1,6 +1,7 @@
 import type { ServerConfig } from '../types/index.js';
 import { canonicalJson } from './canonicalJson.js';
 import { credentialSlotId } from './credentialTemplate.js';
+import { readinessNeedsFingerprint } from './readinessConfig.js';
 
 // The parts of a server declaration that decide where a stored personal credential value
 // is sent. A binding made against one destination must not be injected into another.
@@ -9,7 +10,7 @@ import { credentialSlotId } from './credentialTemplate.js';
 // except the headers a slot fills; command, args (slot placeholders as written) and env
 // except the variables a slot fills (env can redirect traffic, e.g. HTTPS_PROXY); the
 // proxychains routing; the OpenAPI document and its security declaration; the slots'
-// targets and names.
+// targets and names; and, for a server with no url, the readiness check.
 //
 // Not included: description, visibility, sharing, enabled, tools/prompts/resources
 // settings, request options (timeouts), keep-alive, on-demand and idle settings,
@@ -56,6 +57,9 @@ export const credentialDestinationDeclaration = (config: ServerConfig): unknown 
     env: Object.fromEntries(env),
     proxy: config.proxy,
     openapi,
+    // A server with no origin the readiness URL must share (no url; OpenAPI without a document
+    // url) has the URL as part of where a credential goes. Only present when set: other fingerprints are unchanged.
+    ...(readinessNeedsFingerprint(config) ? { readiness: config.readiness } : {}),
     slots: slots
       .map((slot) =>
         slot.target === 'headers' ? `headers.${slot.name.toLowerCase()}` : credentialSlotId(slot),

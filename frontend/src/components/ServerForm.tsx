@@ -10,6 +10,11 @@ import ServerIconField from './ServerIconField';
 import { getServerTagOptions, normalizeTags } from '../utils/serverTags';
 import { getServerConfigPermissionError } from '../utils/serverPermissions.js';
 import { MANAGE_URL_MAX_LENGTH, getManageUrlSubmitProblem } from '../utils/manageUrl';
+import {
+  READINESS_URL_MAX_LENGTH,
+  getReadinessProblem,
+  readinessToForm,
+} from '../utils/readiness';
 import { X } from 'lucide-react';
 import { Server, EnvVar, ServerFormData, OpenApiToolStats } from '@/types';
 import { apiGet, apiPost } from '../utils/fetchInterceptor';
@@ -152,6 +157,7 @@ const ServerForm = ({
     name: (initialData && initialData.name) || '',
     description: (initialData && initialData.config && initialData.config.description) || '',
     manageUrl: (initialData && initialData.config && initialData.config.manageUrl) || '',
+    ...readinessToForm(initialData?.config?.readiness),
     tags: normalizeTags(initialData?.config?.tags),
     url: (initialData && initialData.config && initialData.config.url) || '',
     command: (initialData && initialData.config && initialData.config.command) || '',
@@ -423,7 +429,7 @@ const ServerForm = ({
     setOpenApiSecurityNotice(null);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
   };
@@ -645,6 +651,17 @@ const ServerForm = ({
       return;
     }
 
+    const readinessProblem = getReadinessProblem(
+      formData.readinessUrl,
+      formData.readinessAuth,
+      (formData.credentialTemplate || []).map((slot) => slot.name),
+      isAdmin,
+    );
+    if (readinessProblem) {
+      setError(t(`server.readiness.invalid.${readinessProblem}`));
+      return;
+    }
+
     try {
       const payload = buildServerPayload({
         formData: formData.oauth?.authorizationRelay
@@ -674,6 +691,7 @@ const ServerForm = ({
       // Only an administrator sets the management page link; leaving the key out keeps it.
       if (!isAdmin) {
         delete payload.config.manageUrl;
+        delete payload.config.readiness;
         delete payload.config.icon;
       }
 
@@ -776,6 +794,48 @@ const ServerForm = ({
                   maxLength={MANAGE_URL_MAX_LENGTH}
                 />
                 <p className="mt-1 text-xs text-[var(--hub-ink-3)]">{t('server.manageUrlHint')}</p>
+              </div>
+            )}
+            {isAdmin && (
+              <div className="md:col-span-2">
+                <label
+                  className="block text-sm font-medium mb-1.5 text-[var(--hub-ink-2)]"
+                  htmlFor="readinessUrl"
+                >
+                  {t('server.readiness.label')}
+                </label>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    inputMode="url"
+                    name="readinessUrl"
+                    id="readinessUrl"
+                    value={formData.readinessUrl || ''}
+                    onChange={handleInputChange}
+                    className="w-full py-2 px-3 form-input"
+                    placeholder={t('server.readiness.urlPlaceholder')}
+                    maxLength={READINESS_URL_MAX_LENGTH}
+                  />
+                  <select
+                    name="readinessAuth"
+                    id="readinessAuth"
+                    aria-label={t('server.readiness.auth')}
+                    value={formData.readinessAuth || 'oauth'}
+                    onChange={handleInputChange}
+                    className="w-full py-2 px-3 form-input md:w-auto"
+                    disabled={!formData.readinessUrl?.trim()}
+                  >
+                    <option value="oauth">{t('server.readiness.authOAuth')}</option>
+                    {(formData.credentialTemplate || [])
+                      .filter((slot) => slot.name)
+                      .map((slot) => (
+                        <option key={`${slot.target}.${slot.name}`} value={`credential:${slot.name}`}>
+                          {t('server.readiness.authSlot', { name: slot.name })}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <p className="mt-1 text-xs text-[var(--hub-ink-3)]">{t('server.readiness.hint')}</p>
               </div>
             )}
             {isAdmin && (

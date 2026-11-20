@@ -24,10 +24,18 @@ import {
   countUserServerStatuses,
   getPersonalAuthState,
   getUserServerStatus,
+  isAdminBlockedForUser,
   resolveEndpointState,
   type PersonalAuthState,
 } from '../services/userServerStatusService.js';
-import type { IUser, ServerConfig, ToolRiskLevel, UserServerStatus } from '../types/index.js';
+import { getServiceReadinessBounded } from '../services/serviceReadinessService.js';
+import type {
+  IUser,
+  ServerConfig,
+  ServiceReadiness,
+  ToolRiskLevel,
+  UserServerStatus,
+} from '../types/index.js';
 import {
   TOOL_RISK_LEVELS,
   getEffectiveToolRisk,
@@ -136,6 +144,41 @@ const loadServerInfo = async (name: string) => {
   return getServerByName(name);
 };
 
+// A re-check waits a little longer than the probe's own deadline, never indefinitely.
+const RECHECK_WAIT_MS = 12_000;
+
+// A readiness answer that cannot be had must not break the page: it reads as `unknown`.
+const unknownReadiness = (): ServiceReadiness => ({
+  state: 'unknown',
+  summary: null,
+  action: null,
+  expiresAt: null,
+  checkedAt: new Date().toISOString(),
+});
+
+// The probe is only worth sending once the user's credential is bound (before that the
+// dashboard already says what is missing) and while the service can be used at all: a disabled
+// service, one in maintenance, or one paused for this user shows the hub's own status instead,
+// which the row and page already put first.
+const shouldProbeReadiness = (
+  user: RequestPrincipal,
+  server: ServerRecord,
+  personalAuth: PersonalAuthState,
+): boolean =>
+  Boolean(server.readiness) &&
+  personalAuth === 'configured' &&
+  server.enabled !== false &&
+  !isAdminBlockedForUser(server, user);
+
+const probeReadiness = (
+  user: RequestPrincipal,
+  server: ServerRecord,
+  personalAuth: PersonalAuthState,
+): Promise<ServiceReadiness | null> =>
+  shouldProbeReadiness(user, server, personalAuth)
+    ? getServiceReadinessBounded(user, server.name, server).catch(unknownReadiness)
+    : Promise.resolve(null);
+
 type WorkspaceServerView = {
   server: ServerRecord;
   // In the user's services list.
@@ -147,12 +190,15 @@ type WorkspaceServerView = {
   riskCeilingIsDefault: boolean;
   personalAuth: PersonalAuthState;
   status: UserServerStatus;
+  // Started with the rest of the work; resolves within a bounded wait. Null when not probed.
+  readiness: Promise<ServiceReadiness | null>;
 };
 
 // One entry per server the user can see, with the state they would meet calling it.
 const buildServerViews = async (
   req: Request,
   user: RequestPrincipal,
+  { withReadiness = false }: { withReadiness?: boolean } = {},
 ): Promise<WorkspaceServerView[]> => {
   await primeAnnotationTrust();
   const { names: selected, added, ceilings } = await getUserSelectionScope(user.username);
@@ -160,6 +206,10 @@ const buildServerViews = async (
   return Promise.all(
     (await listVisibleServers(user)).map(async (server) => {
       const personalAuth = await getPersonalAuthState(user, server.name, server);
+      // Probed in parallel with the status lookup and the tool summary.
+      const readiness = withReadiness
+        ? probeReadiness(user, server, personalAuth)
+        : Promise.resolve(null);
       const status = await getUserServerStatus({
         user,
         subject: {
@@ -184,6 +234,7 @@ const buildServerViews = async (
         riskCeilingIsDefault: !ceilings.has(server.name),
         personalAuth,
         status,
+        readiness,
       };
     }),
   );
@@ -194,7 +245,7 @@ export const listWorkspaceServers = async (req: Request, res: Response): Promise
   if (!user) return;
   try {
     const data = await Promise.all(
-      (await buildServerViews(req, user)).map(
+      (await buildServerViews(req, user, { withReadiness: true })).map(
         async ({
           server,
           added,
@@ -203,6 +254,7 @@ export const listWorkspaceServers = async (req: Request, res: Response): Promise
           riskCeilingIsDefault,
           personalAuth,
           status,
+          readiness,
         }) => {
           const tools = await summarizeTools(server, user, riskCeiling, personalAuth);
           return {
@@ -225,6 +277,7 @@ export const listWorkspaceServers = async (req: Request, res: Response): Promise
             hasCredentialSlots: hasCredentialTemplate(server),
             credentialConfigured: personalAuth === 'not_required' || personalAuth === 'configured',
             status,
+            readiness: await readiness,
           };
         },
       ),
@@ -232,6 +285,31 @@ export const listWorkspaceServers = async (req: Request, res: Response): Promise
     res.json({ success: true, data });
   } catch {
     res.status(500).json({ success: false, message: 'Unable to list workspace servers' });
+  }
+};
+
+// Re-checks one service's readiness now, bypassing the cache (the dashboard's Re-check and its
+// return-to-tab check). Answers like the list does: null when nothing is probed, `unknown`
+// when the probe cannot complete.
+export const checkWorkspaceReadiness = async (req: Request, res: Response): Promise<void> => {
+  const user = requireWorkspaceUser(req, res);
+  if (!user) return;
+  try {
+    const server = (await getServerDao().findById(req.params.name)) as ServerRecord | null;
+    if (!server || !filterVisible([server], user).length) {
+      res.status(404).json({ success: false, message: 'Server not found' });
+      return;
+    }
+    const personalAuth = await getPersonalAuthState(user, server.name, server);
+    const readiness = shouldProbeReadiness(user, server, personalAuth)
+      ? await getServiceReadinessBounded(user, server.name, server, {
+          refresh: true,
+          waitMs: RECHECK_WAIT_MS,
+        }).catch(unknownReadiness)
+      : null;
+    res.json({ success: true, data: { name: server.name, readiness } });
+  } catch {
+    res.status(500).json({ success: false, message: 'Unable to check the service' });
   }
 };
 

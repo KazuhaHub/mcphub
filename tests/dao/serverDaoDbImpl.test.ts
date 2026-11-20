@@ -85,6 +85,40 @@ describe('ServerDaoDbImpl', () => {
     expect(result.passthroughHeaders).toEqual(headers);
   });
 
+  it('should persist and map the readiness field, and clear it on update', async () => {
+    const dao = new ServerDaoDbImpl();
+    const readiness = { url: 'https://example.com/ready', auth: 'oauth' as const };
+
+    mockRepository.create.mockResolvedValue({
+      name: 'canvas',
+      type: 'streamable-http',
+      url: 'https://example.com/mcp',
+      enabled: true,
+      readiness,
+    });
+    const created = await dao.create({
+      name: 'canvas',
+      type: 'streamable-http',
+      url: 'https://example.com/mcp',
+      readiness,
+    });
+    expect(mockRepository.create).toHaveBeenCalledWith(expect.objectContaining({ readiness }));
+    expect(created.readiness).toEqual(readiness);
+
+    mockRepository.update.mockResolvedValue({
+      name: 'canvas',
+      type: 'streamable-http',
+      enabled: true,
+      readiness: null,
+    });
+    const cleared = await dao.update('canvas', { readiness: undefined });
+    expect(mockRepository.update).toHaveBeenCalledWith(
+      'canvas',
+      expect.objectContaining({ readiness: null }),
+    );
+    expect(cleared?.readiness).toBeUndefined();
+  });
+
   it('should persist and map the manageUrl field, and clear it on update', async () => {
     const dao = new ServerDaoDbImpl();
 

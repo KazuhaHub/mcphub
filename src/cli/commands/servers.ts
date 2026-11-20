@@ -77,6 +77,20 @@ async function get(client: ApiClient, args: string[], globals: GlobalFlags): Pro
   printLine(JSON.stringify(res.data, null, 2));
 }
 
+// `--readiness-auth` is `oauth` or `credential:<SLOT_NAME>`; the server validates the rest.
+function readinessFromFlags(url: unknown, auth: unknown): Pick<ServerConfig, 'readiness'> {
+  if (url === undefined && auth === undefined) return {};
+  if (typeof url !== 'string' || typeof auth !== 'string') {
+    throw new CliUsageError('--readiness-url and --readiness-auth must be used together');
+  }
+  if (auth === 'oauth') return { readiness: { url, auth } };
+  const match = /^credential:(.+)$/.exec(auth);
+  if (!match) {
+    throw new CliUsageError('--readiness-auth must be "oauth" or "credential:<SLOT_NAME>"');
+  }
+  return { readiness: { url, auth: { credential: match[1] } } };
+}
+
 async function add(
   client: ApiClient,
   args: string[],
@@ -84,7 +98,16 @@ async function add(
   deps: ServersDeps,
 ): Promise<void> {
   const { positional, flags } = extractFlags(args, {
-    valued: ['--from-file', '--type', '--command', '--url', '--description', '--manage-url'],
+    valued: [
+      '--from-file',
+      '--type',
+      '--command',
+      '--url',
+      '--description',
+      '--manage-url',
+      '--readiness-url',
+      '--readiness-auth',
+    ],
     boolean: ['--enabled', '--disabled'],
   });
   const name = positional[0];
@@ -111,6 +134,7 @@ async function add(
       type: (flags['--type'] as ServerConfig['type']) || 'stdio',
       description: flags['--description'] as string | undefined,
       manageUrl: flags['--manage-url'] as string | undefined,
+      ...readinessFromFlags(flags['--readiness-url'], flags['--readiness-auth']),
       command: flags['--command'] as string | undefined,
       args: argArgs.length > 0 ? argArgs : undefined,
       env: envEntries.length > 0 ? Object.fromEntries(envEntries) : undefined,

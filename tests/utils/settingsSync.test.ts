@@ -1,4 +1,8 @@
-import { resolveSyncedServerId } from '../../src/utils/settingsSync.js';
+import {
+  normalizeDeclaredServer,
+  normalizeStoredServer,
+  resolveSyncedServerId,
+} from '../../src/utils/settingsSync.js';
 import { isLegacyServerId, legacyServerId } from '../../src/utils/serverIdentity.js';
 
 /**
@@ -31,5 +35,71 @@ describe('resolveSyncedServerId', () => {
     expect(resolveSyncedServerId(undefined, '22222222-2222-4222-8222-222222222222', 'remote')).toBe(
       '22222222-2222-4222-8222-222222222222',
     );
+  });
+});
+
+describe('normalizeDeclaredServer', () => {
+  const remote = { type: 'streamable-http' as const, url: 'https://svc.example.com/mcp' };
+
+  it('keeps a valid readiness declaration', () => {
+    const config = normalizeDeclaredServer('svc', {
+      ...remote,
+      oauth: { identityMode: 'personal' },
+      readiness: { url: 'https://svc.example.com/ready', auth: 'oauth' },
+    });
+    expect(config.readiness).toEqual({ url: 'https://svc.example.com/ready', auth: 'oauth' });
+  });
+
+  it.each([
+    { url: 'http://svc.example.com/ready', auth: 'oauth' },
+    { url: 'https://evil.example.org/ready', auth: 'oauth' },
+    'not an object',
+    { url: 5 },
+  ])('drops an invalid readiness %j instead of failing the whole sync', (readiness) => {
+    const config = normalizeDeclaredServer('svc', {
+      ...remote,
+      oauth: { identityMode: 'personal' },
+      readiness: readiness as never,
+    });
+    expect(config.readiness).toBeUndefined();
+    expect(config.url).toBe(remote.url);
+  });
+
+  it('still fails for an error that is not about readiness', () => {
+    expect(() =>
+      normalizeDeclaredServer('svc', {
+        ...remote,
+        tags: 'nope' as never,
+        readiness: { url: 'http://x', auth: 'oauth' },
+      }),
+    ).toThrow();
+  });
+});
+
+describe('normalizeStoredServer', () => {
+  const stored = {
+    type: 'streamable-http' as const,
+    url: 'https://svc.example.com/mcp',
+    pausedUsers: ['bob'],
+    maintenance: { message: 'x' },
+  };
+
+  it('ignores runtime admin state', () => {
+    const config = normalizeStoredServer('svc', stored as never);
+    expect(config.pausedUsers).toBeUndefined();
+    expect(config.maintenance).toBeUndefined();
+    expect(config.type).toBe('streamable-http');
+  });
+
+  it('does not throw for a stored readiness that is no longer valid', () => {
+    // The server url moved to another origin after the row was saved.
+    const config = normalizeStoredServer('svc', {
+      ...stored,
+      url: 'https://moved.example.net/mcp',
+      oauth: { identityMode: 'personal' },
+      readiness: { url: 'https://svc.example.com/ready', auth: 'oauth' },
+    } as never);
+    expect(config.readiness).toBeUndefined();
+    expect(config.url).toBe('https://moved.example.net/mcp');
   });
 });

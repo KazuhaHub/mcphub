@@ -123,6 +123,7 @@ describe('buildServerPayload', () => {
         type: 'openapi',
         description: '',
         manageUrl: '',
+        readiness: null,
         tags: [],
         visibility: 'private',
         options: {},
@@ -178,5 +179,45 @@ describe('buildServerPayload', () => {
   test('sends an empty string to clear a stored management page URL', () => {
     expect(build('   ').config.manageUrl).toBe('');
     expect(build(undefined).config.manageUrl).toBe('');
+  });
+});
+
+describe('buildServerPayload readiness', () => {
+  const form = {
+    name: 'canvas',
+    description: '',
+    url: 'https://canvas.example.com/mcp',
+    command: '',
+    arguments: '',
+    env: [],
+    headers: [],
+    visibility: 'private' as const,
+    options: {},
+    keepAlive: {},
+  };
+  const build = (extra: Record<string, unknown>) =>
+    buildServerPayload({
+      formData: { ...form, ...extra } as never,
+      serverType: 'streamable-http',
+      envVars: [],
+      headerVars: [],
+    });
+
+  test('sends the declaration with its auth', () => {
+    expect(
+      build({ readinessUrl: 'https://canvas.example.com/ready', readinessAuth: 'oauth' }).config
+        .readiness,
+    ).toEqual({ url: 'https://canvas.example.com/ready', auth: 'oauth' });
+    expect(
+      build({
+        readinessUrl: 'https://canvas.example.com/ready',
+        readinessAuth: 'credential:CANVAS_TOKEN',
+      }).config.readiness,
+    ).toEqual({ url: 'https://canvas.example.com/ready', auth: { credential: 'CANVAS_TOKEN' } });
+  });
+
+  test('sends null to clear a stored declaration', () => {
+    expect(build({ readinessUrl: '  ', readinessAuth: 'oauth' }).config.readiness).toBeNull();
+    expect(build({}).config.readiness).toBeNull();
   });
 });

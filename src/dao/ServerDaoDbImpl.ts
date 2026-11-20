@@ -96,6 +96,7 @@ export class ServerDaoDbImpl implements ServerDao {
       type: entity.type,
       description: entity.description,
       manageUrl: entity.manageUrl,
+      readiness: entity.readiness,
       icon: entity.icon,
       tags: entity.tags,
       url: entity.url,
@@ -160,6 +161,7 @@ export class ServerDaoDbImpl implements ServerDao {
     assignNullable('type');
     assignNullable('description');
     assignNullable('manageUrl');
+    assignNullable('readiness');
     assignNullable('icon');
     assignNullable('tags');
     assignNullable('url');
@@ -313,6 +315,7 @@ export class ServerDaoDbImpl implements ServerDao {
     type?: string;
     description?: string;
     manageUrl?: string;
+    readiness?: ServerConfig['readiness'];
     icon?: string;
     tags?: string[];
     url?: string;
@@ -362,6 +365,7 @@ export class ServerDaoDbImpl implements ServerDao {
       type: server.type as 'stdio' | 'sse' | 'streamable-http' | 'openapi' | undefined,
       description: server.description,
       manageUrl: server.manageUrl ?? undefined,
+      readiness: server.readiness ?? undefined,
       icon: server.icon ?? undefined,
       tags: readStoredServerTags(server.name, server.tags),
       url: server.url,

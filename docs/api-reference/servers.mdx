@@ -102,7 +102,7 @@ Adds a new MCP server to the configuration.
     - `passthroughHeaders` (string[]): Inbound HTTP header names that should be forwarded to the upstream server.
     - `tags` (string[]): Labels for organizing the dashboard server list. Metadata only; see [MCP Settings](/configuration/mcp-settings).
     - `icon` (string): Optional image for the server, a base64 `data:` URL (PNG, JPEG, WebP or SVG, up to 256 KB), admin-only to set; send `""` to remove it. Responses return its versioned URL, served by `GET /api/servers/{name}/icon` to users who can see the server. See [MCP Settings](/configuration/mcp-settings).
-    - `oauth`, `proxy`, `options`, `description`, `manageUrl`: Optional advanced settings — see [MCP Settings](/configuration/mcp-settings).
+    - `oauth`, `proxy`, `options`, `description`, `manageUrl`, `readiness`: Optional advanced settings — see [MCP Settings](/configuration/mcp-settings).
 
 ---
 

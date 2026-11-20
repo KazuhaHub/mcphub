@@ -181,10 +181,11 @@ describe('the tool risk control in a service page', () => {
 });
 
 describe('the management link in a service page', () => {
-  it('links to the stable service page in a new tab, labelled with the service name', () => {
+  it('is a button-styled link to the stable service page in a new tab', () => {
     const html = render(server({ manageUrl: 'https://example.com/account/token' }));
     expect(html).toContain('href="/services/notes"');
     expect(html).not.toContain('example.com/account/token');
+    expect(html).toMatch(/<a[^>]*class="hub-btn"/);
     expect(html).toContain('aria-label="workspacePage.actions.manageAccountFor"');
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');

@@ -1,4 +1,5 @@
 import type { EnvVar, ServerConfig, ServerFormData } from '../types';
+import { buildReadinessConfig } from './readiness';
 import { normalizeTags } from './serverTags';
 
 type ServerType = NonNullable<ServerConfig['type']>;
@@ -312,11 +313,14 @@ export const buildServerPayload = ({
   const options = buildOptions(formData.options);
   const description = formData.description?.trim() || '';
   const manageUrl = formData.manageUrl?.trim() || '';
+  // Null clears a stored declaration; the form only offers it to administrators.
+  const readiness = buildReadinessConfig(formData.readinessUrl, formData.readinessAuth);
 
   const config: Partial<ServerConfig> = {
     type: serverType,
     description,
     manageUrl,
+    readiness,
     tags: normalizeTags(formData.tags),
     // Only when the admin picked or removed an image; otherwise the stored icon stays.
     ...(formData.iconEdit !== undefined ? { icon: formData.iconEdit } : {}),

@@ -1,0 +1,118 @@
+---
+title: 'Service Readiness'
+description: 'Show whether a user''s personal service actually works, not only that a credential is bound'
+---
+
+A bound credential does not mean a service works. A user can be signed in to a service through OAuth and still never have saved the second token it needs, or a connector can hold a valid token while its browser companion never uploaded any data. With a **readiness check** configured, the workspace asks the service itself and shows the answer next to the service: **Ready to use**, or what is missing and a button that fixes it.
+
+The service is the only source of truth. MCPHub asks (pull); services never push.
+
+## Configure
+
+An administrator sets `readiness` on a server in the server form (**Readiness check**), through the API, in a template, or with `mcphub servers add --readiness-url <https-url> --readiness-auth <oauth|credential:SLOT>`. Only administrators can set or change it, like `manageUrl`.
+
+```json
+{
+  "mcpServers": {
+    "canvas": {
+      "type": "streamable-http",
+      "url": "https://canvas.mcp.example.com/mcp",
+      "oauth": { "identityMode": "personal" },
+      "readiness": { "url": "https://canvas.mcp.example.com/readiness", "auth": "oauth" }
+    }
+  }
+}
+```
+
+| Field | Description |
+| --- | --- |
+| `readiness.url` | Absolute `https:` URL without embedded credentials, at most 2048 characters. |
+| `readiness.auth` | `"oauth"` sends the user's personal OAuth access token. `{ "credential": "SLOT_NAME" }` sends the user's value of that credential slot; the name must be one of the server's credential slots. |
+
+## Trust model
+
+The probe sends a user's credential only to the readiness URL and never follows a redirect. It connects directly, so it does not use the proxy settings that MCP connections use, and it does not use the `network.allowedCidrs` allowlist of internal ranges: a readiness URL that resolves to a private or loopback address, or that is only reachable through a proxy, ends as `unknown` rather than sending the credential anywhere unexpected.
+
+`readiness.url` must have the **same origin** (`https`, host and port; the path is free) as the place MCPHub already sends that credential:
+
+| Server | Origin the readiness URL must match |
+| --- | --- |
+| Remote MCP (SSE, Streamable HTTP) | the server's `url` |
+| OpenAPI with personal OAuth (`"oauth"`) | `oauth.resource` if set, otherwise the OpenAPI document `openapi.url` |
+| OpenAPI with a credential slot | the OpenAPI document `openapi.url` |
+
+A different host, a subdomain, another port or `http` is rejected when the server is saved (API, dashboard, CLI, template import; settings sync drops an invalid declaration with a warning), and the probe checks it again every time, so a later change of the server's URL makes the check report `unknown` instead of sending the credential elsewhere. Because the credential only ever goes to an origin the user already connected to, no credential binding is invalidated.
+
+- **Servers with no origin** (stdio, or OpenAPI with an inline schema and no `oauth.resource`): there is nothing to compare, so the readiness check becomes part of the credential binding's destination, for credential slots and for personal OAuth. Adding or changing it marks existing bindings as outdated and users must enter their values or sign in again (as changing the server's command would).
+- **`${VAR}` placeholders:** a `${...}` in the scheme, host or port of the server's URL or of `readiness.url` is rejected when the server is saved, because such a text is not a real origin until it is expanded. A placeholder in the path or query is fine. At probe time the server URL is expanded the same way connections expand it, and the expanded value is compared.
+- **`"oauth"`** requires a server with personal OAuth and is rejected otherwise.
+
+## Contract, version 1
+
+### Who calls whom
+
+MCPHub (server side, never the browser) calls `GET <readiness.url>` for one user and one service, only when the service has `readiness` configured and that user's personal credential for the service is configured (OAuth signed in, or the credential slot filled). Without a bound credential the workspace shows no readiness, because the credential itself is what is missing. A disabled service, one in maintenance, and one paused for the user show the hub's own status and are not probed.
+
+### Request
+
+- `GET <readiness.url>` with `Accept: application/json` and `Authorization: Bearer <credential>`.
+  - `readiness.auth = "oauth"`: the user's current OAuth access token for that server, the same token MCPHub uses for tool calls; it is refreshed with the existing machinery if expired.
+  - `readiness.auth = { "credential": "<SLOT_NAME>" }`: the value of that user's credential slot, for example `UBC_CONNECTOR_TOKEN`. A leading `Bearer ` in the stored value is removed, so a header slot that holds a whole `Authorization` value also works. If two slots share a name, the first one declared is used.
+- Timeout 5 seconds, no redirects followed, response body capped at 16 KiB, https only, guarded by MCPHub's SSRF protection (no private or loopback addresses). No cookies and no other user data.
+- The bearer is never logged.
+
+### Response
+
+HTTP 200 with `Content-Type: application/json`:
+
+```json
+{
+  "version": 1,
+  "state": "ready | needs_setup | degraded | expiring | expired | revoked",
+  "summary": "One plain-text sentence for the user, <= 200 chars, optional",
+  "action": { "label": "Set up Canvas token", "url": "https://..." },
+  "expires_at": "2026-12-01T00:00:00Z",
+  "checked_at": "2026-11-19T10:00:00Z"
+}
+```
+
+- `state` meanings:
+  - `ready`: usable now.
+  - `needs_setup`: bound, but a required setup step is missing (no Canvas token; no UBC snapshot ever uploaded).
+  - `degraded`: works partly or with stale data (for example UBC data older than the freshness threshold).
+  - `expiring`: works now but expires soon; `expires_at` is required.
+  - `expired`: was set up, now expired.
+  - `revoked`: the service rejects this user's setup (Canvas refused the token; UBC binding revoked).
+- `action` is optional and its `url` must be https. When the state is not `ready`, the dashboard shows it as the primary button.
+- `summary` is shown as plain text, never as HTML.
+- Never return secrets (tokens, keys) or other users' data.
+- An unknown `state`, an unknown `version`, or extra fields: MCPHub treats an unknown state as `unknown` and ignores extra fields.
+
+### How MCPHub maps failures
+
+These are MCPHub's own answers, not service-defined:
+
+- HTTP 401 or 403 from the readiness URL becomes `revoked` with MCPHub's own "sign in again or reconnect" text (MCPHub's credential was rejected). A credential MCPHub cannot use or refresh gives the same answer.
+- A timeout, network error, 5xx or other non-200 status, a non-JSON or oversized body, or an invalid shape becomes `unknown` ("status could not be checked"). It is never shown as ready.
+
+### Freshness
+
+- The answer is cached per user and service for 5 minutes. A failed check (`unknown` or `revoked`) is remembered for 30 seconds only. When an answer expires, the last one (up to an hour old) is returned at once and refreshed in the background, so only the first check for a user and service waits. At most 16 probes run at once and at most 64 wait; beyond that a check answers `unknown` at once. A whole probe, including resolving or refreshing the token and waiting for the personal OAuth lock, is cut off after 10 seconds as `unknown`; a re-check from the dashboard waits at most 12 seconds. Saving or deleting the user's credential clears the cache for it.
+- The dashboard bypasses the cache on an explicit re-check: when the user returns to the tab after clicking an action or manage link, and with the **Re-check** button (`POST /api/workspace/servers/:name/readiness/check`). Re-checks of one service closer than 3 seconds apart answer from the cache.
+- The workspace list asks in parallel with the rest of its work and waits at most 2 seconds for a probe; a slow or failing call shows as `unknown`, never breaks the list, and delays it by at most 2 seconds. The probe still finishes in the background and fills the cache.
+
+## In the workspace API
+
+Each item of `GET /api/workspace/servers` carries `readiness`, either `null` (no check configured, or the credential is not configured) or:
+
+```json
+{
+  "state": "needs_setup",
+  "summary": "No Canvas token saved",
+  "action": { "label": "Set up Canvas token", "url": "https://canvas.example.com/setup" },
+  "expiresAt": null,
+  "checkedAt": "2026-11-19T10:00:00.000Z"
+}
+```
+
+`state` is one of the contract states or `unknown`. A `null` `summary` means the dashboard shows its own wording for the state.

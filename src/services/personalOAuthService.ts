@@ -18,6 +18,7 @@ import type { OAuthSettingsContext, ServerConfigWithOAuth } from './oauthSetting
 import { isWorkspaceEnabled } from './userServerSelectionService.js';
 import { canonicalJson } from '../utils/canonicalJson.js';
 import { logger } from '../utils/logger.js';
+import { readinessNeedsFingerprint } from '../utils/readinessConfig.js';
 
 type OAuth = NonNullable<ServerConfig['oauth']>;
 export const hasPersonalOAuth = (config?: ServerConfig): boolean =>
@@ -83,7 +84,12 @@ const fingerprint = (expanded: ServerConfig): string =>
     expanded.type ?? 'sse',
     expanded.type === 'openapi' ? [expanded.openapi?.url, expanded.openapi?.schema] : expanded.url,
     declarationOAuth(expanded.oauth),
+    // Only for a server with no origin the readiness URL must share (an inline OpenAPI schema):
+    // there the readiness URL is part of where the token goes. Absent otherwise, so existing
+    // bindings keep their fingerprint.
+    ...(readinessNeedsFingerprint(expanded) ? [expanded.readiness] : []),
   ]);
+export const personalOAuthFingerprint = fingerprint;
 // Bindings persisted before #1362 stored the whole declaration:
 // JSON.stringify([declaration, expanded.url, expanded.oauth]). Normalize such a stored
 // value to the current destination-only format so an upgrade does not orphan every

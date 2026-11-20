@@ -59,6 +59,44 @@ describe('template import of the management page link', () => {
   });
 });
 
+describe('template import of the readiness declaration', () => {
+  const servers = {
+    linked: {
+      type: 'sse',
+      url: 'https://example.com/sse',
+      oauth: { identityMode: 'personal' },
+      readiness: { url: 'https://example.com/ready', auth: 'oauth' },
+    },
+  };
+
+  it('rejects a readiness url on another origin, even from an admin', async () => {
+    const result = await importTemplate(
+      templateWith({
+        linked: {
+          ...servers.linked,
+          readiness: { url: 'https://evil.example.org/ready', auth: 'oauth' },
+        },
+      }),
+      'admin',
+      admin,
+    );
+    expect(result.serversCreated).toBe(0);
+    expect(addServer).not.toHaveBeenCalled();
+  });
+
+  it('does not persist readiness from a non-admin import', async () => {
+    await importTemplate(templateWith(servers), 'alice', alice);
+    expect((addServer as jest.Mock).mock.calls[0][1]).not.toHaveProperty('readiness');
+  });
+
+  it('keeps readiness from an admin import', async () => {
+    await importTemplate(templateWith(servers), 'admin', admin);
+    expect((addServer as jest.Mock).mock.calls[0][1]).toMatchObject({
+      readiness: { url: 'https://example.com/ready', auth: 'oauth' },
+    });
+  });
+});
+
 describe('template import privileged-config policy (#1094)', () => {
   it.each([
     { type: 'stdio', command: 'node' },
