@@ -18,6 +18,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { checkWorkspaceReadiness } from '@/services/workspaceService';
 import type { WorkspaceServer } from '@/types';
 import {
+  formatReadinessDate,
   readinessExpiryNote,
   readinessPrimaryAction,
   readinessTone,
@@ -158,7 +159,7 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
   server,
   data,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const location = useLocation();
   const [search, setSearch] = useSearchParams();
   const { endpoints, bindings, bindingsError } = data;
@@ -436,7 +437,7 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
                       expiryNote.kind === 'expired'
                         ? 'workspacePage.readiness.expiredAt'
                         : 'workspacePage.readiness.expiresAt',
-                      { date: formatUntil(expiryNote.date) },
+                      { date: formatReadinessDate(expiryNote.date, i18n?.language) },
                     )}
                   </p>
                 )}

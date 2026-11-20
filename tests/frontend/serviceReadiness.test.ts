@@ -1,5 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   buildReadinessConfig,
+  formatReadinessDate,
   getReadinessProblem,
   getSafeActionHref,
   readinessToForm,
@@ -166,5 +169,47 @@ describe('the admin readiness setting', () => {
     );
     expect(getReadinessProblem('https://s.example.com/r', '', slots, true)).toBe('authRequired');
     expect(getReadinessProblem('http://s.example.com/r', 'oauth', slots, false)).toBeNull();
+  });
+});
+
+describe('formatReadinessDate', () => {
+  const value = '2026-11-23T00:45:03.000Z';
+
+  it('shows date plus hours and minutes, never seconds, in the UI language', () => {
+    const en = formatReadinessDate(value, 'en', 'America/Los_Angeles');
+    expect(en).toContain('2026');
+    expect(en).toMatch(/4:45\s?PM/);
+    expect(en).not.toMatch(/:03/);
+    const zh = formatReadinessDate(value, 'zh', 'Asia/Shanghai');
+    expect(zh).toContain('2026');
+    expect(zh).toMatch(/8:45/);
+    expect(zh).not.toMatch(/:03/);
+    expect(en).not.toBe(zh);
+  });
+
+  it('returns the raw text for something that is not a date', () => {
+    expect(formatReadinessDate('soon', 'en')).toBe('soon');
+  });
+});
+
+describe('readiness wording in every locale', () => {
+  const dir = path.resolve(__dirname, '../../locales');
+  const locales = fs.readdirSync(dir).filter((file) => file.endsWith('.json'));
+  const load = (file: string) =>
+    JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')).workspacePage.readiness;
+
+  it('calls a revoked state "Access revoked", not "Sign in again", in English and Chinese', () => {
+    expect(load('en.json').state.revoked).toBe('Access revoked');
+    expect(load('zh.json').state.revoked).toBe('访问已撤销');
+  });
+
+  it.each(locales)('%s: the chip no longer says to sign in, the fallback text does', (file) => {
+    const readiness = load(file);
+    expect(readiness.state.revoked).not.toMatch(/sign in again|reconnect/i);
+    expect(readiness.text.revoked.length).toBeGreaterThan(readiness.state.revoked.length);
+  });
+
+  it('the English fallback tells the user to sign in again or reconnect', () => {
+    expect(load('en.json').text.revoked).toMatch(/sign in again or reconnect/i);
   });
 });

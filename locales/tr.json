@@ -2031,7 +2031,7 @@
         "degraded": "Kısmen çalışıyor",
         "expiring": "Yakında sona erecek",
         "expired": "Süresi doldu",
-        "revoked": "Yeniden oturum açın",
+        "revoked": "Erişim iptal edildi",
         "unknown": "Durum alınamıyor"
       },
       "text": {

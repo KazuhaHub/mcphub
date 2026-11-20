@@ -121,3 +121,18 @@ export const getReadinessProblem = (
   if (!auth?.startsWith(CREDENTIAL_PREFIX)) return 'authRequired';
   return slotNames.includes(auth.slice(CREDENTIAL_PREFIX.length)) ? null : 'slotMissing';
 };
+
+/**
+ * A date and time in the UI language: the date plus hours and minutes, no seconds. `timeZone`
+ * is only for tests; the browser's own zone is used otherwise. Text that is not a date is
+ * returned as it came.
+ */
+export const formatReadinessDate = (
+  value: string,
+  language?: string,
+  timeZone?: string,
+): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short', timeZone });
+};

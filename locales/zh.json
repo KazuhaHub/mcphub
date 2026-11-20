@@ -2077,7 +2077,7 @@
         "degraded": "部分可用",
         "expiring": "即将过期",
         "expired": "已过期",
-        "revoked": "请重新登录",
+        "revoked": "访问已撤销",
         "unknown": "暂时无法确定状态"
       },
       "text": {

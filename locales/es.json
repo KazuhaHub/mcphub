@@ -2037,7 +2037,7 @@
         "degraded": "Funciona en parte",
         "expiring": "Caduca pronto",
         "expired": "Caducado",
-        "revoked": "Inicia sesión de nuevo",
+        "revoked": "Acceso revocado",
         "unknown": "Estado no disponible"
       },
       "text": {

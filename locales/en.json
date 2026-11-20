@@ -2081,7 +2081,7 @@
         "degraded": "Partly working",
         "expiring": "Expiring soon",
         "expired": "Expired",
-        "revoked": "Sign in again",
+        "revoked": "Access revoked",
         "unknown": "Status unavailable"
       },
       "text": {

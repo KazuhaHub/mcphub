@@ -2031,7 +2031,7 @@
         "degraded": "Hoạt động một phần",
         "expiring": "Sắp hết hạn",
         "expired": "Đã hết hạn",
-        "revoked": "Đăng nhập lại",
+        "revoked": "Đã thu hồi quyền truy cập",
         "unknown": "Không có thông tin trạng thái"
       },
       "text": {

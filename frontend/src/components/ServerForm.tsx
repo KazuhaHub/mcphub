@@ -804,7 +804,7 @@ const ServerForm = ({
                 >
                   {t('server.readiness.label')}
                 </label>
-                <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                <div className="space-y-2">
                   <input
                     type="text"
                     inputMode="url"
@@ -822,7 +822,7 @@ const ServerForm = ({
                     aria-label={t('server.readiness.auth')}
                     value={formData.readinessAuth || 'oauth'}
                     onChange={handleInputChange}
-                    className="py-2 px-3 form-input"
+                    className="w-full py-2 px-3 form-input md:w-auto"
                     disabled={!formData.readinessUrl?.trim()}
                   >
                     <option value="oauth">{t('server.readiness.authOAuth')}</option>
