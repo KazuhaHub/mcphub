@@ -1808,6 +1808,7 @@
     "showingOwn": "你自己的凭据"
   },
   "workspace": {
+    "cannotAddDisabled": "“{{serverName}}”已被管理员暂停，无法添加。",
     "status": {
       "available": "服务器“{{serverName}}”可用。",
       "not_selected": "服务器“{{serverName}}”不在你的工作区中。请在你的工作区中选择后再使用。",

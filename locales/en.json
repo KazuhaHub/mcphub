@@ -1806,6 +1806,7 @@
     "showingOwn": "Your own credentials"
   },
   "workspace": {
+    "cannotAddDisabled": "'{{serverName}}' is paused by an administrator and cannot be added.",
     "status": {
       "available": "'{{serverName}}' is available.",
       "not_selected": "'{{serverName}}' is not in your workspace. Select it in your workspace to use it.",

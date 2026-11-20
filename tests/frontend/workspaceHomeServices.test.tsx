@@ -170,6 +170,13 @@ describe('the helpers', () => {
     expect(searchCatalog(servers, 'zzz')).toEqual([]);
   });
 
+  it('never offer an administrator-disabled service that is not added', () => {
+    const off = { ...servers.find((s) => !s.added)!, name: 'off-tool', enabled: false };
+    const list = [...servers, off];
+    expect(summarizeServices(list).available).toBe(2);
+    expect(searchCatalog(list, '').map((s) => s.name)).not.toContain('off-tool');
+  });
+
   it('flag only added, switched-on services that need action', () => {
     const list = [
       ...servers,

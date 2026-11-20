@@ -1798,6 +1798,7 @@
     "showingOwn": "Your own credentials"
   },
   "workspace": {
+    "cannotAddDisabled": "'{{serverName}}' está en pausa por un administrador y no se puede añadir.",
     "status": {
       "available": "'{{serverName}}' está disponible.",
       "not_selected": "'{{serverName}}' no está en tu espacio de trabajo. Selecciónalo en tu espacio de trabajo para usarlo.",

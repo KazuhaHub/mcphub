@@ -1796,6 +1796,7 @@
     "showingOwn": "Your own credentials"
   },
   "workspace": {
+    "cannotAddDisabled": "« {{serverName}} » est suspendu par un administrateur et ne peut pas être ajouté.",
     "status": {
       "available": "« {{serverName}} » est disponible.",
       "not_selected": "« {{serverName}} » ne fait pas partie de votre espace de travail. Sélectionnez-le dans votre espace de travail pour l'utiliser.",

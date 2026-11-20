@@ -56,6 +56,7 @@ import {
   listUserActivity,
   type ActivityHistoryFilters,
 } from '../services/workspaceActivityService.js';
+import { getT } from '../utils/i18n.js';
 import { serverIconUrl } from '../utils/serverIcon.js';
 import { getCachedSystemConfig } from '../utils/systemConfigCache.js';
 
@@ -194,6 +195,23 @@ type WorkspaceServerView = {
   readiness: Promise<ServiceReadiness | null>;
 };
 
+// A server an administrator has disabled is not offered to a user who has not added it; one they
+// already added stays, with its `paused` status, so they can see why its tools are gone.
+const isHiddenFromCatalog = (server: ServerRecord, added: ReadonlySet<string>): boolean =>
+  server.enabled === false && !added.has(server.name);
+
+// The 409 for putting a disabled server into the user's list, in the caller's language.
+const refuseDisabledServer = (req: Request, res: Response, name: string): void => {
+  const language = (req as Request & { language?: string }).language;
+  const defaultValue = `'${name}' is paused by an administrator and cannot be added.`;
+  res.status(409).json({
+    success: false,
+    message:
+      getT(language)('workspace.cannotAddDisabled', { serverName: name, defaultValue }) ||
+      defaultValue,
+  });
+};
+
 // One entry per server the user can see, with the state they would meet calling it.
 const buildServerViews = async (
   req: Request,
@@ -204,39 +222,41 @@ const buildServerViews = async (
   const { names: selected, added, ceilings } = await getUserSelectionScope(user.username);
   const language = (req as Request & { language?: string }).language;
   return Promise.all(
-    (await listVisibleServers(user)).map(async (server) => {
-      const personalAuth = await getPersonalAuthState(user, server.name, server);
-      // Probed in parallel with the status lookup and the tool summary.
-      const readiness = withReadiness
-        ? probeReadiness(user, server, personalAuth)
-        : Promise.resolve(null);
-      const status = await getUserServerStatus({
-        user,
-        subject: {
-          name: server.name,
-          config: server,
-          enabled: server.enabled !== false,
-          info: await loadServerInfo(server.name),
-        },
-        selected: selected.has(server.name),
-        personalAuth,
-        language,
-      });
-      return {
-        server,
-        added: added.has(server.name),
-        selected: selected.has(server.name),
-        // The user's choice, else the server's default; never above what the cap allows.
-        riskCeiling: minRisk(
-          resolveRiskCeiling(ceilings, server.name, getDefaultUserRisk(server)),
-          adminCapFor(server, user),
-        ),
-        riskCeilingIsDefault: !ceilings.has(server.name),
-        personalAuth,
-        status,
-        readiness,
-      };
-    }),
+    (await listVisibleServers(user))
+      .filter((server) => !isHiddenFromCatalog(server, added))
+      .map(async (server) => {
+        const personalAuth = await getPersonalAuthState(user, server.name, server);
+        // Probed in parallel with the status lookup and the tool summary.
+        const readiness = withReadiness
+          ? probeReadiness(user, server, personalAuth)
+          : Promise.resolve(null);
+        const status = await getUserServerStatus({
+          user,
+          subject: {
+            name: server.name,
+            config: server,
+            enabled: server.enabled !== false,
+            info: await loadServerInfo(server.name),
+          },
+          selected: selected.has(server.name),
+          personalAuth,
+          language,
+        });
+        return {
+          server,
+          added: added.has(server.name),
+          selected: selected.has(server.name),
+          // The user's choice, else the server's default; never above what the cap allows.
+          riskCeiling: minRisk(
+            resolveRiskCeiling(ceilings, server.name, getDefaultUserRisk(server)),
+            adminCapFor(server, user),
+          ),
+          riskCeilingIsDefault: !ceilings.has(server.name),
+          personalAuth,
+          status,
+          readiness,
+        };
+      }),
   );
 };
 
@@ -362,7 +382,14 @@ export const updateWorkspaceSelection = async (req: Request, res: Response): Pro
       res.status(404).json({ success: false, message: 'Server not found' });
       return;
     }
-    // Switching a service on also puts it in the list.
+    // Switching a service on also puts it in the list, which a disabled one cannot join.
+    if (selected && server.enabled === false) {
+      const { added } = await getUserSelectionScope(user.username);
+      if (!added.has(server.name)) {
+        refuseDisabledServer(req, res, server.name);
+        return;
+      }
+    }
     await setServerSelected(user.username, server.name, selected);
     const { notifyUserListsChanged } = await import('../services/mcpService.js');
     notifyUserListsChanged(user.username);
@@ -387,6 +414,13 @@ export const updateWorkspaceMembership = async (req: Request, res: Response): Pr
     if (!server || !filterVisible([server], user).length) {
       res.status(404).json({ success: false, message: 'Server not found' });
       return;
+    }
+    if (added && server.enabled === false) {
+      const scope = await getUserSelectionScope(user.username);
+      if (!scope.added.has(server.name)) {
+        refuseDisabledServer(req, res, server.name);
+        return;
+      }
     }
     await setServerAdded(user.username, server.name, added);
     const { notifyUserListsChanged } = await import('../services/mcpService.js');
