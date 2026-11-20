@@ -221,6 +221,37 @@ describe('bearerKeyController', () => {
     );
   });
 
+  it('owns an administrator\u2019s user-level key without an owner by the administrator', async () => {
+    mockFindUserByUsername.mockResolvedValue({ username: 'admin', isAdmin: true });
+    mockCreate.mockImplementation(async (data) => ({ id: 'key-1', ...data }));
+    const res = makeRes();
+    await createBearerKey(
+      makeReq({
+        user: { username: 'admin', isAdmin: true },
+        body: { name: 'mine', kind: 'user' },
+      }),
+      res,
+    );
+    expect(mockFindUserByUsername).toHaveBeenCalledWith('admin');
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'user', owner: 'admin' }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('still lets an administrator name another owner', async () => {
+    mockFindUserByUsername.mockResolvedValue({ username: 'alice' });
+    mockCreate.mockImplementation(async (data) => ({ id: 'key-1', ...data }));
+    await createBearerKey(
+      makeReq({
+        user: { username: 'admin', isAdmin: true },
+        body: { name: 'theirs', kind: 'user', owner: 'alice' },
+      }),
+      makeRes(),
+    );
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ owner: 'alice' }));
+  });
+
   it('can remove the restriction from an owned key', async () => {
     mockFindById.mockResolvedValue({
       id: 'key-1',
