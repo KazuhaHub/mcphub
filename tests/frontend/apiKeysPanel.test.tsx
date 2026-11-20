@@ -131,6 +131,22 @@ describe('the personal API keys panel', () => {
     expect(document.body.textContent).not.toContain('mcphub_plain');
   });
 
+  it('returns focus to the add button when the token dialog is closed', async () => {
+    mockCreate.mockResolvedValue({ ...keys[0], id: '9', name: 'cursor', token: 'mcphub_plain' });
+    await renderPanel('personal');
+    openForm();
+    fireEvent.change(screen.getByLabelText('settings.bearerKeyName'), { target: { value: 'cursor' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'settings.addBearerKeyButton' }));
+    });
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('checkbox'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'tokenReveal.done' }));
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'settings.addBearerKey' }),
+    );
+  });
+
   it('requires a name', async () => {
     await renderPanel('personal');
     openForm();

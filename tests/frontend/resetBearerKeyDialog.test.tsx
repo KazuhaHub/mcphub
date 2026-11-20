@@ -71,4 +71,20 @@ describe('the reset key dialog', () => {
     expect(screen.getByRole('alert').textContent).toBe('nope');
     expect(screen.queryByText('tokenReveal.titleReset:cursor')).toBeNull();
   });
+
+  it('gives focus back to the button that opened it', async () => {
+    mockApiPost.mockResolvedValue({ success: true, data: { ...key, token: 'mcphub_new' } });
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const { unmount } = render(
+      <ResetBearerKeyDialog keyData={key} onClose={jest.fn()} onReset={() => Promise.resolve()} />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'common.confirm' }));
+    });
+    unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
 });

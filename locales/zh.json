@@ -1380,7 +1380,10 @@
       "retry": "重试"
     },
     "authenticationSection": "身份验证",
-    "authenticationSectionDescription": "MCP 请求的 Bearer 身份验证，以及所有用户的 API 密钥（含系统级密钥）。"
+    "authenticationSectionDescription": "MCP 请求的 Bearer 身份验证，以及所有用户的 API 密钥（含系统级密钥）。",
+    "bearerKeyCreated": "API 密钥已创建",
+    "bearerKeyUpdated": "API 密钥已更新",
+    "bearerKeyDeleted": "API 密钥已删除"
   },
   "mcpb": {
     "upload": "上传",

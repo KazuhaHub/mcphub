@@ -1367,7 +1367,10 @@
       "retry": "Yeniden dene"
     },
     "authenticationSection": "Kimlik doğrulama",
-    "authenticationSectionDescription": "MCP istekleri için Bearer kimlik doğrulaması ve sistem düzeyindeki anahtarlar dahil tüm kullanıcıların API anahtarları."
+    "authenticationSectionDescription": "MCP istekleri için Bearer kimlik doğrulaması ve sistem düzeyindeki anahtarlar dahil tüm kullanıcıların API anahtarları.",
+    "bearerKeyCreated": "API anahtarı oluşturuldu",
+    "bearerKeyUpdated": "API anahtarı güncellendi",
+    "bearerKeyDeleted": "API anahtarı silindi"
   },
   "mcpb": {
     "upload": "Yükle",

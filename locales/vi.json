@@ -1369,7 +1369,10 @@
       "retry": "Thử lại"
     },
     "authenticationSection": "Xác thực",
-    "authenticationSectionDescription": "Xác thực Bearer cho các yêu cầu MCP và khóa API của mọi người dùng, kể cả khóa cấp hệ thống."
+    "authenticationSectionDescription": "Xác thực Bearer cho các yêu cầu MCP và khóa API của mọi người dùng, kể cả khóa cấp hệ thống.",
+    "bearerKeyCreated": "Đã tạo khóa API",
+    "bearerKeyUpdated": "Đã cập nhật khóa API",
+    "bearerKeyDeleted": "Đã xóa khóa API"
   },
   "mcpb": {
     "upload": "Tải lên",

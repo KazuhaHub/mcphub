@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus } from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -52,6 +52,8 @@ const BearerKeysPanel: React.FC<BearerKeysPanelProps> = ({ mode }) => {
   // The plaintext token lives here only, until the person confirms it was stored.
   const [revealed, setRevealed] = useState<{ name: string; token: string } | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const hadReveal = useRef(false);
   const [scopeFilter, setScopeFilter] = useState<BearerKeyScopeFilterValue>('all');
 
   useEffect(() => {
@@ -85,6 +87,17 @@ const BearerKeysPanel: React.FC<BearerKeysPanelProps> = ({ mode }) => {
     () => (isAdminMode ? filterBearerKeysByScopeFilter(keys, scopeFilter) : keys),
     [isAdminMode, keys, scopeFilter],
   );
+
+  // The form that had focus is gone by the time the token dialog closes, so focus goes back to
+  // the button that opens it.
+  useEffect(() => {
+    if (revealed) {
+      hadReveal.current = true;
+    } else if (hadReveal.current) {
+      hadReveal.current = false;
+      addButtonRef.current?.focus();
+    }
+  }, [revealed]);
 
   useEffect(() => {
     if (!scopeOptions.some((option) => option.value === scopeFilter)) setScopeFilter('all');
@@ -145,7 +158,12 @@ const BearerKeysPanel: React.FC<BearerKeysPanelProps> = ({ mode }) => {
             </div>
           )}
           {!showCreate && (
-            <button type="button" className="hub-btn primary" onClick={() => setShowCreate(true)}>
+            <button
+              ref={addButtonRef}
+              type="button"
+              className="hub-btn primary"
+              onClick={() => setShowCreate(true)}
+            >
               <Plus className="h-3.5 w-3.5" />
               {t('settings.addBearerKey') || 'Add bearer key'}
             </button>
@@ -171,7 +189,7 @@ const BearerKeysPanel: React.FC<BearerKeysPanelProps> = ({ mode }) => {
         />
       )}
 
-      {keys.length === 0 ? (
+      {visibleKeys.length === 0 ? (
         <p className="text-sm" style={{ color: 'var(--hub-ink-3)' }}>
           {t('settings.noBearerKeys') || 'No bearer keys configured yet.'}
         </p>

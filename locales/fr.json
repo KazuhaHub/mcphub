@@ -1368,7 +1368,10 @@
       "retry": "Réessayer"
     },
     "authenticationSection": "Authentification",
-    "authenticationSectionDescription": "Authentification Bearer des requêtes MCP et clés d’API de tous les utilisateurs, y compris les clés de niveau système."
+    "authenticationSectionDescription": "Authentification Bearer des requêtes MCP et clés d’API de tous les utilisateurs, y compris les clés de niveau système.",
+    "bearerKeyCreated": "Clé d’API créée",
+    "bearerKeyUpdated": "Clé d’API mise à jour",
+    "bearerKeyDeleted": "Clé d’API supprimée"
   },
   "mcpb": {
     "upload": "Télécharger",

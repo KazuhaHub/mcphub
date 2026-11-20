@@ -1366,7 +1366,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       const data: ApiResponse<BearerKey> = await apiPost('/auth/keys', payload as any);
       if (data.success && data.data) {
         await refreshBearerKeys();
-        showToast(t('settings.systemConfigUpdated'));
+        showToast(t('settings.bearerKeyCreated'));
         return data.data;
       }
       showToast(data.message || t('errors.failedToUpdateRoutingConfig'));
@@ -1386,7 +1386,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       const data: ApiResponse<BearerKey> = await apiPut(`/auth/keys/${id}`, updates as any);
       if (data.success && data.data) {
         await refreshBearerKeys();
-        showToast(t('settings.systemConfigUpdated'));
+        showToast(t('settings.bearerKeyUpdated'));
         return data.data;
       }
       showToast(data.message || t('errors.failedToUpdateRoutingConfig'));
@@ -1403,7 +1403,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       const data: ApiResponse = await apiDelete(`/auth/keys/${id}`);
       if (data.success) {
         await refreshBearerKeys();
-        showToast(t('settings.systemConfigUpdated'));
+        showToast(t('settings.bearerKeyDeleted'));
         return true;
       }
       showToast(data.message || t('errors.failedToUpdateRoutingConfig'));

@@ -1369,7 +1369,10 @@
       "retry": "Reintentar"
     },
     "authenticationSection": "Autenticación",
-    "authenticationSectionDescription": "Autenticación Bearer para las solicitudes MCP y las claves de API de todos los usuarios, incluidas las claves de nivel de sistema."
+    "authenticationSectionDescription": "Autenticación Bearer para las solicitudes MCP y las claves de API de todos los usuarios, incluidas las claves de nivel de sistema.",
+    "bearerKeyCreated": "Clave de API creada",
+    "bearerKeyUpdated": "Clave de API actualizada",
+    "bearerKeyDeleted": "Clave de API eliminada"
   },
   "mcpb": {
     "upload": "Subir",

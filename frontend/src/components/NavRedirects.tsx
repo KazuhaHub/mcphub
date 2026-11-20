@@ -22,8 +22,13 @@ export const AdminRedirect: React.FC = () => {
   return <Navigate to={target} replace />;
 };
 
-/** An old page address that now lives on another page; the hash is kept. */
+/** An old page address that now lives on another page; the query and hash are kept. */
 export const LegacyRedirect: React.FC<{ to: string }> = ({ to }) => {
-  const { hash } = useLocation();
-  return <Navigate to={`${to}${hash}`} replace />;
+  const { search, hash } = useLocation();
+  // The incoming query is kept; the target's own parameters (the tab) win over it.
+  const [path, targetQuery = ''] = to.split('?');
+  const params = new URLSearchParams(search);
+  new URLSearchParams(targetQuery).forEach((value, key) => params.set(key, value));
+  const query = params.toString();
+  return <Navigate to={`${path}${query ? `?${query}` : ''}${hash}`} replace />;
 };
