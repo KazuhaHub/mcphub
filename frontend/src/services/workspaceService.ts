@@ -20,7 +20,11 @@ import { apiDelete, apiGet, apiPost, apiPut, type ApiResponse } from '../utils/f
 // Unwraps `{ success, data }` and turns a failed envelope into an Error.
 const unwrap = <T>(result: ApiResponse<T>, _context: string): T => {
   if (!result?.success) {
-    throw new WorkspaceApiError(result?.message || '', isWorkspaceDisabledMessage(result?.message));
+    throw new WorkspaceApiError(
+      result?.message || '',
+      isWorkspaceDisabledMessage(result?.message),
+      result?.status,
+    );
   }
   return result.data as T;
 };

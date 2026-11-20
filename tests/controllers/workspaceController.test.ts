@@ -646,6 +646,20 @@ describe('workspace API', () => {
       });
     });
 
+    it('keeps not_selected over paused for a disabled service the user added but switched off', async () => {
+      selectionRows.push({
+        username: 'alice',
+        serverName: 'alice-tool',
+        added: true,
+        selected: false,
+        updatedAt: '2026-01-01',
+      });
+      expect((await statusOf())['alice-tool']).toMatchObject({
+        code: 'not_selected',
+        action: 'select',
+      });
+    });
+
     it('treats a configured credential as available', async () => {
       select('alice', 'needs-key');
       mockGetCredentialBindingStatus.mockResolvedValue({ configured: true });

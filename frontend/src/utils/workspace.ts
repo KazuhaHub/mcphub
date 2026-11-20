@@ -399,6 +399,8 @@ export class WorkspaceApiError extends Error {
   constructor(
     message: string,
     readonly disabled: boolean,
+    // HTTP status when the server refused the request.
+    readonly status?: number,
   ) {
     super(message);
     this.name = 'WorkspaceApiError';

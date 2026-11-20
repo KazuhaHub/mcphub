@@ -196,7 +196,8 @@ type WorkspaceServerView = {
 };
 
 // A server an administrator has disabled is not offered to a user who has not added it; one they
-// already added stays, with its `paused` status, so they can see why its tools are gone.
+// already added stays, so they can see why its tools are gone: `paused` while it is switched on,
+// and `not_selected` once they switched it off (that status outranks `paused`).
 const isHiddenFromCatalog = (server: ServerRecord, added: ReadonlySet<string>): boolean =>
   server.enabled === false && !added.has(server.name);
 
