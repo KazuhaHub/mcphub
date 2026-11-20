@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useEmbeddingSync } from '@/contexts/EmbeddingSyncContext';
 import { PROJECT_DOCS_URL, PROJECT_REPO_URL } from '@/constants/links';
+import { getNavArea } from '@/utils/navigationPermissions';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -23,12 +24,17 @@ const useCrumbs = (): string[] => {
   const params = useParams();
   const { auth } = useAuth();
   const { workspaceEnabled } = useSettings();
-  const adminCredentials = workspaceEnabled && Boolean(auth.user?.isAdmin);
+  const isAdmin = Boolean(auth.user?.isAdmin);
+  const adminCredentials = workspaceEnabled && isAdmin;
 
   return useMemo(() => {
     const path = location.pathname;
     const root = dashboardTitle;
-    if (path === '/') return [root, t('nav.dashboard')];
+    // Pages of the Admin console are listed under it; the rest hang directly off the root.
+    const area = getNavArea(path, { isAdmin, workspaceEnabled });
+    const base = area === 'admin' ? [root, t('nav.adminConsole')] : [root];
+    if (path === '/') return [root];
+    if (path === '/dashboard') return [...base, t('nav.dashboard')];
     if (path.startsWith('/services/')) {
       const raw = path.slice('/services/'.length).split('/')[0];
       try {
@@ -57,29 +63,33 @@ const useCrumbs = (): string[] => {
       return [root, t('workspacePage.nav'), t('nav.myActivity')];
     }
     if (path.startsWith('/workspace')) return [root, t('workspacePage.nav')];
-    if (path.startsWith('/keys')) return [root, t('nav.account'), t('nav.keys')];
-    if (path.startsWith('/password')) return [root, t('nav.account'), t('nav.password')];
-    if (path.startsWith('/oauth-applications'))
-      return [root, t('nav.account'), t('oauthApprovals.title')];
-    if (path.startsWith('/passkeys')) return [root, t('nav.account'), t('passkeys.title')];
+    if (path.startsWith('/keys')) return [root, t('nav.keys')];
+    if (path.startsWith('/account')) {
+      const tab = new URLSearchParams(location.search).get('tab');
+      return [
+        root,
+        t('nav.accountSettings'),
+        t(`account.tabs.${tab === 'passkeys' || tab === 'apps' ? tab : 'password'}`),
+      ];
+    }
     if (path.startsWith('/credentials'))
-      return [root, t(adminCredentials ? 'credentials.adminTitle' : 'credentials.title')];
-    if (path.startsWith('/servers')) return [root, t('nav.servers')];
-    if (path.startsWith('/groups')) return [root, t('nav.groups')];
-    if (path.startsWith('/prompts')) return [root, t('nav.prompts')];
-    if (path.startsWith('/resources')) return [root, t('nav.resources')];
-    if (path.startsWith('/users')) return [root, t('nav.users')];
+      return [...base, t(adminCredentials ? 'credentials.adminTitle' : 'credentials.title')];
+    if (path.startsWith('/servers')) return [...base, t('nav.servers')];
+    if (path.startsWith('/groups')) return [...base, t('nav.groups')];
+    if (path.startsWith('/prompts')) return [...base, t('nav.prompts')];
+    if (path.startsWith('/resources')) return [...base, t('nav.resources')];
+    if (path.startsWith('/users')) return [...base, t('nav.users')];
     if (path.startsWith('/market')) {
       const serverName = (params as { serverName?: string }).serverName;
-      const crumbs = [root, t('nav.market')];
+      const crumbs = [...base, t('nav.market')];
       if (serverName) crumbs.push(serverName);
       return crumbs;
     }
-    if (path.startsWith('/logs')) return [root, t('nav.logs')];
-    if (path.startsWith('/activity')) return [root, t('nav.activity')];
-    if (path.startsWith('/settings')) return [root, t('nav.settings')];
+    if (path.startsWith('/logs')) return [...base, t('nav.logs')];
+    if (path.startsWith('/activity')) return [...base, t('nav.activity')];
+    if (path.startsWith('/settings')) return [...base, t('nav.settings')];
     return [root];
-  }, [location.pathname, params, t, dashboardTitle, adminCredentials]);
+  }, [location.pathname, location.search, params, t, dashboardTitle, adminCredentials, isAdmin, workspaceEnabled]);
 };
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar, menuExpanded }) => {

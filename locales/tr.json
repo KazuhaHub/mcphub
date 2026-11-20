@@ -443,7 +443,8 @@
     "inactive": "Pasif",
     "viewAll": "Tümünü gör",
     "docs": "Belgeler",
-    "all": "Tümü"
+    "all": "Tümü",
+    "edit": "Düzenle"
   },
   "clientConfig": {
     "title": "MCP yapılandırmasını kopyala",
@@ -608,10 +609,11 @@
     "workspace": "Çalışma Alanı",
     "system": "Sistem",
     "keys": "API keys",
-    "password": "Password",
-    "account": "Account",
     "manage": "Manage",
-    "myActivity": "My activity"
+    "myActivity": "My activity",
+    "adminConsole": "Yönetim konsolu",
+    "accountSettings": "Hesap ayarları",
+    "backToWorkspace": "Çalışma Alanı"
   },
   "pages": {
     "dashboard": {
@@ -1020,7 +1022,6 @@
     },
     "resetBearerKey": "Bearer anahtarını sıfırla",
     "resetBearerKeyConfirm": "Bu Bearer anahtarı sıfırlansın mı? Eski belirteç hemen geçersiz olacaktır. İzinler ve etkinlik durumu değişmeyecek.",
-    "resetBearerKeySuccess": "Anahtar sıfırlandı. Kapatmadan önce yeni belirteci kopyalayıp kaydedin; tekrar gösterilmeyecek.",
     "resetBearerKeyError": "Bearer anahtarı sıfırlanamadı",
     "allowRegistration": "Kendi kendine kayda izin ver",
     "allowRegistrationDescription": "Ziyaretçilerin giriş sayfasından normal hesap oluşturmasına izin verir. Varsayılan olarak kapalıdır; parola ile giriş kapalıyken kullanılamaz.",
@@ -1085,7 +1086,6 @@
     "bearerKeySelectOwner": "Kullanıcı seçin...",
     "bearerKeyPersonalScopeHint": "Kişisel anahtarlar sahibinin izinlerini devralır. Belirli gruplar seçildiğinde yalnızca bu grupların uç noktalarına ve akıllı yönlendirmesine erişilir; genel ve doğrudan sunucu erişimi reddedilir.",
     "bearerKeyAccessUserVisibility": "Kullanıcı görünürlüğü",
-    "bearerKeyShownOnce": "Bu tokenı şimdi kopyalayın. Tekrar gösterilmeyecek.",
     "deleteBearerKeyConfirm": "Bu anahtarı silmek istediğinizden emin misiniz?",
     "generate": "Oluştur",
     "selectGroups": "Grupları Seç",
@@ -1365,7 +1365,12 @@
       "confirmClear": "Tüm politikalar silinsin mi? Mevcut izinler geçerli olacaktır.",
       "deleteRule": "{{number}} numaralı kuralı sil",
       "retry": "Yeniden dene"
-    }
+    },
+    "authenticationSection": "Kimlik doğrulama",
+    "authenticationSectionDescription": "MCP istekleri için Bearer kimlik doğrulaması ve sistem düzeyindeki anahtarlar dahil tüm kullanıcıların API anahtarları.",
+    "bearerKeyCreated": "API anahtarı oluşturuldu",
+    "bearerKeyUpdated": "API anahtarı güncellendi",
+    "bearerKeyDeleted": "API anahtarı silindi"
   },
   "mcpb": {
     "upload": "Yükle",
@@ -2113,5 +2118,27 @@
     "insecureContext": "Geçiş anahtarları, panelin alan adıyla HTTPS üzerinden (veya localhost’ta) açılmasını gerektirir.",
     "unsupported": "Bu tarayıcı geçiş anahtarlarını desteklemiyor.",
     "unavailable": "Bu kurulum yalnızca çoklu oturum açmaya (SSO) izin verdiğinden geçiş anahtarları kullanılamıyor."
+  },
+  "account": {
+    "title": "Hesap ayarları",
+    "tabs": {
+      "password": "Parola",
+      "passkeys": "Geçiş anahtarları",
+      "apps": "Yetkilendirilmiş uygulamalar"
+    },
+    "tabsLabel": "Hesap ayarları bölümleri"
+  },
+  "apiKeys": {
+    "subtitle": "İstemcilerin ve betiklerin MCPHub'ı sizin adınıza çağırmasını sağlayan anahtarlar oluşturun. Her anahtar sizin izinlerinizi devralır.",
+    "adminHint": "Bu sayfa yalnızca kendi anahtarlarınızı listeler. Sistem düzeyindeki anahtarlar, diğer kullanıcıların anahtarları ve Bearer kimlik doğrulaması şurada yönetilir:",
+    "namePlaceholder": "ör. API anahtarım"
+  },
+  "tokenReveal": {
+    "title": "API anahtarı oluşturuldu — {{name}}",
+    "titleReset": "API anahtarı sıfırlandı — {{name}}",
+    "warning": "Bu tokenı şimdi kopyalayın. Yalnızca bir kez gösterilir ve sonradan geri alınamaz.",
+    "acknowledge": "Bu tokenı kopyaladım ve sakladım",
+    "done": "Bitti",
+    "copyFailedManual": "Kopyalama başarısız oldu. Tokenı seçip elle kopyalayın."
   }
 }

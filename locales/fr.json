@@ -443,7 +443,8 @@
     "inactive": "Inactif",
     "viewAll": "Voir tout",
     "docs": "Docs",
-    "all": "Tout"
+    "all": "Tout",
+    "edit": "Modifier"
   },
   "clientConfig": {
     "title": "Copier la configuration MCP",
@@ -608,10 +609,11 @@
     "workspace": "Espace de travail",
     "system": "Système",
     "keys": "API keys",
-    "password": "Password",
-    "account": "Account",
     "manage": "Manage",
-    "myActivity": "My activity"
+    "myActivity": "My activity",
+    "adminConsole": "Console d'administration",
+    "accountSettings": "Paramètres du compte",
+    "backToWorkspace": "Espace de travail"
   },
   "pages": {
     "dashboard": {
@@ -1020,7 +1022,6 @@
     },
     "resetBearerKey": "Réinitialiser la clé Bearer",
     "resetBearerKeyConfirm": "Réinitialiser cette clé Bearer ? L’ancien jeton cessera immédiatement de fonctionner. Les autorisations et l’état resteront identiques.",
-    "resetBearerKeySuccess": "Clé réinitialisée. Copiez et conservez le nouveau jeton avant de fermer ; il ne sera plus affiché.",
     "resetBearerKeyError": "Échec de la réinitialisation de la clé Bearer",
     "allowRegistration": "Autoriser les inscriptions",
     "allowRegistrationDescription": "Permet aux visiteurs de créer un compte standard depuis la page de connexion. Désactivé par défaut et indisponible si la connexion par mot de passe est désactivée.",
@@ -1086,7 +1087,6 @@
     "bearerKeySelectOwner": "Sélectionner un utilisateur...",
     "bearerKeyPersonalScopeHint": "Les clés personnelles héritent de vos permissions. Les groupes sélectionnés limitent la clé à leurs points d’accès, routage intelligent compris ; les accès globaux et directs aux serveurs sont refusés.",
     "bearerKeyAccessUserVisibility": "Visibilité de l’utilisateur",
-    "bearerKeyShownOnce": "Copiez ce jeton maintenant. Il ne sera plus affiché.",
     "deleteBearerKeyConfirm": "Voulez-vous vraiment supprimer cette clé ?",
     "generate": "Générer",
     "selectGroups": "Sélectionner des groupes",
@@ -1366,7 +1366,12 @@
       "confirmClear": "Supprimer toutes les politiques ? Les permissions existantes s’appliqueront.",
       "deleteRule": "Supprimer la règle {{number}}",
       "retry": "Réessayer"
-    }
+    },
+    "authenticationSection": "Authentification",
+    "authenticationSectionDescription": "Authentification Bearer des requêtes MCP et clés d’API de tous les utilisateurs, y compris les clés de niveau système.",
+    "bearerKeyCreated": "Clé d’API créée",
+    "bearerKeyUpdated": "Clé d’API mise à jour",
+    "bearerKeyDeleted": "Clé d’API supprimée"
   },
   "mcpb": {
     "upload": "Télécharger",
@@ -2117,5 +2122,27 @@
     "insecureContext": "Les clés d'accès exigent d'ouvrir le tableau de bord par son nom de domaine en HTTPS (ou sur localhost).",
     "unsupported": "Ce navigateur ne prend pas en charge les clés d'accès.",
     "unavailable": "Les clés d'accès sont indisponibles car ce déploiement n'autorise que l'authentification unique."
+  },
+  "account": {
+    "title": "Paramètres du compte",
+    "tabs": {
+      "password": "Mot de passe",
+      "passkeys": "Clés d'accès",
+      "apps": "Applications autorisées"
+    },
+    "tabsLabel": "Sections des paramètres du compte"
+  },
+  "apiKeys": {
+    "subtitle": "Créez des clés permettant aux clients et aux scripts d’appeler MCPHub en votre nom. Chaque clé hérite de vos permissions.",
+    "adminHint": "Cette page liste vos propres clés. Les clés de niveau système, celles des autres utilisateurs et l’authentification Bearer se gèrent dans",
+    "namePlaceholder": "p. ex. Ma clé d’API"
+  },
+  "tokenReveal": {
+    "title": "Clé d’API créée — {{name}}",
+    "titleReset": "Clé d’API réinitialisée — {{name}}",
+    "warning": "Copiez ce jeton maintenant. Il n’est affiché qu’une seule fois et ne pourra pas être récupéré ensuite.",
+    "acknowledge": "J’ai copié et enregistré ce jeton",
+    "done": "Terminé",
+    "copyFailedManual": "La copie a échoué. Sélectionnez le jeton et copiez-le manuellement."
   }
 }

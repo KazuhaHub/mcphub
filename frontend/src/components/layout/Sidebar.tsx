@@ -18,9 +18,7 @@ import {
   Briefcase,
   Plug,
   Key,
-  Fingerprint,
   ShieldCheck,
-  Lock,
   Layers,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,12 +26,10 @@ import { useServerContext } from '@/contexts/ServerContext';
 import { useGroupData } from '@/hooks/useGroupData';
 import { useSettings } from '@/contexts/SettingsContext';
 import {
-  canViewSettings,
-  canViewSystemLogs,
-  getAccountNavKeys,
-  getCredentialsNav,
-  getManageNavKeys,
-  getWorkspaceNavKeys,
+  canUseAdminConsole,
+  getAdminNavKeys,
+  getNavArea,
+  getPersonalNavKeys,
   type NavKey,
 } from '@/utils/navigationPermissions';
 import { usePermissionCheck } from '../PermissionChecker';
@@ -113,7 +109,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = fal
       icon: <Activity className="h-4 w-4" />,
     },
     dashboard: {
-      path: '/',
+      path: '/dashboard',
       label: t('nav.dashboard'),
       icon: <LayoutGrid className="h-4 w-4" />,
       end: true,
@@ -147,65 +143,55 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = fal
       icon: <KeyRound className="h-4 w-4" />,
     },
     keys: { path: '/keys', label: t('nav.keys'), icon: <Key className="h-4 w-4" /> },
-    passkeys: {
-      path: '/passkeys',
-      label: t('passkeys.title'),
-      icon: <Fingerprint className="h-4 w-4" />,
+    users: { path: '/users', label: t('nav.users'), icon: <UsersIcon className="h-4 w-4" /> },
+    activityLog: {
+      path: '/activity',
+      label: t('nav.activity'),
+      icon: <Activity className="h-4 w-4" />,
     },
-    oauthApps: {
-      path: '/oauth-applications',
-      label: t('oauthApprovals.title'),
-      icon: <ShieldCheck className="h-4 w-4" />,
+    logs: { path: '/logs', label: t('nav.logs'), icon: <ScrollText className="h-4 w-4" /> },
+    // The administrator's page for other people's credentials; one's own is `credentials`.
+    userCredentials: {
+      path: '/credentials',
+      label: t('credentials.adminTitle'),
+      icon: <KeyRound className="h-4 w-4" />,
     },
-    password: { path: '/password', label: t('nav.password'), icon: <Lock className="h-4 w-4" /> },
+    settings: {
+      path: '/settings',
+      label: t('nav.settings'),
+      icon: <SettingsIcon className="h-4 w-4" />,
+    },
   };
   const navCtx = {
     isAdmin: Boolean(auth.user?.isAdmin),
     workspaceEnabled,
     resolved: workspaceResolved,
   };
-  const workspaceItems: MenuItem[] = getWorkspaceNavKeys(navCtx).map((key) => allItems[key]);
-  const manageItems: MenuItem[] = getManageNavKeys(navCtx).map((key) => allItems[key]);
-  const accountItems: MenuItem[] = getAccountNavKeys(navCtx).map((key) => allItems[key]);
+  const area = getNavArea(pathname, navCtx);
+  const personalItems: MenuItem[] = getPersonalNavKeys(navCtx).map((key) => allItems[key]);
+  const adminItems: MenuItem[] = getAdminNavKeys(navCtx, {
+    user: auth.user,
+    canManageUsers: Boolean(userCanManageUsers),
+    activityAvailable,
+  }).map((key) => allItems[key]);
 
-  const credentialsNav = getCredentialsNav(navCtx);
-  const systemItems: MenuItem[] = [
-    ...(userCanManageUsers
-      ? [{ path: '/users', label: t('nav.users'), icon: <UsersIcon className="h-4 w-4" /> }]
-      : []),
-    ...(activityAvailable && auth.user?.isAdmin
-      ? [{ path: '/activity', label: t('nav.activity'), icon: <Activity className="h-4 w-4" /> }]
-      : []),
-    ...(canViewSystemLogs(auth.user)
-      ? [{ path: '/logs', label: t('nav.logs'), icon: <ScrollText className="h-4 w-4" /> }]
-      : []),
-    // Only the administrator's page for other people's credentials; one's own are in ACCOUNT.
-    ...(credentialsNav === 'admin'
-      ? [
-          {
-            path: '/credentials',
-            label: t('credentials.adminTitle'),
-            icon: <KeyRound className="h-4 w-4" />,
-          },
+  // With Workspace Mode on only the current area is listed; the profile menu switches between
+  // them. With it off there is one list and the administrator's pages form a System group.
+  const sections: Array<{ title: string; items: MenuItem[] }> = (
+    workspaceEnabled
+      ? area === 'admin'
+        ? [{ title: t('nav.adminConsole'), items: adminItems }]
+        : [{ title: t('nav.workspace'), items: personalItems }]
+      : [
+          { title: t('nav.manage'), items: personalItems },
+          { title: t('nav.system'), items: adminItems },
         ]
-      : []),
-    ...(canViewSettings(auth.user)
-      ? [
-          {
-            path: '/settings',
-            label: t('nav.settings'),
-            icon: <SettingsIcon className="h-4 w-4" />,
-          },
-        ]
-      : []),
-  ];
+  ).filter((section) => section.items.length > 0);
 
-  const sections: Array<{ title: string; items: MenuItem[] }> = [
-    { title: t('nav.workspace'), items: workspaceItems },
-    { title: t('nav.manage'), items: manageItems },
-    { title: t('nav.system'), items: systemItems },
-    { title: t('nav.account'), items: accountItems },
-  ].filter((section) => section.items.length > 0);
+  // Collapsed, the section titles are hidden, so a small marker names the area instead.
+  const showAreaMarker = collapsed && workspaceEnabled && canUseAdminConsole(auth.user);
+  const areaLabel = area === 'admin' ? t('nav.adminConsole') : t('nav.workspace');
+  const AreaIcon = area === 'admin' ? ShieldCheck : Briefcase;
 
   const isCurrent = (item: MenuItem): boolean => {
     if (item.match) return item.match(pathname);
@@ -329,6 +315,14 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, drawer = false, open = fal
           </>
         )}
       </div>
+
+      {showAreaMarker && (
+        <div className="flex justify-center pt-2">
+          <span className="hub-tag" role="img" aria-label={areaLabel} title={areaLabel}>
+            <AreaIcon className="h-3 w-3" aria-hidden="true" />
+          </span>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden py-2">
         {sections.map((section, index) => (

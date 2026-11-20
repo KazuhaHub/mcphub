@@ -157,7 +157,8 @@ export const createBearerKey = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const resolvedOwner = kind === 'user' ? (user.isAdmin ? owner : user.username) : undefined;
+    const resolvedOwner =
+      kind === 'user' ? (user.isAdmin ? owner || user.username : user.username) : undefined;
     if (kind === 'user') {
       if (!resolvedOwner || typeof resolvedOwner !== 'string') {
         res.status(400).json({ success: false, message: 'User-level keys require an owner' });

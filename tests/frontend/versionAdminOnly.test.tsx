@@ -5,7 +5,13 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import UserProfileMenu from '../../frontend/src/components/ui/UserProfileMenu';
 import { useAppVersion, resetAppVersionCache } from '../../frontend/src/hooks/useAppVersion';
 
-jest.mock('react-router-dom', () => ({ useNavigate: () => jest.fn() }));
+jest.mock('react-router-dom', () => ({
+  useNavigate: () => jest.fn(),
+  useLocation: () => ({ pathname: '/dashboard' }),
+}));
+jest.mock('@/contexts/SettingsContext', () => ({
+  useSettings: () => ({ workspaceEnabled: true }),
+}));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
 }));
@@ -62,14 +68,14 @@ describe('version and update information are administrator-only', () => {
     expect(mockFetchInfo).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button'));
     expect(screen.queryByText('about.title')).toBeNull();
-    expect(container.querySelector('.bg-red-500')).toBeNull();
+    expect(container.querySelector('span[style*="--hub-err"]')).toBeNull();
   });
 
   it('keeps About, the update check and the badge for an admin', async () => {
     mockUser = { username: 'root', isAdmin: true };
     const { container } = await act(async () => render(<UserProfileMenu collapsed={false} version="2.6.0" />));
     expect(mockFetchInfo).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.bg-red-500')).not.toBeNull();
+    expect(container.querySelector('span[style*="--hub-err"]')).not.toBeNull();
     fireEvent.click(screen.getAllByRole('button')[0]);
     expect(screen.getByText('about.title')).toBeTruthy();
   });

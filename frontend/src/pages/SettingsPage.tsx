@@ -1,20 +1,19 @@
 import BrandingSettings from '@/components/BrandingSettings';
 import { getRuntimeConfig, getSmartRoutingPath } from '@/utils/runtime';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate, useNavigate } from 'react-router-dom';
-import { canViewSettings } from '@/utils/navigationPermissions';
-import ResetBearerKeyDialog from '@/components/ResetBearerKeyDialog';
-import ChangePasswordForm from '@/components/ChangePasswordForm';
+import { Navigate, useSearchParams } from 'react-router-dom';
+import { canViewSettings, fallbackPath } from '@/utils/navigationPermissions';
+import BearerKeysPanel from '@/components/apiKeys/BearerKeysPanel';
 import { Switch } from '@/components/ui/ToggleGroup';
-import { MultiSelect } from '@/components/ui/MultiSelect';
 import { useSettingsData } from '@/hooks/useSettingsData';
 import { useToast } from '@/contexts/ToastContext';
+import { useSettings } from '@/contexts/SettingsContext';
 import { PermissionChecker } from '@/components/PermissionChecker';
 import { PERMISSIONS } from '@/constants/permissions';
-import { ChevronDown, Copy, Check, Download, Edit, Trash2, Code as CodeIcon, Zap, Database, Wrench, Sparkles, RefreshCw, Route as RouteIcon, Key, Lock, Cloud, SlidersHorizontal, ShieldCheck, Package, KeyRound, FileDown, X, FileText } from 'lucide-react';
+import { ChevronDown, Copy, Check, Download, Code as CodeIcon, Zap, Database, Wrench, Sparkles, RefreshCw, Route as RouteIcon, Key, Lock, Cloud, SlidersHorizontal, ShieldCheck, Package, KeyRound, FileDown, FileText } from 'lucide-react';
 import { EndpointCopy } from '@/components/ui/EndpointCopy';
-import type { BearerKey, User } from '@/types';
+import type { User } from '@/types';
 import { useServerContext } from '@/contexts/ServerContext';
 import { useGroupData } from '@/hooks/useGroupData';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -24,435 +23,12 @@ import SmartRoutingIndexPanel from '@/components/SmartRoutingIndexPanel';
 import ActivityRetentionSetting from '@/components/ActivityRetentionSetting';
 import { useAuth } from '@/contexts/AuthContext';
 import type { LoginMode } from '@/contexts/SettingsContext';
-import { apiGet, apiPost, apiPut } from '@/utils/fetchInterceptor';
-import {
-  filterBearerKeysByScopeFilter,
-  getBearerKeyScopeFilterOptions,
-  type BearerKeyScopeFilterValue,
-} from '@/utils/bearerKeyScopeFilter';
+import { apiGet, apiPost } from '@/utils/fetchInterceptor';
 
 const LOGIN_MODE_LABEL_KEYS: Record<LoginMode, string> = {
   dual: 'settings.loginModeDual',
   sso_first: 'settings.loginModeSsoFirst',
   sso_redirect: 'settings.loginModeSsoRedirect',
-};
-
-interface BearerKeyRowProps {
-  keyData: BearerKey;
-  loading: boolean;
-  availableServers: { value: string; label: string }[];
-  availableGroups: { value: string; label: string }[];
-  isAdmin: boolean;
-  onSave: (
-    id: string,
-    payload: {
-      name: string;
-      enabled: boolean;
-      accessType: 'all' | 'groups' | 'servers' | 'custom' | 'exclude';
-      allowedGroups: string;
-      allowedServers: string;
-      excludedGroups: string;
-      excludedServers: string;
-    },
-  ) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
-  onReset: (key: BearerKey) => void;
-}
-
-const BearerKeyRow: React.FC<BearerKeyRowProps> = ({
-  keyData,
-  loading,
-  availableServers,
-  availableGroups,
-  isAdmin,
-  onSave,
-  onDelete,
-  onReset,
-}) => {
-  const { t } = useTranslation();
-  const [isEditing, setIsEditing] = useState(false);
-  const [name, setName] = useState(keyData.name);
-  const [enabled, setEnabled] = useState<boolean>(keyData.enabled);
-  const [accessType, setAccessType] = useState<'all' | 'groups' | 'servers' | 'custom' | 'exclude'>(
-    keyData.accessType || 'all',
-  );
-  const [selectedGroups, setSelectedGroups] = useState<string[]>(keyData.allowedGroups || []);
-  const [selectedServers, setSelectedServers] = useState<string[]>(keyData.allowedServers || []);
-  const [excludedGroups, setExcludedGroups] = useState<string[]>(keyData.excludedGroups || []);
-  const [excludedServers, setExcludedServers] = useState<string[]>(keyData.excludedServers || []);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  useEffect(() => {
-    if (!isEditing) {
-      setName(keyData.name);
-      setEnabled(keyData.enabled);
-      setAccessType(keyData.accessType || 'all');
-      setSelectedGroups(keyData.allowedGroups || []);
-      setSelectedServers(keyData.allowedServers || []);
-      setExcludedGroups(keyData.excludedGroups || []);
-      setExcludedServers(keyData.excludedServers || []);
-    }
-  }, [keyData, isEditing]);
-
-  const { showToast } = useToast();
-  const isSystemKey = (keyData.kind ?? 'system') === 'system';
-
-  const handleSave = async () => {
-    if (accessType === 'groups' && selectedGroups.length === 0) {
-      showToast(t('settings.selectAtLeastOneGroup') || 'Please select at least one group', 'error');
-      return;
-    }
-    if (isSystemKey && accessType === 'servers' && selectedServers.length === 0) {
-      showToast(
-        t('settings.selectAtLeastOneServer') || 'Please select at least one server',
-        'error',
-      );
-      return;
-    }
-    if (isSystemKey && accessType === 'custom' && selectedGroups.length === 0 && selectedServers.length === 0) {
-      showToast(
-        t('settings.selectAtLeastOneGroupOrServer') || 'Please select at least one group or server',
-        'error',
-      );
-      return;
-    }
-    if (isSystemKey && accessType === 'exclude' && excludedGroups.length === 0 && excludedServers.length === 0) {
-      showToast(
-        t('settings.selectAtLeastOneExcludedGroupOrServer') ||
-          'Please select at least one group or server to exclude',
-        'error',
-      );
-      return;
-    }
-
-    setSaving(true);
-    try {
-      await onSave(keyData.id, {
-        name,
-        enabled,
-        accessType,
-        allowedGroups: selectedGroups.join(', '),
-        allowedServers: selectedServers.join(', '),
-        excludedGroups: excludedGroups.join(', '),
-        excludedServers: excludedServers.join(', '),
-      });
-      setIsEditing(false);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!window.confirm(t('settings.deleteBearerKeyConfirm') || 'Delete this key?')) {
-      return;
-    }
-    setDeleting(true);
-    try {
-      await onDelete(keyData.id);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const isGroupsMode = accessType === 'groups' || !isSystemKey;
-  const isCustomMode = accessType === 'custom';
-  const isExcludeMode = accessType === 'exclude';
-
-  // Helper function to format access type display text
-  const formatAccessTypeDisplay = (key: BearerKey): string => {
-    if ((key.kind ?? 'system') === 'user' && key.accessType === 'all') {
-      return `${t('settings.bearerKeyAccessUserVisibility') || 'User visibility'}${key.owner ? ` · ${key.owner}` : ''}`;
-    }
-    if (key.accessType === 'all') {
-      return t('settings.bearerKeyAccessAll') || 'All Resources';
-    }
-    if (key.accessType === 'groups') {
-      return `${t('settings.bearerKeyAccessGroups') || 'Groups'}: ${(key.allowedGroups ?? []).map((id) => availableGroups.find((group) => group.value === id)?.label ?? id).join(', ')}`;
-    }
-    if (key.accessType === 'servers') {
-      return `${t('settings.bearerKeyAccessServers') || 'Servers'}: ${key.allowedServers}`;
-    }
-    if (key.accessType === 'custom') {
-      const parts: string[] = [];
-      if (key.allowedGroups && key.allowedGroups.length > 0) {
-        parts.push(`${t('settings.bearerKeyAccessGroups') || 'Groups'}: ${key.allowedGroups}`);
-      }
-      if (key.allowedServers && key.allowedServers.length > 0) {
-        parts.push(`${t('settings.bearerKeyAccessServers') || 'Servers'}: ${key.allowedServers}`);
-      }
-      return `${t('settings.bearerKeyAccessCustom') || 'Custom'}: ${parts.join('; ')}`;
-    }
-    if (key.accessType === 'exclude') {
-      const parts: string[] = [];
-      if (key.excludedGroups && key.excludedGroups.length > 0) {
-        parts.push(
-          `${t('settings.bearerKeyExcludedGroups') || 'Excluded groups'}: ${key.excludedGroups}`,
-        );
-      }
-      if (key.excludedServers && key.excludedServers.length > 0) {
-        parts.push(
-          `${t('settings.bearerKeyExcludedServers') || 'Excluded servers'}: ${key.excludedServers}`,
-        );
-      }
-      return `${t('settings.bearerKeyAccessExclude') || 'All except'}: ${parts.join('; ')}`;
-    }
-    return '';
-  };
-
-  const editForm = isEditing ? (
-      <tr>
-        <td colSpan={5} className="p-0 border-b border-gray-200 dark:border-gray-700">
-          <div className="bg-gray-50 dark:bg-gray-800 p-5">
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
-              <div className="md:col-span-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('settings.bearerKeyName') || 'Name'}
-                </label>
-                <input
-                  type="text"
-                  className="block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-input transition-shadow duration-200"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  disabled={loading}
-                />
-              </div>
-              <div className="md:col-span-9">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('settings.bearerKeyToken') || 'Token'}
-                </label>
-                <div className="py-2 px-3 text-sm font-mono text-gray-500">
-                  {keyData.tokenPrefix ? `${keyData.tokenPrefix}...` : keyData.token}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="w-40">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('settings.bearerKeyEnabled') || 'Status'}
-                </label>
-                <div className="flex items-center h-[38px] px-3 bg-white dark:bg-gray-800 border border-gray-300 rounded-md">
-                  <span
-                    className={`text-sm mr-3 ${enabled ? 'text-green-600 font-medium' : 'text-gray-500'}`}
-                  >
-                    {enabled ? 'Active' : 'Inactive'}
-                  </span>
-                  <Switch
-                    disabled={loading}
-                    checked={enabled}
-                    onCheckedChange={(checked) => setEnabled(checked)}
-                  />
-                </div>
-              </div>
-
-              <div className="w-48">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('settings.bearerKeyAccessType') || 'Access scope'}
-                </label>
-                <select
-                  className="block w-full py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-select transition-shadow duration-200"
-                  value={accessType}
-                  onChange={(e) =>
-                    setAccessType(
-                      e.target.value as 'all' | 'groups' | 'servers' | 'custom' | 'exclude',
-                    )
-                  }
-                  disabled={loading}
-                >
-                  <option value="all">{t(isSystemKey ? 'settings.bearerKeyAccessAll' : 'settings.bearerKeyAccessUserVisibility')}</option>
-                  <option value="groups">
-                    {t('settings.bearerKeyAccessGroups') || 'Specific Groups'}
-                  </option>
-                  {isSystemKey && (
-                    <>
-                      <option value="servers">
-                        {t('settings.bearerKeyAccessServers') || 'Specific Servers'}
-                      </option>
-                      <option value="custom">
-                        {t('settings.bearerKeyAccessCustom') || 'Custom (Groups & Servers)'}
-                      </option>
-                      <option value="exclude">
-                        {t('settings.bearerKeyAccessExclude') || 'All except selected groups/servers'}
-                      </option>
-                    </>
-                  )}
-                </select>
-              </div>
-
-              {!isSystemKey && <p className="w-full text-sm text-gray-500">{t('settings.bearerKeyPersonalScopeHint')}</p>}
-
-              {/* Show single selector for groups or servers mode */}
-              {!isCustomMode && !isExcludeMode && (
-                <div className="flex-1 min-w-[200px]">
-                  <label
-                    className={`block text-sm font-medium mb-1 ${accessType === 'all' ? 'text-gray-400' : 'text-gray-700'}`}
-                  >
-                    {isGroupsMode
-                      ? t('settings.bearerKeyAllowedGroups') || 'Allowed groups'
-                      : t('settings.bearerKeyAllowedServers') || 'Allowed servers'}
-                  </label>
-                  <MultiSelect
-                    options={isGroupsMode ? availableGroups : availableServers}
-                    selected={isGroupsMode ? selectedGroups : selectedServers}
-                    onChange={isGroupsMode ? setSelectedGroups : setSelectedServers}
-                    placeholder={
-                      isGroupsMode
-                        ? t('settings.selectGroups') || 'Select groups...'
-                        : t('settings.selectServers') || 'Select servers...'
-                    }
-                    disabled={loading || accessType === 'all'}
-                  />
-                </div>
-              )}
-
-              {/* Show both selectors for custom mode */}
-              {isAdmin && isSystemKey && isCustomMode && (
-                <>
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t('settings.bearerKeyAllowedGroups') || 'Allowed groups'}
-                    </label>
-                    <MultiSelect
-                      options={availableGroups}
-                      selected={selectedGroups}
-                      onChange={setSelectedGroups}
-                      placeholder={t('settings.selectGroups') || 'Select groups...'}
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t('settings.bearerKeyAllowedServers') || 'Allowed servers'}
-                    </label>
-                    <MultiSelect
-                      options={availableServers}
-                      selected={selectedServers}
-                      onChange={setSelectedServers}
-                      placeholder={t('settings.selectServers') || 'Select servers...'}
-                      disabled={loading}
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* Show both selectors for exclude mode */}
-              {isAdmin && isSystemKey && isExcludeMode && (
-                <>
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t('settings.bearerKeyExcludedGroups') || 'Excluded groups'}
-                    </label>
-                    <MultiSelect
-                      options={availableGroups}
-                      selected={excludedGroups}
-                      onChange={setExcludedGroups}
-                      placeholder={t('settings.selectGroups') || 'Select groups...'}
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t('settings.bearerKeyExcludedServers') || 'Excluded servers'}
-                    </label>
-                    <MultiSelect
-                      options={availableServers}
-                      selected={excludedServers}
-                      onChange={setExcludedServers}
-                      placeholder={t('settings.selectServers') || 'Select servers...'}
-                      disabled={loading}
-                    />
-                  </div>
-                </>
-              )}
-
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(false)}
-                  className="hub-btn"
-                >
-                  {t('common.cancel') || 'Cancel'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={loading || saving}
-                  className="hub-btn primary"
-                >
-                  {saving ? t('common.saving') || 'Saving...' : t('common.save') || 'Save'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </td>
-      </tr>
-  ) : null;
-
-  return (
-    <>
-    <tr className="hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700">
-      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-        {keyData.name}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-        <div className="flex items-center gap-2">
-          <span>
-            {keyData.tokenPrefix ? `${keyData.tokenPrefix}...` : keyData.token}
-          </span>
-        </div>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm">
-        <span className={`hub-status ${keyData.enabled ? 'ok' : 'muted'}`}>
-          <span className="hub-dot" />
-          {keyData.enabled ? t('common.active') || 'Active' : t('common.inactive') || 'Inactive'}
-        </span>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-        {formatAccessTypeDisplay(keyData)}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-        <button
-          onClick={() => setIsEditing((editing) => !editing)}
-          disabled={loading || saving}
-          aria-expanded={isEditing}
-          aria-label={t(isEditing ? 'common.cancel' : 'common.edit')}
-          className="text-blue-600 hover:text-blue-900 mr-4 inline-flex items-center"
-          title={t(isEditing ? 'common.cancel' : 'common.edit')}
-        >
-          {isEditing ? <X className="h-4 w-4" /> : <Edit className="h-4 w-4" />}
-        </button>
-        <button
-          onClick={() => onReset(keyData)}
-          disabled={loading || saving || deleting}
-          className="text-blue-600 hover:text-blue-900 mr-4 inline-flex items-center"
-          title={t('settings.resetBearerKey')}
-          aria-label={t('settings.resetBearerKey')}
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
-        <button
-          onClick={() => onReset(keyData)}
-          disabled={loading || deleting}
-          className="text-blue-600 hover:text-blue-900 mr-4 inline-flex items-center"
-          title={t('settings.resetBearerKey')}
-          aria-label={t('settings.resetBearerKey')}
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
-        <button
-          onClick={handleDelete}
-          disabled={loading || saving || deleting}
-          className="text-red-600 hover:text-red-900 inline-flex items-center"
-          title={t('common.delete') || 'Delete'}
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </td>
-    </tr>
-    {editForm}
-    </>
-  );
 };
 
 /**
@@ -612,11 +188,8 @@ const DEFAULT_OIDC_SCOPES = ['openid', 'profile', 'email'];
  * What this page shows. `system` is the administrator's settings; the personal items that used
  * to sit among them are pages of their own: `keys` (API keys) and `password`.
  */
-export type SettingsView = 'system' | 'keys' | 'password';
-
-const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
+const SettingsContent: React.FC = () => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { showToast } = useToast();
   const { allServers: servers } = useServerContext(); // Use allServers for settings (not paginated)
   const { groups } = useGroupData();
@@ -740,11 +313,7 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
   });
 
   const [tempNameSeparator, setTempNameSeparator] = useState<string>('-');
-  const [showAddBearerKeyForm, setShowAddBearerKeyForm] = useState(false);
-  const [keyToReset, setKeyToReset] = useState<BearerKey | null>(null);
-  const [createdBearerToken, setCreatedBearerToken] = useState('');
   const [users, setUsers] = useState<User[]>([]);
-  const [bearerKeyScopeFilter, setBearerKeyScopeFilter] = useState<BearerKeyScopeFilterValue>('all');
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [showClearCacheDialog, setShowClearCacheDialog] = useState(false);
 
@@ -791,9 +360,6 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
     activityRetentionDays,
     activityViewDays,
     exportMCPSettings,
-    createBearerKey,
-    updateBearerKey,
-    deleteBearerKey,
     refreshBearerKeys,
   } = useSettingsData();
 
@@ -969,22 +535,6 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
     });
   }, [isAdmin]);
 
-  const bearerKeyScopeFilterOptions = useMemo(
-    () => getBearerKeyScopeFilterOptions(t, bearerKeys, users),
-    [t, bearerKeys, users],
-  );
-
-  const filteredBearerKeys = useMemo(
-    () => filterBearerKeysByScopeFilter(bearerKeys, bearerKeyScopeFilter),
-    [bearerKeys, bearerKeyScopeFilter],
-  );
-
-  useEffect(() => {
-    if (!bearerKeyScopeFilterOptions.some((option) => option.value === bearerKeyScopeFilter)) {
-      setBearerKeyScopeFilter('all');
-    }
-  }, [bearerKeyScopeFilter, bearerKeyScopeFilterOptions]);
-
   const [sectionsVisible, setSectionsVisible] = useState({
     routingConfig: false,
     installConfig: false,
@@ -994,10 +544,19 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
     betterAuthConfig: false,
     mcpRouterConfig: false,
     nameSeparator: false,
-    password: view === 'password',
     exportConfig: false,
-    bearerKeys: view === 'keys',
+    authentication: false,
   });
+
+  // `?section=authentication` (the API keys page links here) opens that section and scrolls to it.
+  const [searchParams] = useSearchParams();
+  const authenticationRef = useRef<HTMLDivElement>(null);
+  const wantsAuthentication = isAdmin && searchParams.get('section') === 'authentication';
+  useEffect(() => {
+    if (!wantsAuthentication) return;
+    setSectionsVisible((prev) => ({ ...prev, authentication: true }));
+    authenticationRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [wantsAuthentication]);
 
   const toggleSection = (
     section:
@@ -1009,9 +568,8 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
       | 'betterAuthConfig'
       | 'mcpRouterConfig'
       | 'nameSeparator'
-      | 'password'
       | 'exportConfig'
-      | 'bearerKeys',
+      | 'authentication',
   ) => {
     setSectionsVisible((prev) => ({
       ...prev,
@@ -1717,66 +1275,8 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
     }
   };
 
-  const handlePasswordChangeSuccess = () => {
-    setTimeout(() => {
-      navigate('/');
-    }, 2000);
-  };
-
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [mcpSettingsJson, setMcpSettingsJson] = useState<string>('');
-
-  const [newBearerKey, setNewBearerKey] = useState<{
-    name: string;
-    enabled: boolean;
-    kind: 'system' | 'user';
-    owner: string;
-    accessType: 'all' | 'groups' | 'servers' | 'custom' | 'exclude';
-    allowedGroups: string;
-    allowedServers: string;
-    excludedGroups: string;
-    excludedServers: string;
-  }>({
-    name: '',
-    enabled: true,
-    kind: 'system',
-    owner: '',
-    accessType: 'all',
-    allowedGroups: '',
-    allowedServers: '',
-    excludedGroups: '',
-    excludedServers: '',
-  });
-
-  const [newSelectedGroups, setNewSelectedGroups] = useState<string[]>([]);
-  const [newSelectedServers, setNewSelectedServers] = useState<string[]>([]);
-  const [newSelectedExcludedGroups, setNewSelectedExcludedGroups] = useState<string[]>([]);
-  const [newSelectedExcludedServers, setNewSelectedExcludedServers] = useState<string[]>([]);
-
-  // Prepare options for MultiSelect
-  const availableServers = servers.map((server) => ({
-    value: server.name,
-    label: server.name,
-  }));
-
-  const personalGroupOptions = groups.map((group) => ({
-    value: group.id,
-    label: group.name,
-  }));
-
-  const availableGroups = groups.map((group) => ({ value: group.name, label: group.name }));
-
-  const newUsesGroupSelector = newBearerKey.accessType === 'groups' || !isAdmin || newBearerKey.kind === 'user';
-
-  // Reset selected arrays when accessType changes
-  useEffect(() => {
-    if (newBearerKey.accessType !== 'groups' && newBearerKey.accessType !== 'custom') {
-      setNewSelectedGroups([]);
-    }
-    if (newBearerKey.accessType !== 'servers' && newBearerKey.accessType !== 'custom') {
-      setNewSelectedServers([]);
-    }
-  }, [newBearerKey.accessType]);
 
   const fetchMcpSettings = async () => {
     try {
@@ -1854,158 +1354,18 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
     return parts.length > 0 ? parts : undefined;
   };
 
-  const handleCreateBearerKey = async () => {
-    if (!newBearerKey.name) {
-      showToast(t('settings.bearerKeyNameRequired') || 'Name is required', 'error');
-      return;
-    }
-
-    if (isAdmin && newBearerKey.kind === 'user' && !newBearerKey.owner) {
-      showToast(t('settings.bearerKeyOwnerRequired') || 'Owner is required', 'error');
-      return;
-    }
-
-    if (newBearerKey.accessType === 'groups' && newSelectedGroups.length === 0) {
-      showToast(t('settings.selectAtLeastOneGroup') || 'Please select at least one group', 'error');
-      return;
-    }
-    if (newBearerKey.kind === 'system' && newBearerKey.accessType === 'servers' && newSelectedServers.length === 0) {
-      showToast(
-        t('settings.selectAtLeastOneServer') || 'Please select at least one server',
-        'error',
-      );
-      return;
-    }
-    if (
-      newBearerKey.kind === 'system' &&
-      newBearerKey.accessType === 'custom' &&
-      newSelectedGroups.length === 0 &&
-      newSelectedServers.length === 0
-    ) {
-      showToast(
-        t('settings.selectAtLeastOneGroupOrServer') || 'Please select at least one group or server',
-        'error',
-      );
-      return;
-    }
-    if (
-      newBearerKey.kind === 'system' &&
-      newBearerKey.accessType === 'exclude' &&
-      newSelectedExcludedGroups.length === 0 &&
-      newSelectedExcludedServers.length === 0
-    ) {
-      showToast(
-        t('settings.selectAtLeastOneExcludedGroupOrServer') ||
-          'Please select at least one group or server to exclude',
-        'error',
-      );
-      return;
-    }
-
-    const created = await createBearerKey({
-      name: newBearerKey.name,
-      enabled: newBearerKey.enabled,
-      kind: isAdmin ? newBearerKey.kind : 'user',
-      owner: isAdmin && newBearerKey.kind === 'user' ? newBearerKey.owner : undefined,
-      accessType: newBearerKey.accessType,
-      allowedGroups:
-        (newBearerKey.accessType === 'groups' || newBearerKey.accessType === 'custom') &&
-        newSelectedGroups.length > 0
-          ? newSelectedGroups
-          : undefined,
-      allowedServers:
-        (newBearerKey.accessType === 'servers' || newBearerKey.accessType === 'custom') &&
-        newSelectedServers.length > 0
-          ? newSelectedServers
-          : undefined,
-      excludedGroups:
-        newBearerKey.accessType === 'exclude' && newSelectedExcludedGroups.length > 0
-          ? newSelectedExcludedGroups
-          : undefined,
-      excludedServers:
-        newBearerKey.accessType === 'exclude' && newSelectedExcludedServers.length > 0
-          ? newSelectedExcludedServers
-          : undefined,
-    } as any);
-    if (!created) return;
-    setCreatedBearerToken(created.token);
-
-    setNewBearerKey({
-      name: '',
-      enabled: true,
-      kind: 'system',
-      owner: '',
-      accessType: 'all',
-      allowedGroups: '',
-      allowedServers: '',
-      excludedGroups: '',
-      excludedServers: '',
-    });
-    setNewSelectedGroups([]);
-    setNewSelectedServers([]);
-    setNewSelectedExcludedGroups([]);
-    setNewSelectedExcludedServers([]);
-    await refreshBearerKeys();
-  };
-
-  const handleSaveExistingBearerKey = async (
-    id: string,
-    payload: {
-      name: string;
-      enabled: boolean;
-      accessType: 'all' | 'groups' | 'servers' | 'custom' | 'exclude';
-      allowedGroups: string;
-      allowedServers: string;
-      excludedGroups: string;
-      excludedServers: string;
-    },
-  ) => {
-    await updateBearerKey(id, {
-      name: payload.name,
-      enabled: payload.enabled,
-      accessType: payload.accessType,
-      allowedGroups: parseCommaSeparated(payload.allowedGroups),
-      allowedServers: parseCommaSeparated(payload.allowedServers),
-      excludedGroups: parseCommaSeparated(payload.excludedGroups),
-      excludedServers: parseCommaSeparated(payload.excludedServers),
-    } as any);
-    await refreshBearerKeys();
-  };
-
-  const handleDeleteExistingBearerKey = async (id: string) => {
-    await deleteBearerKey(id);
-    await refreshBearerKeys();
-  };
-
   return (
     <div>
       <div className="mb-6">
         <h1 className="hub-h1">
-          {t(
-            view === 'keys'
-              ? 'nav.keys'
-              : view === 'password'
-                ? 'nav.password'
-                : 'pages.settings.title',
-          )}
+          {t('pages.settings.title')}
         </h1>
         <p className="hub-sub">
-          {view === 'system' ? t('settings.subtitle') || '' : ''}
+          {t('settings.subtitle') || ''}
         </p>
       </div>
 
-      {keyToReset && (
-        <ResetBearerKeyDialog
-          keyData={keyToReset}
-          onClose={() => setKeyToReset(null)}
-          onReset={async () => {
-            setCreatedBearerToken('');
-            await refreshBearerKeys();
-          }}
-        />
-      )}
-
-      {view === 'system' && isAdmin && (
+      {isAdmin && (
         <ToolPolicyPanel
           nameSeparator={nameSeparator}
           rules={toolPolicies}
@@ -2020,31 +1380,59 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
         />
       )}
 
-      {/* Bearer Keys Settings */}
-      {view === 'keys' && (
-        <div className="hub-card mb-4 overflow-visible">
-          {(
-            <div className="hub-reveal space-y-4 p-4">
-              {createdBearerToken && (
-                <div className="p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-300 text-sm">
-                  <div className="font-medium">
-                    {t('settings.bearerKeyShownOnce') || 'Copy this token now. It will not be shown again.'}
-                  </div>
-                  <div className="mt-2 font-mono break-all">{createdBearerToken}</div>
-                </div>
-              )}
-              {isAdmin && <>
-              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+      {/* Authentication: bearer authentication and the keys behind it (administrators only) */}
+      {isAdmin && (
+        <div
+          id="settings-authentication"
+          ref={authenticationRef}
+          className="hub-card mb-4 overflow-visible"
+        >
+          <div
+            className="flex justify-between items-center cursor-pointer transition-colors duration-100 hover:bg-[var(--hub-surface-hover)] hub-disclosure px-4 py-3"
+            onClick={() => toggleSection('authentication')}
+          >
+            <div className="flex items-center gap-2.5">
+              <KeyRound size={15} className="text-[var(--hub-ink-2)]" />
+              <h2 className="text-[16px] font-semibold text-[var(--hub-ink)]">
+                <button
+                  type="button"
+                  className="text-left"
+                  aria-expanded={sectionsVisible.authentication}
+                >
+                  {t('settings.authenticationSection')}
+                </button>
+              </h2>
+            </div>
+            <span className="text-[var(--hub-ink-3)]">
+              <ChevronDown
+                size={16}
+                className={'hub-chevron' + (sectionsVisible.authentication ? ' open' : '')}
+                aria-hidden
+              />
+            </span>
+          </div>
+
+          {sectionsVisible.authentication && (
+            <div className="hub-reveal space-y-4 px-4 pb-4 pt-4 border-t border-[var(--hub-line-2)]">
+              <p className="text-sm" style={{ color: 'var(--hub-ink-3)' }}>
+                {t('settings.authenticationSectionDescription')}
+              </p>
+
+              <div
+                className="flex items-center justify-between gap-4 rounded-md p-3"
+                style={{ background: 'var(--hub-bg-2)' }}
+              >
                 <div>
-                  <h3 className="font-medium text-gray-700">
+                  <h3 className="font-medium">
                     {t('settings.enableBearerAuth') || 'Enable Bearer Authentication'}
                   </h3>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm" style={{ color: 'var(--hub-ink-3)' }}>
                     {t('settings.enableBearerAuthDescription') ||
                       'Require bearer token authentication for MCP requests'}
                   </p>
                 </div>
                 <Switch
+                  aria-label={t('settings.enableBearerAuth')}
                   disabled={loading}
                   checked={routingConfig.enableBearerAuth}
                   onCheckedChange={(checked) =>
@@ -2052,26 +1440,26 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
                   }
                 />
               </div>
-              </>}
 
-              {isAdmin && <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+              <div className="rounded-md p-3" style={{ background: 'var(--hub-bg-2)' }}>
                 <div className="mb-2">
-                  <h3 className="font-medium text-gray-700">
+                  <label htmlFor="bearer-auth-header-name" className="font-medium">
                     {t('settings.bearerAuthHeaderName')}
-                  </h3>
-                  <p className="text-sm text-gray-500">
+                  </label>
+                  <p className="text-sm" style={{ color: 'var(--hub-ink-3)' }}>
                     {t('settings.bearerAuthHeaderNameDescription')}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
                   <input
+                    id="bearer-auth-header-name"
                     type="text"
                     value={tempRoutingConfig.bearerAuthHeaderName}
                     onChange={(e) =>
                       handleTempRoutingConfigChange('bearerAuthHeaderName', e.target.value)
                     }
                     placeholder={t('settings.bearerAuthHeaderNamePlaceholder')}
-                    className="flex-1 mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-input"
+                    className="hub-input flex-1"
                     disabled={loading}
                   />
                   <button
@@ -2087,19 +1475,31 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
                     {t('common.save')}
                   </button>
                 </div>
-              </div>}
+              </div>
 
-              {isAdmin && !getRuntimeConfig().isHosted && (
-                <div className="flex items-start justify-between gap-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
-                  <div className="min-w-0">
-                    <h3 id="authorization-passthrough-label" className="font-medium text-gray-700">
-                      {t('settings.allowAuthorizationPassthrough')}
-                    </h3>
-                    <p id="authorization-passthrough-description" className="text-sm text-gray-500">
-                      {t('settings.allowAuthorizationPassthroughDescription')}
-                    </p>
+              {!getRuntimeConfig().isHosted && (
+                <div
+                  className="flex items-start justify-between gap-4 rounded-md p-3"
+                  style={{ background: 'var(--hub-bg-2)' }}
+                >
+                  <div className="min-w-0 space-y-2">
+                    <div>
+                      <h3 id="authorization-passthrough-label" className="font-medium">
+                        {t('settings.allowAuthorizationPassthrough')}
+                      </h3>
+                      <p
+                        id="authorization-passthrough-description"
+                        className="text-sm"
+                        style={{ color: 'var(--hub-ink-3)' }}
+                      >
+                        {t('settings.allowAuthorizationPassthroughDescription')}
+                      </p>
+                    </div>
                     {usesDefaultBearerHeader && (
-                      <p id="authorization-passthrough-requirement" className="mt-1 text-sm text-amber-700 dark:text-amber-400">
+                      <p
+                        id="authorization-passthrough-requirement"
+                        className="hub-callout warn text-sm"
+                      >
                         {t('settings.allowAuthorizationPassthroughRequirement')}
                       </p>
                     )}
@@ -2113,7 +1513,8 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
                     }
                     className="shrink-0 mt-1"
                     disabled={
-                      loading || (!routingConfig.allowAuthorizationPassthrough && usesDefaultBearerHeader)
+                      loading ||
+                      (!routingConfig.allowAuthorizationPassthrough && usesDefaultBearerHeader)
                     }
                     checked={routingConfig.allowAuthorizationPassthrough}
                     onCheckedChange={(checked) =>
@@ -2123,368 +1524,12 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
                 </div>
               )}
 
-              <div className="flex flex-wrap justify-between items-center gap-3">
-                <p className="text-sm text-gray-600">
-                  {t('settings.bearerKeysSectionDescription') ||
-                    'Manage multiple bearer authentication keys with different access scopes.'}
-                </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  {bearerKeys.length > 0 && bearerKeyScopeFilterOptions.length > 1 && (
-                    <div className="flex items-center gap-2">
-                      <label htmlFor="bearer-key-scope-filter" className="text-sm text-gray-600 whitespace-nowrap">
-                        {t('settings.bearerKeyScopeFilter') || 'Filter by scope'}
-                      </label>
-                      <select
-                        id="bearer-key-scope-filter"
-                        className="block min-w-48 py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-select transition-shadow duration-200"
-                        value={bearerKeyScopeFilter}
-                        onChange={(e) => setBearerKeyScopeFilter(e.target.value as BearerKeyScopeFilterValue)}
-                      >
-                        {bearerKeyScopeFilterOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  {!showAddBearerKeyForm && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAddBearerKeyForm(true)}
-                      className="flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors duration-200"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-5 w-5 mr-1"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                      {t('settings.addBearerKey') || 'Add bearer key'}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Existing keys */}
-              {bearerKeys.length === 0 ? (
-                <p className="text-sm text-gray-500">
-                  {t('settings.noBearerKeys') || 'No bearer keys configured yet.'}
-                </p>
-              ) : (
-                <div className="mt-2 overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg">
-                    <thead className="bg-gray-50 dark:bg-gray-800">
-                      <tr>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          {t('settings.bearerKeyName') || 'Name'}
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          {t('settings.bearerKeyToken') || 'Token'}
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          {t('settings.bearerKeyEnabled') || 'Status'}
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          {t('settings.bearerKeyAccessType') || 'Access Scope'}
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          {t('common.actions') || 'Actions'}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                      {filteredBearerKeys.map((key) => (
-                        <BearerKeyRow
-                          key={key.id}
-                          keyData={key}
-                          loading={loading}
-                          availableServers={availableServers}
-                          availableGroups={(key.kind ?? 'system') === 'system' ? availableGroups : personalGroupOptions}
-                          isAdmin={isAdmin}
-                          onSave={handleSaveExistingBearerKey}
-                          onDelete={handleDeleteExistingBearerKey}
-                          onReset={setKeyToReset}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* New key form */}
-              {showAddBearerKeyForm && (
-                <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-5 border border-gray-200 dark:border-gray-700">
-                    <h3 className="font-medium text-gray-900 mb-4 flex items-center gap-2">
-                      <span className="bg-blue-100 text-blue-600 p-1 rounded">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-4 w-4"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      </span>
-                      {t('settings.addBearerKey') || 'Add bearer key'}
-                    </h3>
-
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
-                      <div className="md:col-span-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {t('settings.bearerKeyName') || 'Name'}
-                        </label>
-                        <input
-                          type="text"
-                          className="block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-input transition-shadow duration-200"
-                          placeholder="e.g. My API Key"
-                          value={newBearerKey.name}
-                          onChange={(e) =>
-                            setNewBearerKey((prev) => ({ ...prev, name: e.target.value }))
-                          }
-                          disabled={loading}
-                        />
-                      </div>
-                      {isAdmin && <div className="md:col-span-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {t('settings.bearerKeyKind') || 'Key type'}
-                        </label>
-                        <select
-                          className="block w-full py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 rounded-md sm:text-sm form-select"
-                          value={newBearerKey.kind}
-                          onChange={(e) => setNewBearerKey((prev) => ({ ...prev, kind: e.target.value as 'system' | 'user', accessType: 'all' }))}
-                        >
-                          <option value="system">{t('settings.bearerKeyKindSystem') || 'System-level'}</option>
-                          <option value="user">{t('settings.bearerKeyKindUser') || 'User-level'}</option>
-                        </select>
-                      </div>}
-                      {isAdmin && newBearerKey.kind === 'user' && <div className="md:col-span-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {t('settings.bearerKeyOwner') || 'Owner'}
-                        </label>
-                        <select
-                          className="block w-full py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 rounded-md sm:text-sm form-select"
-                          value={newBearerKey.owner}
-                          onChange={(e) => setNewBearerKey((prev) => ({ ...prev, owner: e.target.value }))}
-                        >
-                          <option value="">{t('settings.bearerKeySelectOwner') || 'Select user...'}</option>
-                          {users.map((user) => <option key={user.username} value={user.username}>{user.username}</option>)}
-                        </select>
-                      </div>}
-                    </div>
-
-                    <div className="flex flex-wrap items-end gap-4 mb-2">
-                      <div className="w-40">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {t('settings.bearerKeyEnabled') || 'Status'}
-                        </label>
-                        <div className="flex items-center h-[38px] px-3 bg-white dark:bg-gray-800 border border-gray-300 rounded-md">
-                          <span
-                            className={`text-sm mr-3 ${newBearerKey.enabled ? 'text-green-600 font-medium' : 'text-gray-500'}`}
-                          >
-                            {newBearerKey.enabled ? 'Active' : 'Inactive'}
-                          </span>
-                          <Switch
-                            disabled={loading}
-                            checked={newBearerKey.enabled}
-                            onCheckedChange={(checked) =>
-                              setNewBearerKey((prev) => ({ ...prev, enabled: checked }))
-                            }
-                          />
-                        </div>
-                      </div>
-
-                      <div className="w-48">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {t('settings.bearerKeyAccessType') || 'Access scope'}
-                        </label>
-                        <select
-                          className="block w-full py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm form-select transition-shadow duration-200"
-                          value={newBearerKey.accessType}
-                          onChange={(e) =>
-                            setNewBearerKey((prev) => ({
-                              ...prev,
-                              accessType: e.target.value as
-                                | 'all'
-                                | 'groups'
-                                | 'servers'
-                                | 'custom'
-                                | 'exclude',
-                            }))
-                          }
-                          disabled={loading}
-                        >
-                          <option value="all">
-                            {t(isAdmin && newBearerKey.kind === 'system' ? 'settings.bearerKeyAccessAll' : 'settings.bearerKeyAccessUserVisibility')}
-                          </option>
-                          <option value="groups">
-                            {t('settings.bearerKeyAccessGroups') || 'Specific Groups'}
-                          </option>
-                          {isAdmin && newBearerKey.kind === 'system' && (
-                            <>
-                              <option value="servers">
-                                {t('settings.bearerKeyAccessServers') || 'Specific Servers'}
-                              </option>
-                              <option value="custom">
-                                {t('settings.bearerKeyAccessCustom') || 'Custom (Groups & Servers)'}
-                              </option>
-                              <option value="exclude">
-                                {t('settings.bearerKeyAccessExclude') ||
-                                  'All except selected groups/servers'}
-                              </option>
-                            </>
-                          )}
-                        </select>
-                      </div>
-
-                      {(!isAdmin || newBearerKey.kind === 'user') && <p className="w-full text-sm text-gray-500">{t('settings.bearerKeyPersonalScopeHint')}</p>}
-
-                      {newBearerKey.accessType !== 'custom' && newBearerKey.accessType !== 'exclude' && (
-                        <div className="flex-1 min-w-[200px]">
-                          <label
-                            className={`block text-sm font-medium mb-1 ${newBearerKey.accessType === 'all' ? 'text-gray-400' : 'text-gray-700'}`}
-                          >
-                            {newUsesGroupSelector
-                              ? t('settings.bearerKeyAllowedGroups') || 'Allowed groups'
-                              : t('settings.bearerKeyAllowedServers') || 'Allowed servers'}
-                          </label>
-                          <MultiSelect
-                            options={
-                              newUsesGroupSelector
-                                ? (isAdmin && newBearerKey.kind === 'system' ? availableGroups : personalGroupOptions)
-                                : availableServers
-                            }
-                            selected={
-                              newUsesGroupSelector
-                                ? newSelectedGroups
-                                : newSelectedServers
-                            }
-                            onChange={
-                              newUsesGroupSelector
-                                ? setNewSelectedGroups
-                                : setNewSelectedServers
-                            }
-                            placeholder={
-                              newUsesGroupSelector
-                                ? t('settings.selectGroups') || 'Select groups...'
-                                : t('settings.selectServers') || 'Select servers...'
-                            }
-                            disabled={loading || newBearerKey.accessType === 'all'}
-                          />
-                        </div>
-                      )}
-
-                      {isAdmin && newBearerKey.kind === 'system' && newBearerKey.accessType === 'custom' && (
-                        <>
-                          <div className="flex-1 min-w-[200px]">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              {t('settings.bearerKeyAllowedGroups') || 'Allowed groups'}
-                            </label>
-                            <MultiSelect
-                              options={availableGroups}
-                              selected={newSelectedGroups}
-                              onChange={setNewSelectedGroups}
-                              placeholder={t('settings.selectGroups') || 'Select groups...'}
-                              disabled={loading}
-                            />
-                          </div>
-                          <div className="flex-1 min-w-[200px]">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              {t('settings.bearerKeyAllowedServers') || 'Allowed servers'}
-                            </label>
-                            <MultiSelect
-                              options={availableServers}
-                              selected={newSelectedServers}
-                              onChange={setNewSelectedServers}
-                              placeholder={t('settings.selectServers') || 'Select servers...'}
-                              disabled={loading}
-                            />
-                          </div>
-                        </>
-                      )}
-
-                      {isAdmin && newBearerKey.kind === 'system' && newBearerKey.accessType === 'exclude' && (
-                        <>
-                          <div className="flex-1 min-w-[200px]">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              {t('settings.bearerKeyExcludedGroups') || 'Excluded groups'}
-                            </label>
-                            <MultiSelect
-                              options={availableGroups}
-                              selected={newSelectedExcludedGroups}
-                              onChange={setNewSelectedExcludedGroups}
-                              placeholder={t('settings.selectGroups') || 'Select groups...'}
-                              disabled={loading}
-                            />
-                          </div>
-                          <div className="flex-1 min-w-[200px]">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              {t('settings.bearerKeyExcludedServers') || 'Excluded servers'}
-                            </label>
-                            <MultiSelect
-                              options={availableServers}
-                              selected={newSelectedExcludedServers}
-                              onChange={setNewSelectedExcludedServers}
-                              placeholder={t('settings.selectServers') || 'Select servers...'}
-                              disabled={loading}
-                            />
-                          </div>
-                        </>
-                      )}
-
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowAddBearerKeyForm(false)}
-                          className="hub-btn"
-                        >
-                          {t('common.cancel') || 'Cancel'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCreateBearerKey}
-                          disabled={loading}
-                          className="hub-btn primary"
-                        >
-                          {t('settings.addBearerKeyButton') || 'Create Key'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <BearerKeysPanel mode="admin" />
             </div>
           )}
         </div>
       )}
 
-      {view === 'system' && (<>
       {/* Smart Routing Configuration Settings */}
       <PermissionChecker permissions={PERMISSIONS.SETTINGS_SMART_ROUTING}>
         <div className="hub-card mb-4 overflow-hidden">
@@ -4701,16 +3746,7 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
         </div>
       </PermissionChecker>
 
-      </>)}
 
-      {/* Change Password */}
-      {view === 'password' && (
-        <div className="max-w-lg" data-section="password">
-          <ChangePasswordForm showTitle={false} onSuccess={handlePasswordChangeSuccess} />
-        </div>
-      )}
-
-      {view === 'system' && (<>
       {/* Export MCP Settings */}
       <PermissionChecker permissions={PERMISSIONS.SETTINGS_EXPORT_CONFIG}>
         <div className="hub-card mb-4 overflow-hidden">
@@ -4779,17 +3815,23 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
         confirmText={t('settings.clearCache')}
         variant="warning"
       />
-      </>)}
     </div>
   );
 };
 
-// People with nothing to set here (no administrator rights or settings permission) are sent to
-// the one personal page that used to sit among these settings.
-const SettingsPage: React.FC<{ view?: SettingsView }> = ({ view = 'system' }) => {
+// People with nothing to set here (no administrator rights or settings permission) are sent home.
+const SettingsPage: React.FC = () => {
   const { auth } = useAuth();
-  if (view === 'system' && !canViewSettings(auth.user)) return <Navigate to="/password" replace />;
-  return <SettingsContent view={view} />;
+  const { workspaceEnabled } = useSettings();
+  if (!canViewSettings(auth.user)) {
+    return (
+      <Navigate
+        to={fallbackPath({ isAdmin: Boolean(auth.user?.isAdmin), workspaceEnabled })}
+        replace
+      />
+    );
+  }
+  return <SettingsContent />;
 };
 
 export default SettingsPage;

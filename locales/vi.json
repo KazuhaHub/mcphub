@@ -442,7 +442,8 @@
     "inactive": "Không hoạt động",
     "viewAll": "Xem tất cả",
     "docs": "Tài liệu",
-    "all": "Tất cả"
+    "all": "Tất cả",
+    "edit": "Chỉnh sửa"
   },
   "clientConfig": {
     "title": "Sao chép cấu hình MCP",
@@ -607,10 +608,11 @@
     "workspace": "Không gian làm việc",
     "system": "Hệ thống",
     "keys": "API keys",
-    "password": "Password",
-    "account": "Account",
     "manage": "Manage",
-    "myActivity": "My activity"
+    "myActivity": "My activity",
+    "adminConsole": "Bảng quản trị",
+    "accountSettings": "Cài đặt tài khoản",
+    "backToWorkspace": "Không gian làm việc"
   },
   "pages": {
     "dashboard": {
@@ -1021,7 +1023,6 @@
     },
     "resetBearerKey": "Đặt lại khóa Bearer",
     "resetBearerKeyConfirm": "Đặt lại khóa Bearer này? Token cũ sẽ mất hiệu lực ngay. Quyền và trạng thái kích hoạt không thay đổi.",
-    "resetBearerKeySuccess": "Đã đặt lại khóa. Sao chép và lưu token mới trước khi đóng; token sẽ không được hiển thị lại.",
     "resetBearerKeyError": "Không thể đặt lại khóa Bearer",
     "allowRegistration": "Cho phép tự đăng ký",
     "allowRegistrationDescription": "Cho phép khách truy cập tạo tài khoản thông thường từ trang đăng nhập. Tắt theo mặc định; không khả dụng khi chức năng đăng nhập bằng mật khẩu bị vô hiệu hóa.",
@@ -1087,7 +1088,6 @@
     "bearerKeySelectOwner": "Chọn người dùng...",
     "bearerKeyPersonalScopeHint": "Khóa cá nhân kế thừa quyền của chủ sở hữu. Khi chọn nhóm cụ thể, khóa chỉ truy cập các điểm cuối của nhóm, gồm định tuyến thông minh; điểm cuối toàn cục và máy chủ trực tiếp bị từ chối.",
     "bearerKeyAccessUserVisibility": "Khả năng hiển thị của người dùng",
-    "bearerKeyShownOnce": "Sao chép token này ngay bây giờ. Nó sẽ không được hiển thị lại.",
     "deleteBearerKeyConfirm": "Bạn có chắc chắn muốn xóa khóa này không?",
     "generate": "Tạo",
     "selectGroups": "Chọn nhóm",
@@ -1367,7 +1367,12 @@
       "confirmClear": "Xóa mọi chính sách? Quyền hiện có sẽ được áp dụng.",
       "deleteRule": "Xóa quy tắc {{number}}",
       "retry": "Thử lại"
-    }
+    },
+    "authenticationSection": "Xác thực",
+    "authenticationSectionDescription": "Xác thực Bearer cho các yêu cầu MCP và khóa API của mọi người dùng, kể cả khóa cấp hệ thống.",
+    "bearerKeyCreated": "Đã tạo khóa API",
+    "bearerKeyUpdated": "Đã cập nhật khóa API",
+    "bearerKeyDeleted": "Đã xóa khóa API"
   },
   "mcpb": {
     "upload": "Tải lên",
@@ -2113,5 +2118,27 @@
     "insecureContext": "Passkey yêu cầu mở dashboard bằng tên miền qua HTTPS (hoặc trên localhost).",
     "unsupported": "Trình duyệt này không hỗ trợ passkey.",
     "unavailable": "Không thể dùng passkey vì hệ thống này chỉ cho phép đăng nhập một lần (SSO)."
+  },
+  "account": {
+    "title": "Cài đặt tài khoản",
+    "tabs": {
+      "password": "Mật khẩu",
+      "passkeys": "Passkey",
+      "apps": "Ứng dụng đã cấp quyền"
+    },
+    "tabsLabel": "Các mục cài đặt tài khoản"
+  },
+  "apiKeys": {
+    "subtitle": "Tạo khóa để máy khách và script gọi MCPHub thay cho bạn. Mỗi khóa kế thừa quyền của bạn.",
+    "adminHint": "Trang này liệt kê các khóa của riêng bạn. Khóa cấp hệ thống, khóa của người dùng khác và xác thực Bearer được quản lý tại",
+    "namePlaceholder": "vd. Khóa API của tôi"
+  },
+  "tokenReveal": {
+    "title": "Đã tạo khóa API — {{name}}",
+    "titleReset": "Đã đặt lại khóa API — {{name}}",
+    "warning": "Hãy sao chép token này ngay. Token chỉ hiển thị một lần và không thể lấy lại sau đó.",
+    "acknowledge": "Tôi đã sao chép và lưu token này",
+    "done": "Xong",
+    "copyFailedManual": "Sao chép không thành công. Hãy chọn token và sao chép thủ công."
   }
 }

@@ -8,6 +8,7 @@ import { SettingsProvider } from './contexts/SettingsContext';
 import MainLayout from './layouts/MainLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import RouteAccessGuard from './components/RouteAccessGuard';
+import { AdminRedirect, HomeRedirect, LegacyRedirect } from './components/NavRedirects';
 import EmbeddingSyncAlertListener from './components/EmbeddingSyncAlertListener';
 import { getBasePath } from './utils/runtime';
 
@@ -22,11 +23,9 @@ const ServiceLinkPage = lazy(() => import('./pages/ServiceLinkPage'));
 const ServersPage = lazy(() => import('./pages/ServersPage'));
 const GroupsPage = lazy(() => import('./pages/GroupsPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
-const OAuthApprovalsPage = lazy(() => import('./pages/OAuthApprovalsPage'));
-const PasskeysPage = lazy(() => import('./pages/PasskeysPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const KeysPage = lazy(() => import('./pages/KeysPage'));
-const PasswordPage = lazy(() => import('./pages/PasswordPage'));
+const AccountSettingsPage = lazy(() => import('./pages/AccountSettingsPage'));
 const WorkspaceClientsPage = lazy(() => import('./pages/WorkspaceClientsPage'));
 const WorkspaceActivityPage = lazy(() => import('./pages/WorkspaceActivityPage'));
 const MarketPage = lazy(() => import('./pages/MarketPage'));
@@ -83,16 +82,29 @@ function App() {
                   <Route element={<ProtectedRoute />}>
                     <Route element={<MainLayout />}>
                       <Route element={<RouteAccessGuard />}>
-                        <Route path="/" element={<DashboardPage />} />
+                        <Route path="/" element={<HomeRedirect />} />
+                        <Route path="/dashboard" element={<DashboardPage />} />
+                        <Route path="/admin" element={<AdminRedirect />} />
                         <Route path="/workspace" element={<WorkspacePage />} />
                         <Route path="/workspace/services" element={<WorkspaceServicesPage />} />
                         <Route path="/workspace/services/:name" element={<WorkspaceServicePage />} />
                         <Route path="/workspace/clients" element={<WorkspaceClientsPage />} />
                         <Route path="/workspace/activity" element={<WorkspaceActivityPage />} />
                         <Route path="/keys" element={<KeysPage />} />
-                        <Route path="/password" element={<PasswordPage />} />
-                        <Route path="/oauth-applications" element={<OAuthApprovalsPage />} />
-                        <Route path="/passkeys" element={<PasskeysPage />} />
+                        <Route path="/account" element={<AccountSettingsPage />} />
+                        {/* Legacy account pages are tabs of the account settings page */}
+                        <Route
+                          path="/password"
+                          element={<LegacyRedirect to="/account?tab=password" />}
+                        />
+                        <Route
+                          path="/passkeys"
+                          element={<LegacyRedirect to="/account?tab=passkeys" />}
+                        />
+                        <Route
+                          path="/oauth-applications"
+                          element={<LegacyRedirect to="/account?tab=apps" />}
+                        />
                         <Route path="/credentials" element={<CredentialsPage />} />
                         <Route
                           path="/services/:serverName"

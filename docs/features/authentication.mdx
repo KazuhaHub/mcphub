@@ -73,7 +73,7 @@ The first admin account is created at startup by `initializeDefaultUser()`. If n
 
 Local accounts can sign in with a passkey (WebAuthn) instead of a password. A passkey is a discoverable credential held by the user's device, password manager, or security key, so the login page asks for no username: select **Sign in with a passkey** and confirm with the device's fingerprint, face, screen lock, or PIN.
 
-To add one, open the user menu → **Passkeys** → **Add passkey**, enter an optional name and the current password, then follow the browser prompt. The password confirms the session owner before a long-lived credential is added. The page lists each passkey with when it was added and last used and whether it is synced, and removes any of them after confirmation. An account can hold up to 20 passkeys.
+To add one, open the user menu → **Account settings** → **Passkeys** → **Add passkey**, enter an optional name and the current password, then follow the browser prompt. The password confirms the session owner before a long-lived credential is added. The page lists each passkey with when it was added and last used and whether it is synced, and removes any of them after confirmation. An account can hold up to 20 passkeys.
 
 - **Secure context:** browsers offer passkeys only on HTTPS pages or on `localhost`, and only for a domain name, not an IP address.
 - **Bound to the host name:** a passkey belongs to the host name the dashboard was opened with when it was created (the WebAuthn relying-party ID). MCPHub takes it from the browser's `Origin`, stores it with the passkey, and accepts the passkey only under that host. Opening the dashboard under another host name requires a separate passkey there. Behind a reverse proxy, pass the original `Origin` (or `Host` and protocol) through to MCPHub.
@@ -92,7 +92,7 @@ contain the prefix, never the token or the hash. Keys written by older versions 
 hashed in place at startup, and their existing tokens keep working. A settings export contains
 neither the token nor the hash.
 
-Administrators and owners of user-level keys can select **Reset Bearer key** in Settings. After
+Administrators and owners of user-level keys can select **Reset Bearer key** on the API keys page (administrators also under Settings → Authentication). After
 confirmation, `POST /api/auth/keys/:id/reset` generates a new token and returns it once, like the
 create response. The previous token stops working immediately; the key ID, name, kind, owner,
 enabled status and resource scope stay unchanged.
@@ -111,18 +111,18 @@ source and MCPHub does not rewrite it: if it still lists plaintext `bearerKeys[]
 | `token` | The secret value sent in the `Authorization: Bearer ...` header. Shown once, at creation. |
 | `tokenPrefix` | The first characters of the token, for telling keys apart. Not a secret. |
 | `kind` | `system` for operator-managed scoped keys, or `user` for keys that inherit an owner's visibility. |
-| `owner` | Required for user-level keys. |
+| `owner` | The user a user-level key belongs to. A regular user's keys are always owned by that user; an administrator who omits it creates a key owned by themselves. |
 | `accessType` | `all` (dashboard + MCP for system keys; MCP only for personal keys), or a scoped value enforced inside `sseService.ts` for MCP-only access. Scoped values are `groups`, `servers`, `custom`, and `exclude` (all resources except `excludedGroups` / `excludedServers`). |
 | `enabled` | Disabled keys are ignored without being deleted. |
 
 Admins can create and manage all keys. Regular users can create, rename, enable, disable and delete
-their own user-level keys from the settings page. User-level keys are MCP transport credentials only:
+their own user-level keys on the **API keys** page. Administrators manage every key, including system-level keys, under **Settings → Authentication**. User-level keys are MCP transport credentials only:
 they are never accepted by the dashboard / management API. When used on `/mcp`, `/mcp/$smart` or a
 group/server endpoint, MCPHub resolves the current owner record and applies that user's live server
 visibility. The optional `/:user/mcp/...` routes remain supported, but the URL username must match the
 key owner.
 
-Personal keys support `accessType: 'all'` (the default, retaining the owner's permissions) or `accessType: 'groups'` with a non-empty `allowedGroups` array. Select the scope when creating or editing a key in Settings. The API accepts existing group names or IDs and saves group IDs. A restricted key can use only `/mcp/{allowed-group}` and `/mcp/$smart/{allowed-group}` (and equivalent SSE/user-scoped routes). Global `/mcp`, global `$smart`, direct-server routes, and other groups are denied, even when the target server belongs to an allowed group. This preserves group capability selections. Multiple allowed groups are accessed through their individual endpoints, without an aggregate global catalog.
+Personal keys support `accessType: 'all'` (the default, retaining the owner's permissions) or `accessType: 'groups'` with a non-empty `allowedGroups` array. Select the scope when creating or editing a key. The API accepts existing group names or IDs and saves group IDs. A restricted key can use only `/mcp/{allowed-group}` and `/mcp/$smart/{allowed-group}` (and equivalent SSE/user-scoped routes). Global `/mcp`, global `$smart`, direct-server routes, and other groups are denied, even when the target server belongs to an allowed group. This preserves group capability selections. Multiple allowed groups are accessed through their individual endpoints, without an aggregate global catalog.
 
 The key scope always intersects with the owner's current group/server visibility and group capability selections; it never grants additional permissions. An administrator-owned personal key still obeys its group scope. Group deletion or an empty persisted allow list denies access rather than restoring unrestricted access. Existing keys without a group restriction retain their behavior. Recognized personal keys still enforce their identity and scope when `enableBearerAuth` is `false`; anonymous requests remain governed by that deployment setting.
 
