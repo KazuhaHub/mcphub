@@ -18,7 +18,7 @@ const DefaultPasswordWarningModal: React.FC<DefaultPasswordWarningModalProps> = 
 
   const handleGoToPassword = () => {
     onClose();
-    navigate('/password');
+    navigate('/account?tab=password');
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {

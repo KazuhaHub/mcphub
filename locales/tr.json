@@ -608,10 +608,11 @@
     "workspace": "Çalışma Alanı",
     "system": "Sistem",
     "keys": "API keys",
-    "password": "Password",
-    "account": "Account",
     "manage": "Manage",
-    "myActivity": "My activity"
+    "myActivity": "My activity",
+    "adminConsole": "Yönetim konsolu",
+    "accountSettings": "Hesap ayarları",
+    "backToWorkspace": "Çalışma Alanı"
   },
   "pages": {
     "dashboard": {
@@ -2112,5 +2113,14 @@
     "insecureContext": "Geçiş anahtarları, panelin alan adıyla HTTPS üzerinden (veya localhost’ta) açılmasını gerektirir.",
     "unsupported": "Bu tarayıcı geçiş anahtarlarını desteklemiyor.",
     "unavailable": "Bu kurulum yalnızca çoklu oturum açmaya (SSO) izin verdiğinden geçiş anahtarları kullanılamıyor."
+  },
+  "account": {
+    "title": "Hesap ayarları",
+    "tabs": {
+      "password": "Parola",
+      "passkeys": "Geçiş anahtarları",
+      "apps": "Yetkilendirilmiş uygulamalar"
+    },
+    "tabsLabel": "Hesap ayarları bölümleri"
   }
 }

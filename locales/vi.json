@@ -607,10 +607,11 @@
     "workspace": "Không gian làm việc",
     "system": "Hệ thống",
     "keys": "API keys",
-    "password": "Password",
-    "account": "Account",
     "manage": "Manage",
-    "myActivity": "My activity"
+    "myActivity": "My activity",
+    "adminConsole": "Bảng quản trị",
+    "accountSettings": "Cài đặt tài khoản",
+    "backToWorkspace": "Không gian làm việc"
   },
   "pages": {
     "dashboard": {
@@ -2112,5 +2113,14 @@
     "insecureContext": "Passkey yêu cầu mở dashboard bằng tên miền qua HTTPS (hoặc trên localhost).",
     "unsupported": "Trình duyệt này không hỗ trợ passkey.",
     "unavailable": "Không thể dùng passkey vì hệ thống này chỉ cho phép đăng nhập một lần (SSO)."
+  },
+  "account": {
+    "title": "Cài đặt tài khoản",
+    "tabs": {
+      "password": "Mật khẩu",
+      "passkeys": "Passkey",
+      "apps": "Ứng dụng đã cấp quyền"
+    },
+    "tabsLabel": "Các mục cài đặt tài khoản"
   }
 }

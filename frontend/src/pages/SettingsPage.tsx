@@ -2,14 +2,14 @@ import BrandingSettings from '@/components/BrandingSettings';
 import { getRuntimeConfig, getSmartRoutingPath } from '@/utils/runtime';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate, useNavigate } from 'react-router-dom';
-import { canViewSettings } from '@/utils/navigationPermissions';
+import { Navigate } from 'react-router-dom';
+import { canViewSettings, fallbackPath } from '@/utils/navigationPermissions';
 import ResetBearerKeyDialog from '@/components/ResetBearerKeyDialog';
-import ChangePasswordForm from '@/components/ChangePasswordForm';
 import { Switch } from '@/components/ui/ToggleGroup';
 import { MultiSelect } from '@/components/ui/MultiSelect';
 import { useSettingsData } from '@/hooks/useSettingsData';
 import { useToast } from '@/contexts/ToastContext';
+import { useSettings } from '@/contexts/SettingsContext';
 import { PermissionChecker } from '@/components/PermissionChecker';
 import { PERMISSIONS } from '@/constants/permissions';
 import { ChevronDown, Copy, Check, Download, Edit, Trash2, Code as CodeIcon, Zap, Database, Wrench, Sparkles, RefreshCw, Route as RouteIcon, Key, Lock, Cloud, SlidersHorizontal, ShieldCheck, Package, KeyRound, FileDown, X, FileText } from 'lucide-react';
@@ -612,11 +612,10 @@ const DEFAULT_OIDC_SCOPES = ['openid', 'profile', 'email'];
  * What this page shows. `system` is the administrator's settings; the personal items that used
  * to sit among them are pages of their own: `keys` (API keys) and `password`.
  */
-export type SettingsView = 'system' | 'keys' | 'password';
+export type SettingsView = 'system' | 'keys';
 
 const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { showToast } = useToast();
   const { allServers: servers } = useServerContext(); // Use allServers for settings (not paginated)
   const { groups } = useGroupData();
@@ -994,7 +993,6 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
     betterAuthConfig: false,
     mcpRouterConfig: false,
     nameSeparator: false,
-    password: view === 'password',
     exportConfig: false,
     bearerKeys: view === 'keys',
   });
@@ -1009,7 +1007,6 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
       | 'betterAuthConfig'
       | 'mcpRouterConfig'
       | 'nameSeparator'
-      | 'password'
       | 'exportConfig'
       | 'bearerKeys',
   ) => {
@@ -1717,12 +1714,6 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
     }
   };
 
-  const handlePasswordChangeSuccess = () => {
-    setTimeout(() => {
-      navigate('/');
-    }, 2000);
-  };
-
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [mcpSettingsJson, setMcpSettingsJson] = useState<string>('');
 
@@ -1981,13 +1972,7 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
     <div>
       <div className="mb-6">
         <h1 className="hub-h1">
-          {t(
-            view === 'keys'
-              ? 'nav.keys'
-              : view === 'password'
-                ? 'nav.password'
-                : 'pages.settings.title',
-          )}
+          {t(view === 'keys' ? 'nav.keys' : 'pages.settings.title')}
         </h1>
         <p className="hub-sub">
           {view === 'system' ? t('settings.subtitle') || '' : ''}
@@ -4703,13 +4688,6 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
 
       </>)}
 
-      {/* Change Password */}
-      {view === 'password' && (
-        <div className="max-w-lg" data-section="password">
-          <ChangePasswordForm showTitle={false} onSuccess={handlePasswordChangeSuccess} />
-        </div>
-      )}
-
       {view === 'system' && (<>
       {/* Export MCP Settings */}
       <PermissionChecker permissions={PERMISSIONS.SETTINGS_EXPORT_CONFIG}>
@@ -4784,11 +4762,18 @@ const SettingsContent: React.FC<{ view: SettingsView }> = ({ view }) => {
   );
 };
 
-// People with nothing to set here (no administrator rights or settings permission) are sent to
-// the one personal page that used to sit among these settings.
+// People with nothing to set here (no administrator rights or settings permission) are sent home.
 const SettingsPage: React.FC<{ view?: SettingsView }> = ({ view = 'system' }) => {
   const { auth } = useAuth();
-  if (view === 'system' && !canViewSettings(auth.user)) return <Navigate to="/password" replace />;
+  const { workspaceEnabled } = useSettings();
+  if (view === 'system' && !canViewSettings(auth.user)) {
+    return (
+      <Navigate
+        to={fallbackPath({ isAdmin: Boolean(auth.user?.isAdmin), workspaceEnabled })}
+        replace
+      />
+    );
+  }
   return <SettingsContent view={view} />;
 };
 

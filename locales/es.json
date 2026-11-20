@@ -607,10 +607,11 @@
     "workspace": "Espacio de trabajo",
     "system": "Sistema",
     "keys": "API keys",
-    "password": "Password",
-    "account": "Account",
     "manage": "Manage",
-    "myActivity": "My activity"
+    "myActivity": "My activity",
+    "adminConsole": "Consola de administración",
+    "accountSettings": "Ajustes de la cuenta",
+    "backToWorkspace": "Espacio de trabajo"
   },
   "pages": {
     "dashboard": {
@@ -2118,5 +2119,14 @@
     "insecureContext": "Las llaves de acceso requieren abrir el panel por su nombre de dominio mediante HTTPS (o en localhost).",
     "unsupported": "Este navegador no admite llaves de acceso.",
     "unavailable": "Las llaves de acceso no están disponibles porque esta instalación solo permite el inicio de sesión único."
+  },
+  "account": {
+    "title": "Ajustes de la cuenta",
+    "tabs": {
+      "password": "Contraseña",
+      "passkeys": "Llaves de acceso",
+      "apps": "Aplicaciones autorizadas"
+    },
+    "tabsLabel": "Secciones de los ajustes de la cuenta"
   }
 }

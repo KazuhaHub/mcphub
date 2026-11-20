@@ -614,10 +614,11 @@
     "workspace": "工作区",
     "system": "系统",
     "keys": "API 密钥",
-    "password": "密码",
-    "account": "账户",
     "manage": "管理",
-    "myActivity": "我的活动"
+    "myActivity": "我的活动",
+    "adminConsole": "管理控制台",
+    "accountSettings": "账户设置",
+    "backToWorkspace": "工作区"
   },
   "pages": {
     "dashboard": {
@@ -2170,5 +2171,14 @@
     "empty": "该用户看不到任何服务。",
     "loadFailed": "无法加载该用户的服务。",
     "saveFailed": "无法修改 {{name}}。"
+  },
+  "account": {
+    "title": "账户设置",
+    "tabs": {
+      "password": "密码",
+      "passkeys": "通行密钥",
+      "apps": "已授权应用"
+    },
+    "tabsLabel": "账户设置分区"
   }
 }

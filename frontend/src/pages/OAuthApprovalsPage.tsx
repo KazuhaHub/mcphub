@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { apiDelete, apiGet, type ApiResponse } from '../utils/fetchInterceptor';
 import type { OAuthApproval } from '../types';
 
-export default function OAuthApprovalsPage() {
+export default function OAuthApprovalsPage({ embedded = false }: { embedded?: boolean }) {
   const { t, i18n } = useTranslation();
   const [approvals, setApprovals] = useState<OAuthApproval[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +52,7 @@ export default function OAuthApprovalsPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{t('oauthApprovals.title')}</h1>
+          {!embedded && <h1 className="text-2xl font-semibold">{t('oauthApprovals.title')}</h1>}
           <p className="text-sm text-[var(--hub-ink-3)] mt-2">{t('oauthApprovals.description')}</p>
         </div>
         <button
@@ -67,12 +67,12 @@ export default function OAuthApprovalsPage() {
         </button>
       </div>
       {error && (
-        <p role="alert" className="text-red-600">
+        <p role="alert" style={{ color: 'var(--hub-err)' }}>
           {error}
         </p>
       )}
       {notice && (
-        <p role="status" className="text-green-700 dark:text-green-400">
+        <p role="status" style={{ color: 'var(--hub-ok)' }}>
           {notice}
         </p>
       )}

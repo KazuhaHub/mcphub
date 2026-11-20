@@ -1,11 +1,10 @@
+import fs from 'fs';
+import path from 'path';
 import {
   ADMIN_ONLY_IN_WORKSPACE,
   canViewSettings,
   fallbackPath,
-  getAccountNavKeys,
-  getManageNavKeys,
-  getWorkspaceNavKeys,
-  isDashboardHome,
+  getNavArea,
   isRouteAllowed,
 } from '../../frontend/src/utils/navigationPermissions';
 
@@ -13,52 +12,6 @@ const adminOn = { isAdmin: true, workspaceEnabled: true };
 const userOn = { isAdmin: false, workspaceEnabled: true };
 const adminOff = { isAdmin: true, workspaceEnabled: false };
 const userOff = { isAdmin: false, workspaceEnabled: false };
-
-describe('workspace navigation entries', () => {
-  const manage = ['dashboard', 'servers', 'groups', 'prompts', 'resources', 'market'];
-  const workspace = ['workspace', 'services', 'clients', 'activity'];
-
-  it('leaves the sidebar as it was when workspace mode is off', () => {
-    for (const ctx of [adminOff, userOff]) {
-      expect(getWorkspaceNavKeys(ctx)).toEqual([]);
-      expect(getManageNavKeys(ctx)).toEqual(manage);
-    }
-  });
-
-  it('shows ordinary users the workspace pages and nothing to manage when the mode is on', () => {
-    expect(getWorkspaceNavKeys(userOn)).toEqual(workspace);
-    expect(getManageNavKeys(userOn)).toEqual([]);
-  });
-
-  it('renders no entries for an ordinary user until the setting is resolved', () => {
-    expect(getWorkspaceNavKeys({ ...userOn, resolved: false })).toEqual([]);
-    expect(getManageNavKeys({ ...userOff, resolved: false })).toEqual([]);
-    expect(getWorkspaceNavKeys({ ...adminOn, resolved: false })).toContain('workspace');
-  });
-
-  it('gives admins the same workspace pages and, besides them, the management pages', () => {
-    expect(getWorkspaceNavKeys(adminOn)).toEqual(workspace);
-    expect(getManageNavKeys(adminOn)).toEqual(manage);
-  });
-});
-
-describe('the account section', () => {
-  const account = ['keys', 'passkeys', 'oauthApps', 'password'];
-
-  it('is the same for administrators and ordinary users in workspace mode', () => {
-    expect(getAccountNavKeys(adminOn)).toEqual(account);
-    expect(getAccountNavKeys(userOn)).toEqual(account);
-  });
-
-  it('adds each person\u2019s own credentials page while workspace mode is off', () => {
-    expect(getAccountNavKeys(userOff)).toEqual(['credentials', ...account]);
-    expect(getAccountNavKeys(adminOff)).toEqual(['credentials', ...account]);
-  });
-
-  it('keeps the old credentials page out of it until the setting is known', () => {
-    expect(getAccountNavKeys({ ...userOff, resolved: false })).toEqual(account);
-  });
-});
 
 describe('the system settings page', () => {
   it('is for administrators and people with a settings permission', () => {
@@ -76,7 +29,7 @@ describe('the system settings page', () => {
 
 describe('workspace route access', () => {
   const adminPages = [
-    '/',
+    '/dashboard',
     '/servers',
     '/groups',
     '/prompts',
@@ -93,10 +46,10 @@ describe('workspace route access', () => {
     '/workspace',
     '/workspace/clients',
     '/workspace/activity',
+    '/',
     '/keys',
-    '/password',
-    '/passkeys',
-    '/oauth-applications',
+    '/account',
+    '/account/anything',
     '/workspace/services/ubc-personal',
     '/credentials',
     '/settings',
@@ -127,20 +80,75 @@ describe('workspace route access', () => {
     expect(isRouteAllowed('/workspace/clients', userOff)).toBe(false);
   });
 
-  it('sends ordinary users to the workspace and everyone else to the dashboard', () => {
+  it('sends everyone to the workspace while the mode is on, and to the dashboard when it is off', () => {
     expect(fallbackPath(userOn)).toBe('/workspace');
-    expect(fallbackPath(adminOn)).toBe('/');
-    expect(fallbackPath(userOff)).toBe('/');
-    expect(isDashboardHome(userOn)).toBe(false);
-    expect(isDashboardHome(adminOn)).toBe(true);
-    expect(isDashboardHome(userOff)).toBe(true);
+    expect(fallbackPath(adminOn)).toBe('/workspace');
+    expect(fallbackPath(userOff)).toBe('/dashboard');
+    expect(fallbackPath(adminOff)).toBe('/dashboard');
   });
 });
 
 describe('admin-only route list', () => {
   it('covers every admin-style page of the app', () => {
     expect(ADMIN_ONLY_IN_WORKSPACE).toEqual(
-      expect.arrayContaining(['/users', '/logs', '/activity', '/cloud', '/market', '/servers']),
+      expect.arrayContaining([
+        '/dashboard',
+        '/users',
+        '/logs',
+        '/activity',
+        '/cloud',
+        '/market',
+        '/servers',
+      ]),
     );
+  });
+});
+
+describe('every page route of the app', () => {
+  const source = fs.readFileSync(path.join(process.cwd(), 'frontend', 'src', 'App.tsx'), 'utf8');
+  const layout = source.slice(source.indexOf('<MainLayout />'), source.indexOf('path="*"'));
+  const routes = [...layout.matchAll(/<Route\s+path="([^"]+)"/g)].map((m) => m[1]);
+  // Pages that belong to the admin console while Workspace Mode is on.
+  const admin = [
+    '/dashboard',
+    '/servers',
+    '/groups',
+    '/prompts',
+    '/resources',
+    '/users',
+    '/market',
+    '/market/:serverName',
+    '/cloud',
+    '/cloud/:serverName',
+    '/logs',
+    '/activity',
+    '/settings',
+    '/credentials',
+  ];
+  // The personal area, and pages that show it because they belong to neither area.
+  const personal = [
+    '/workspace',
+    '/workspace/services',
+    '/workspace/services/:name',
+    '/workspace/clients',
+    '/workspace/activity',
+    '/keys',
+    '/account',
+    '/services/:serverName',
+  ];
+  // Redirects: they never render a page of their own.
+  const redirects = ['/', '/admin', '/password', '/passkeys', '/oauth-applications'];
+
+  it('is assigned an area, or is a redirect', () => {
+    const known = [...admin, ...personal, ...redirects];
+    expect(routes.filter((route) => !known.includes(route))).toEqual([]);
+    expect(known.filter((route) => !routes.includes(route))).toEqual([]);
+  });
+
+  it('gets the area it was assigned', () => {
+    const ctx = { isAdmin: true, workspaceEnabled: true };
+    const concrete = (route: string) => route.replace(/:[A-Za-z]+/g, 'x');
+    for (const route of admin) expect(getNavArea(concrete(route), ctx)).toBe('admin');
+    for (const route of personal) expect(getNavArea(concrete(route), ctx)).toBe('personal');
   });
 });

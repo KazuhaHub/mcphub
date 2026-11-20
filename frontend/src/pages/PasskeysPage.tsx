@@ -17,7 +17,7 @@ const ceremonyMessageKey: Record<PasskeyCeremonyError, string> = {
   failed: 'passkeys.registerFailed',
 };
 
-export default function PasskeysPage() {
+export default function PasskeysPage({ embedded = false }: { embedded?: boolean }) {
   const { t, i18n } = useTranslation();
   const [supported] = useState(passkeysSupported);
   const [passkeys, setPasskeys] = useState<Passkey[]>([]);
@@ -112,7 +112,7 @@ export default function PasskeysPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{t('passkeys.title')}</h1>
+          {!embedded && <h1 className="text-2xl font-semibold">{t('passkeys.title')}</h1>}
           <p className="text-sm text-[var(--hub-ink-3)] mt-2">{t('passkeys.description')}</p>
           <p className="text-xs text-[var(--hub-ink-3)] mt-1">{t('passkeys.passwordChangeNote')}</p>
         </div>
@@ -137,12 +137,12 @@ export default function PasskeysPage() {
         <div className="hub-card p-4 text-sm">{t('passkeys.unavailable')}</div>
       )}
       {error && (
-        <p role="alert" className="text-red-600">
+        <p role="alert" style={{ color: 'var(--hub-err)' }}>
           {error}
         </p>
       )}
       {notice && (
-        <p role="status" className="text-green-700 dark:text-green-400">
+        <p role="status" style={{ color: 'var(--hub-ok)' }}>
           {notice}
         </p>
       )}

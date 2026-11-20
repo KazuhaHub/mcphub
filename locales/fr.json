@@ -608,10 +608,11 @@
     "workspace": "Espace de travail",
     "system": "Système",
     "keys": "API keys",
-    "password": "Password",
-    "account": "Account",
     "manage": "Manage",
-    "myActivity": "My activity"
+    "myActivity": "My activity",
+    "adminConsole": "Console d'administration",
+    "accountSettings": "Paramètres du compte",
+    "backToWorkspace": "Espace de travail"
   },
   "pages": {
     "dashboard": {
@@ -2116,5 +2117,14 @@
     "insecureContext": "Les clés d'accès exigent d'ouvrir le tableau de bord par son nom de domaine en HTTPS (ou sur localhost).",
     "unsupported": "Ce navigateur ne prend pas en charge les clés d'accès.",
     "unavailable": "Les clés d'accès sont indisponibles car ce déploiement n'autorise que l'authentification unique."
+  },
+  "account": {
+    "title": "Paramètres du compte",
+    "tabs": {
+      "password": "Mot de passe",
+      "passkeys": "Clés d'accès",
+      "apps": "Applications autorisées"
+    },
+    "tabsLabel": "Sections des paramètres du compte"
   }
 }

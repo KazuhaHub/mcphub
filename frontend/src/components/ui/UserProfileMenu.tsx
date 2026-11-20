@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, LogOut, Info } from 'lucide-react';
+import { useSettings } from '@/contexts/SettingsContext';
+import { adminHomePath, canUseAdminConsole, getNavArea } from '@/utils/navigationPermissions';
+import { User, LogOut, Info, UserCog, ShieldCheck, Briefcase } from 'lucide-react';
 import AboutDialog from './AboutDialog';
 import { ChangelogUpdateInfo } from '@/types';
 import {
@@ -21,6 +23,8 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { auth, logout } = useAuth();
+  const { workspaceEnabled } = useSettings();
+  const { pathname } = useLocation();
   // Version and update information are for administrators only.
   const isAdmin = Boolean(auth.user?.isAdmin);
   const [isOpen, setIsOpen] = useState(false);
@@ -81,6 +85,18 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
     navigate('/login');
   };
 
+  // Opens a page from the menu; a drawer around it steps aside like it does for dialogs.
+  const goTo = (path: string) => {
+    setIsOpen(false);
+    navigate(path);
+    onOverlayOpen?.();
+  };
+
+  // Workspace Mode splits the app into a personal workspace and an Admin console; the people who
+  // have both get a way across.
+  const hasAdminConsole = workspaceEnabled && canUseAdminConsole(auth.user);
+  const inAdminArea = getNavArea(pathname, { isAdmin, workspaceEnabled }) === 'admin';
+
   const handleAboutClick = () => {
     setShowAboutDialog(true);
     setIsOpen(false);
@@ -99,7 +115,10 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
             <User className="h-3.5 w-3.5" />
           </div>
           {isAdmin && showNewVersionInfo && (
-            <span className="absolute -top-1 -right-1 block w-2 h-2 bg-red-500 rounded-full"></span>
+            <span
+              className="absolute -top-1 -right-1 block h-2 w-2 rounded-full"
+              style={{ background: 'var(--hub-err)' }}
+            ></span>
           )}
         </div>
         {!collapsed && (
@@ -113,6 +132,24 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
 
       {isOpen && (
         <div data-layer="menu" className="hub-menu absolute bottom-full left-0 z-50 mb-1 w-full min-w-max">
+          <button onClick={() => goTo('/account')} className="hub-menu-item">
+            <UserCog className="h-4 w-4" />
+            {t('nav.accountSettings')}
+          </button>
+
+          {hasAdminConsole &&
+            (inAdminArea ? (
+              <button onClick={() => goTo('/workspace')} className="hub-menu-item">
+                <Briefcase className="h-4 w-4" />
+                {t('nav.backToWorkspace')}
+              </button>
+            ) : (
+              <button onClick={() => goTo(adminHomePath(auth.user))} className="hub-menu-item">
+                <ShieldCheck className="h-4 w-4" />
+                {t('nav.adminConsole')}
+              </button>
+            ))}
+
           {isAdmin && (
             <button
               onClick={handleAboutClick}
@@ -121,12 +158,15 @@ const UserProfileMenu: React.FC<UserProfileMenuProps> = ({ collapsed, version, o
               <Info className="h-4 w-4" />
               {t('about.title')}
               {showNewVersionInfo && (
-                <span className="absolute top-3 right-3 block w-2 h-2 bg-red-500 rounded-full"></span>
+                <span
+                  className="absolute top-3 right-3 block h-2 w-2 rounded-full"
+                  style={{ background: 'var(--hub-err)' }}
+                ></span>
               )}
             </button>
           )}
 
-          {isAdmin && <div className="my-1 border-t border-[var(--hub-line)]"></div>}
+          <div className="my-1 border-t border-[var(--hub-line)]"></div>
 
           <button
             onClick={handleLogoutClick}
