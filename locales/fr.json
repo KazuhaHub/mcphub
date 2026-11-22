@@ -1991,7 +1991,8 @@
         "credentials": "Add credentials",
         "update": "Update",
         "signinAgain": "Sign in again",
-        "signinAgainTo": "Sign in again to {{name}}"
+        "signinAgainTo": "Sign in again to {{name}}",
+        "finishSetup": "Terminer la configuration"
       },
       "credentials_rejected": "Credentials rejected",
       "contact_admin": "Not available to you"
@@ -2057,6 +2058,51 @@
       "recheck": "Revérifier",
       "rechecking": "Vérification…",
       "recheckFailed": "Impossible de revérifier ce service. Réessayez."
+    },
+    "setup": {
+      "title": "Configuration",
+      "count": "{{done}} sur {{total}} terminés",
+      "optional": "(facultatif)",
+      "step": {
+        "add": "Ajouter {{name}} à vos services",
+        "enable": "L’activer",
+        "access_signin": "Se connecter",
+        "access_credentials": "Saisir vos identifiants",
+        "service": "Terminer la configuration sur {{name}}",
+        "client": "L’utiliser depuis votre app d’IA"
+      },
+      "hint": {
+        "add": "Utilisez “Add to my services” en haut de cette page.",
+        "enable": "Utilisez l’interrupteur en haut de cette page.",
+        "access_signin": "Utilisez le bouton de connexion ci-dessus.",
+        "access_credentials": "Ouvrez l’onglet Credentials et renseignez ce dont {{name}} a besoin.",
+        "service": "{{name}} attend encore quelque chose de son côté. Utilisez « {{label}} » ci-dessous ; cette page vérifie à nouveau à votre retour.",
+        "serviceNoAction": "{{name}} attend encore quelque chose de son côté. Une fois fait, utilisez Revérifier ci-dessous.",
+        "client": "Utilisez Connect to AI ci-dessous pour ajouter ce service à votre app d’IA.",
+        "blocked": "Un administrateur doit d’abord régler ce point ; voir le message ci-dessus."
+      }
+    },
+    "home": {
+      "guide": {
+        "title": "Configurer votre espace",
+        "description": "Trois étapes pour utiliser vos services depuis votre app d’IA.",
+        "dismiss": "Masquer ce guide",
+        "step": {
+          "services": {
+            "title": "Ajouter et activer des services",
+            "hint": "Choisissez les services que votre IA doit utiliser."
+          },
+          "setup": {
+            "title": "Terminer la configuration de chaque service",
+            "hint": "Connectez-vous, saisissez des identifiants ou terminez la configuration sur le service lui-même.",
+            "action": "Continuer"
+          },
+          "connect": {
+            "title": "Connecter votre app d’IA",
+            "hint": "Utilisez la carte « Connect your AI » ci-dessus pour ajouter ce Hub à votre app d’IA."
+          }
+        }
+      }
     }
   },
   "serviceLink": {

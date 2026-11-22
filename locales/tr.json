@@ -1987,7 +1987,8 @@
         "credentials": "Add credentials",
         "update": "Update",
         "signinAgain": "Sign in again",
-        "signinAgainTo": "Sign in again to {{name}}"
+        "signinAgainTo": "Sign in again to {{name}}",
+        "finishSetup": "Kurulumu tamamla"
       },
       "credentials_rejected": "Credentials rejected",
       "contact_admin": "Not available to you"
@@ -2053,6 +2054,51 @@
       "recheck": "Yeniden denetle",
       "rechecking": "Denetleniyor…",
       "recheckFailed": "Bu hizmet yeniden denetlenemedi. Tekrar deneyin."
+    },
+    "setup": {
+      "title": "Kurulum",
+      "count": "{{total}} adımdan {{done}} tamam",
+      "optional": "(isteğe bağlı)",
+      "step": {
+        "add": "{{name}} hizmetini hizmetlerinize ekleyin",
+        "enable": "Açın",
+        "access_signin": "Oturum açın",
+        "access_credentials": "Kimlik bilgilerinizi girin",
+        "service": "{{name}} üzerinde kurulumu tamamlayın",
+        "client": "Yapay zekâ uygulamanızdan kullanın"
+      },
+      "hint": {
+        "add": "Bu sayfanın üstündeki “Add to my services” düğmesini kullanın.",
+        "enable": "Bu sayfanın üstündeki anahtarı kullanın.",
+        "access_signin": "Yukarıdaki oturum açma düğmesini kullanın.",
+        "access_credentials": "Credentials sekmesini açın ve {{name}} için gerekenleri doldurun.",
+        "service": "{{name}} kendi tarafında hâlâ bir şey bekliyor. Aşağıdaki “{{label}}” düğmesini kullanın; geri döndüğünüzde bu sayfa yeniden kontrol eder.",
+        "serviceNoAction": "{{name}} kendi tarafında hâlâ bir şey bekliyor. Bitince aşağıdaki Yeniden denetle düğmesini kullanın.",
+        "client": "Bu hizmeti yapay zekâ uygulamanıza eklemek için aşağıdaki Connect to AI düğmesini kullanın.",
+        "blocked": "Önce bir yöneticinin bunu düzeltmesi gerekiyor; yukarıdaki mesaja bakın."
+      }
+    },
+    "home": {
+      "guide": {
+        "title": "Çalışma alanınızı kurun",
+        "description": "Hizmetlerinizi yapay zekâ uygulamanızdan kullanmaya üç adım.",
+        "dismiss": "Bu kılavuzu gizle",
+        "step": {
+          "services": {
+            "title": "Hizmet ekleyin ve açın",
+            "hint": "Yapay zekânızın kullanmasını istediğiniz hizmetleri seçin."
+          },
+          "setup": {
+            "title": "Her hizmetin kurulumunu tamamlayın",
+            "hint": "Oturum açın, kimlik bilgilerini girin veya kurulumu hizmetin kendisinde tamamlayın.",
+            "action": "Kuruluma devam et"
+          },
+          "connect": {
+            "title": "Yapay zekâ uygulamanızı bağlayın",
+            "hint": "Bu Hub’ı yapay zekâ uygulamanıza eklemek için yukarıdaki “Connect your AI” kartını kullanın."
+          }
+        }
+      }
     }
   },
   "serviceLink": {

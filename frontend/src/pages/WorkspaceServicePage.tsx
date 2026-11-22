@@ -25,6 +25,8 @@ import {
   shouldShowReadinessChip,
 } from '@/utils/readiness';
 import { getSafeManageHref } from '@/utils/manageUrl';
+import { resolveSetupSteps } from '@/utils/setupSteps';
+import SetupProgress from '@/components/workspace/SetupProgress';
 import { getServiceLinkHref } from '@/utils/serviceLink';
 import { TOOL_RISK_LEVELS, countHiddenByCeiling, isRiskChoiceAllowed } from '@/utils/toolRisk';
 import {
@@ -227,6 +229,7 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
   const notice = resolveServiceNotice(server, credentialServers, binding);
   // A personal sign-in has no slots, so no credentials tab.
   const hasCredentials = hasCredentialSlots(server, credentialServers);
+  const setup = resolveSetupSteps(server, credentialServers, binding);
 
   // A blocked-popup link is moot once the server no longer asks for sign-in.
   const link = server.status.action === 'connect' ? authorizationUrl : undefined;
@@ -409,6 +412,13 @@ const ServiceDetail: React.FC<{ server: WorkspaceServer; data: WorkspaceData }> 
       >
         {tab === 'overview' && (
           <>
+            {!setup.complete && (
+              <SetupProgress
+                name={server.name}
+                progress={setup}
+                serviceActionLabel={readinessAction?.label}
+              />
+            )}
             {readiness && (
               <div
                 className="space-y-1"

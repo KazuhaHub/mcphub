@@ -1998,7 +1998,8 @@
         "credentials": "添加凭据",
         "update": "更新",
         "signinAgain": "重新登录",
-        "signinAgainTo": "重新登录 {{name}}"
+        "signinAgainTo": "重新登录 {{name}}",
+        "finishSetup": "完成设置"
       },
       "credentials_rejected": "凭据被拒绝",
       "contact_admin": "你无权使用"
@@ -2047,7 +2048,7 @@
       "subtitle": "接入你的 AI，并查看需要你处理的事项。",
       "attention": {
         "title": "需要你处理",
-        "description": "这些服务已开启，但暂时还不能使用。"
+        "description": "这些服务还需要你处理一下才能完整使用。"
       },
       "openService": "打开 {{name}}",
       "getStarted": {
@@ -2057,7 +2058,27 @@
       },
       "counts": "{{added}} 个服务中已开启 {{on}} 个",
       "countsMore_other": "另有 {{count}} 个可添加",
-      "manage": "管理服务"
+      "manage": "管理服务",
+      "guide": {
+        "title": "设置你的工作区",
+        "description": "三步，就能在 AI 应用里用上你的服务。",
+        "dismiss": "隐藏这份指南",
+        "step": {
+          "services": {
+            "title": "添加并打开服务",
+            "hint": "选出你想让 AI 使用的服务。"
+          },
+          "setup": {
+            "title": "完成每个服务的设置",
+            "hint": "登录、填写凭据，或在服务自己的页面完成设置。",
+            "action": "继续设置"
+          },
+          "connect": {
+            "title": "连接你的 AI 应用",
+            "hint": "用上方的“接入 AI”卡片把 Hub 加到你的 AI 应用。"
+          }
+        }
+      }
     },
     "catalog": {
       "add": "添加服务",
@@ -2099,6 +2120,29 @@
       "recheck": "重新检查",
       "rechecking": "检查中…",
       "recheckFailed": "无法重新检查该服务，请重试。"
+    },
+    "setup": {
+      "title": "设置进度",
+      "count": "已完成 {{done}}/{{total}}",
+      "optional": "（可选）",
+      "step": {
+        "add": "把 {{name}} 添加到我的服务",
+        "enable": "打开它",
+        "access_signin": "登录",
+        "access_credentials": "填写凭据",
+        "service": "在 {{name}} 完成设置",
+        "client": "在你的 AI 应用中使用"
+      },
+      "hint": {
+        "add": "点页面顶部的“添加到我的服务”。",
+        "enable": "用页面顶部的开关打开。",
+        "access_signin": "点上方的登录按钮。",
+        "access_credentials": "打开“凭据”标签页，填写 {{name}} 需要的内容。",
+        "service": "{{name}} 那边还有一步要完成。点下方的“{{label}}”；你回到这个页面时会自动重新检查。",
+        "serviceNoAction": "{{name}} 那边还有一步要完成。完成后点下方的“重新检查”。",
+        "client": "点下方的“接入 AI”，把这个服务加到你的 AI 应用。",
+        "blocked": "需要管理员先处理，见上方提示。"
+      }
     }
   },
   "serviceLink": {

@@ -45,6 +45,7 @@ const mockMembership = jest.fn();
 const mockLaunch = jest.fn();
 const mockUserServices = jest.fn();
 const mockSaveUserService = jest.fn();
+const mockClients = jest.fn();
 jest.mock('@/services/workspaceService', () => ({
   fetchWorkspaceServers: () => mockServers(),
   fetchWorkspaceEndpoints: () => Promise.resolve(endpoints),
@@ -55,6 +56,7 @@ jest.mock('@/services/workspaceService', () => ({
   launchPersonalOAuth: (...args: unknown[]) => mockLaunch(...args),
   fetchUserServices: (...args: unknown[]) => mockUserServices(...args),
   saveUserService: (...args: unknown[]) => mockSaveUserService(...args),
+  fetchWorkspaceClients: () => mockClients(),
 }));
 jest.mock('@/utils/fetchInterceptor', () => ({
   apiGet: jest.fn(() => Promise.resolve({ success: true, data: [] })),
@@ -150,6 +152,13 @@ beforeEach(() => {
   mockBindings
     .mockReset()
     .mockImplementation(() => Promise.resolve(JSON.parse(JSON.stringify(bindings))));
+  // One AI client is connected unless a test says otherwise, so the compact guide stays hidden.
+  mockClients.mockReset().mockResolvedValue([{ id: 'c1', kind: 'oauth', name: 'Claude' }]);
+  try {
+    window.localStorage.clear();
+  } catch {
+    /* no storage */
+  }
   document.body.style.overflow = '';
 });
 
@@ -197,6 +206,29 @@ describe('the helpers', () => {
     expect(attentionItems(list, null, null).map((item) => [item.server.name, item.chip])).toEqual([
       ['canvas-portal', 'needs_signin'],
       ['no-access', 'contact_admin'],
+    ]);
+  });
+
+  it('flag a working service whose own setup is not finished, but not a ready one', () => {
+    const check = (state: string) => ({
+      state,
+      summary: null,
+      action: null,
+      expiresAt: null,
+      checkedAt: '',
+    });
+    const list = [
+      make('stale', { added: true, selected: true, status: ready, readiness: check('degraded') }),
+      make('fine', { added: true, selected: true, status: ready, readiness: check('ready') }),
+      make('stale-off', {
+        added: true,
+        selected: false,
+        status: off,
+        readiness: check('degraded'),
+      }),
+    ];
+    expect(attentionItems(list, null, null).map((item) => [item.server.name, item.setup])).toEqual([
+      ['stale', true],
     ]);
   });
 });
@@ -262,6 +294,7 @@ describe('the Home page', () => {
   });
 
   it('shows a get-started hint with a button to Services when nothing is on', async () => {
+    mockClients.mockResolvedValue([]);
     servers = servers.map((server) => ({
       ...server,
       added: false,
@@ -272,6 +305,54 @@ describe('the Home page', () => {
     expect(screen.queryByTestId('home-attention')).toBeNull();
     const button = within(screen.getByTestId('home-get-started')).getByRole('link');
     expect(button.getAttribute('href')).toBe('/workspace/services');
+    // The first-run guide: three steps, the first current.
+    const steps = screen.getByTestId('home-get-started').querySelectorAll('[data-step]');
+    expect(
+      Array.from(steps, (el) => `${el.getAttribute('data-step')}:${el.getAttribute('data-state')}`),
+    ).toEqual(['services:current', 'setup:todo', 'connect:todo']);
+  });
+
+  it('sends a service whose own setup is unfinished to its page from Needs your attention', async () => {
+    servers = servers.map((server) =>
+      server.name === 'canvas-portal'
+        ? {
+            ...server,
+            status: ready,
+            readiness: {
+              state: 'degraded',
+              summary: 'Old data',
+              action: null,
+              expiresAt: null,
+              checkedAt: '',
+            },
+          }
+        : server,
+    ) as WorkspaceServer[];
+    await mountAt('/workspace', 'home-attention');
+    const action = screen.getByTestId('home-action-canvas-portal');
+    expect(action.getAttribute('data-action')).toBe('setup');
+    expect(action.textContent).toBe('workspacePage.chip.action.finishSetup');
+    fireEvent.click(action);
+    await waitFor(() => expect(where()).toBe('/workspace/services/canvas-portal'));
+  });
+
+  it('keeps a compact guide until an AI client is connected, and hides it for good on dismiss', async () => {
+    mockClients.mockResolvedValue([]);
+    await mountAt('/workspace', 'home-setup-guide');
+    const guide = screen.getByTestId('home-setup-guide');
+    const state = (step: string) =>
+      guide.querySelector(`[data-step="${step}"]`)!.getAttribute('data-state');
+    expect([state('services'), state('setup'), state('connect')]).toEqual([
+      'done',
+      'current',
+      'todo',
+    ]);
+    expect(within(guide).getByRole('link').getAttribute('href')).toBe(
+      '/workspace/services/canvas-portal',
+    );
+    fireEvent.click(within(guide).getByLabelText('workspacePage.home.guide.dismiss'));
+    expect(screen.queryByTestId('home-setup-guide')).toBeNull();
+    expect(window.localStorage.getItem('mcphub.home.setupGuideDismissed')).toBe('1');
   });
 
   it('does not count a service that is added but switched off as on', async () => {

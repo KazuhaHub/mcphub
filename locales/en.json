@@ -2001,7 +2001,8 @@
         "credentials": "Add credentials",
         "update": "Update",
         "signinAgain": "Sign in again",
-        "signinAgainTo": "Sign in again to {{name}}"
+        "signinAgainTo": "Sign in again to {{name}}",
+        "finishSetup": "Finish setup"
       },
       "credentials_rejected": "Credentials rejected",
       "contact_admin": "Not available to you"
@@ -2050,7 +2051,7 @@
       "subtitle": "Connect your AI and see what needs your attention.",
       "attention": {
         "title": "Needs your attention",
-        "description": "These services are on but cannot be used yet."
+        "description": "These services need something from you before they work fully."
       },
       "openService": "Open {{name}}",
       "getStarted": {
@@ -2061,7 +2062,27 @@
       "counts": "{{on}} of {{added}} services on",
       "countsMore_one": "{{count}} more available",
       "countsMore_other": "{{count}} more available",
-      "manage": "Manage services"
+      "manage": "Manage services",
+      "guide": {
+        "title": "Set up your workspace",
+        "description": "Three steps from here to using your services from your AI app.",
+        "dismiss": "Hide this guide",
+        "step": {
+          "services": {
+            "title": "Add and turn on services",
+            "hint": "Pick the services you want your AI to use."
+          },
+          "setup": {
+            "title": "Finish each service’s setup",
+            "hint": "Sign in, enter credentials, or finish setup on the service itself.",
+            "action": "Continue setup"
+          },
+          "connect": {
+            "title": "Connect your AI app",
+            "hint": "Use the “Connect your AI” card above to add this Hub to your AI app."
+          }
+        }
+      }
     },
     "catalog": {
       "add": "Add service",
@@ -2103,6 +2124,29 @@
       "recheck": "Re-check",
       "rechecking": "Checking…",
       "recheckFailed": "Could not re-check this service. Try again."
+    },
+    "setup": {
+      "title": "Setup",
+      "count": "{{done}} of {{total}} done",
+      "optional": "(optional)",
+      "step": {
+        "add": "Add {{name}} to your services",
+        "enable": "Turn it on",
+        "access_signin": "Sign in",
+        "access_credentials": "Enter your credentials",
+        "service": "Finish setup on {{name}}",
+        "client": "Use it from your AI app"
+      },
+      "hint": {
+        "add": "Use Add to my services at the top of this page.",
+        "enable": "Use the switch at the top of this page.",
+        "access_signin": "Use the sign-in button above.",
+        "access_credentials": "Open the Credentials tab and fill in what {{name}} needs.",
+        "service": "{{name}} still needs something on its own side. Use “{{label}}” below; this page checks again when you come back.",
+        "serviceNoAction": "{{name}} still needs something on its own side. When it is done, use Re-check below.",
+        "client": "Use Connect to AI below to add this service to your AI app.",
+        "blocked": "An administrator has to fix this first; see the message above."
+      }
     }
   },
   "serviceLink": {
