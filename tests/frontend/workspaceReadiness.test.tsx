@@ -301,3 +301,26 @@ describe('the readiness chip in a service row', () => {
     expect(signin).not.toContain('data-readiness');
   });
 });
+
+describe('the setup progress', () => {
+  const progress = () => screen.queryByTestId('setup-progress');
+  const step = (key: string) => progress()!.querySelector(`[data-step="${key}"]`)!;
+
+  it('shows where the service is, with the service step current and naming its own button', async () => {
+    await mountPage(canvas());
+    expect(step('add').getAttribute('data-state')).toBe('done');
+    expect(step('access').getAttribute('data-state')).toBe('done');
+    expect(step('service').getAttribute('data-state')).toBe('current');
+    expect(step('service').getAttribute('aria-current')).toBe('step');
+    expect(step('service').textContent).toContain('workspacePage.setup.hint.service:canvas');
+    expect(step('client').getAttribute('data-state')).toBe('todo');
+    // It has no buttons of its own: the action stays the service's own button.
+    expect(progress()!.querySelectorAll('button, a')).toHaveLength(0);
+    expect(screen.getByTestId('readiness-action')).toBeTruthy();
+  });
+
+  it('is gone once the service is ready', async () => {
+    await mountPage(canvas({ readiness: ready }));
+    expect(progress()).toBeNull();
+  });
+});

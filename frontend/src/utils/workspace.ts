@@ -132,6 +132,8 @@ export const resolveServiceChip = (
 
 export interface AttentionItem extends ServiceChipState {
   server: WorkspaceServer;
+  /** Signed in and switched on, but the service says its own setup is not finished. */
+  setup?: boolean;
 }
 
 /**
@@ -152,7 +154,12 @@ export const attentionItems = (
         credentialServers,
         bindings?.find((entry) => entry.serverName === server.name),
       );
-      return state.action || state.chip === 'contact_admin' ? [{ ...state, server }] : [];
+      if (state.action || state.chip === 'contact_admin') return [{ ...state, server }];
+      // Everything on the Hub side is done, but the service itself still needs something.
+      if (state.chip === 'ready' && server.readiness && server.readiness.state !== 'ready') {
+        return [{ ...state, server, setup: true }];
+      }
+      return [];
     });
 
 export const serviceChipTone = (chip: ServiceChip): StatusTone => {

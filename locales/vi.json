@@ -1987,7 +1987,8 @@
         "credentials": "Add credentials",
         "update": "Update",
         "signinAgain": "Sign in again",
-        "signinAgainTo": "Sign in again to {{name}}"
+        "signinAgainTo": "Sign in again to {{name}}",
+        "finishSetup": "Hoàn tất thiết lập"
       },
       "credentials_rejected": "Credentials rejected",
       "contact_admin": "Not available to you"
@@ -2053,6 +2054,51 @@
       "recheck": "Kiểm tra lại",
       "rechecking": "Đang kiểm tra…",
       "recheckFailed": "Không thể kiểm tra lại dịch vụ này. Hãy thử lại."
+    },
+    "setup": {
+      "title": "Thiết lập",
+      "count": "Đã xong {{done}}/{{total}}",
+      "optional": "(không bắt buộc)",
+      "step": {
+        "add": "Thêm {{name}} vào dịch vụ của bạn",
+        "enable": "Bật dịch vụ",
+        "access_signin": "Đăng nhập",
+        "access_credentials": "Nhập thông tin xác thực",
+        "service": "Hoàn tất thiết lập trên {{name}}",
+        "client": "Dùng từ ứng dụng AI của bạn"
+      },
+      "hint": {
+        "add": "Dùng nút “Add to my services” ở đầu trang.",
+        "enable": "Dùng công tắc ở đầu trang.",
+        "access_signin": "Dùng nút đăng nhập ở trên.",
+        "access_credentials": "Mở thẻ Credentials và điền những gì {{name}} cần.",
+        "service": "{{name}} vẫn cần một bước ở phía nó. Dùng “{{label}}” bên dưới; trang này sẽ kiểm tra lại khi bạn quay lại.",
+        "serviceNoAction": "{{name}} vẫn cần một bước ở phía nó. Khi xong, dùng Kiểm tra lại bên dưới.",
+        "client": "Dùng Connect to AI bên dưới để thêm dịch vụ này vào ứng dụng AI của bạn.",
+        "blocked": "Quản trị viên cần xử lý trước; xem thông báo ở trên."
+      }
+    },
+    "home": {
+      "guide": {
+        "title": "Thiết lập không gian làm việc",
+        "description": "Ba bước để dùng các dịch vụ từ ứng dụng AI của bạn.",
+        "dismiss": "Ẩn hướng dẫn này",
+        "step": {
+          "services": {
+            "title": "Thêm và bật dịch vụ",
+            "hint": "Chọn các dịch vụ bạn muốn AI sử dụng."
+          },
+          "setup": {
+            "title": "Hoàn tất thiết lập từng dịch vụ",
+            "hint": "Đăng nhập, nhập thông tin xác thực hoặc hoàn tất thiết lập ngay trên dịch vụ.",
+            "action": "Tiếp tục thiết lập"
+          },
+          "connect": {
+            "title": "Kết nối ứng dụng AI",
+            "hint": "Dùng thẻ “Connect your AI” ở trên để thêm Hub này vào ứng dụng AI của bạn."
+          }
+        }
+      }
     }
   },
   "serviceLink": {
